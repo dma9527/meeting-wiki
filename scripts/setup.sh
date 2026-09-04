@@ -16,6 +16,7 @@ command -v node >/dev/null || { echo "Node.js 20+ is required" >&2; exit 1; }
 command -v rec >/dev/null || { echo "SoX is required: brew install sox" >&2; exit 1; }
 
 mkdir -p "$DATA_DIR" "$HOME/.local/bin"
+chmod 700 "$DATA_DIR"
 python3 -m venv "$DATA_DIR/venv"
 "$DATA_DIR/venv/bin/python" -m pip install -q --upgrade "pip==26.2.1"
 if [ "$WITH_MLX" -eq 1 ]; then
