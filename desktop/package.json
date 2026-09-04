@@ -1,0 +1,37 @@
+{
+  "name": "meeting-wiki-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Meeting Wiki macOS recorder",
+  "license": "Apache-2.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "build": "electron-builder --mac"
+  },
+  "dependencies": {
+    "audiotee": "0.0.7"
+  },
+  "devDependencies": {
+    "electron": "41.10.7",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dev.meetingwiki.desktop",
+    "productName": "Meeting Wiki",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Meeting Wiki records your microphone only when you start a recording.",
+        "NSScreenCaptureUsageDescription": "Meeting Wiki captures system audio only when you start a recording."
+      }
+    },
+    "files": ["main.js", "capture.js"],
+    "asarUnpack": ["node_modules/audiotee/**"]
+  }
+}

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install --upgrade pip==26.2.1
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check meeting_wiki tests
+      - run: ruff format --check meeting_wiki tests
+      - run: pytest
+      - run: pip-audit
+      - run: python -m pip wheel --no-deps -w dist .
+
+  desktop:
+    strategy:
+      matrix:
+        node: [20, 22]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: node --check main.js
+      - run: node --check capture.js
+      - run: npm test
+      - run: npm audit --audit-level=high
+
+  public-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block internal identifiers, credentials, and meeting artifacts
+        run: bash scripts/public-safety-scan.sh

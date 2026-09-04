@@ -1,0 +1,57 @@
+user_name = "Your Name"
+language = "en"
+
+[providers]
+transcription = "mlx_whisper"  # mlx_whisper | openai_compatible | text
+llm = "ollama"                 # ollama | openai_compatible
+storage = "local"              # local | s3
+calendar = "none"              # none | ics
+notification = "macos"         # macos | none
+task = "none"                  # none | webhook
+
+[mlx_whisper]
+model = "mlx-community/whisper-small-mlx"
+
+[ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:8b"
+timeout_seconds = 300
+num_ctx = 32768
+
+[openai_compatible]
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen3:8b"
+api_key_env = ""
+timeout_seconds = 180
+
+[openai_transcription]
+base_url = "https://api.openai.com/v1"
+model = "whisper-1"
+api_key_env = "OPENAI_API_KEY"
+timeout_seconds = 600
+
+[s3]
+bucket = ""
+prefix = "meeting-wiki/"
+region = "us-east-1"
+profile = "default"
+
+[ics]
+# path = "~/calendar.ics"
+
+[webhook]
+url = ""
+token_env = ""
+allow_private_networks = false
+
+[privacy]
+max_private_attendees = 2
+private_terms = [
+  "1:1", "one-on-one", "career", "skip-level", "manager sync",
+  "check-in", "catch-up"
+]
+
+[jobs]
+max_attempts = 5
+backoff_base_seconds = 2
+visibility_timeout_seconds = 3600

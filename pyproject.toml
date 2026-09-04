@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meeting-wiki"
+version = "0.1.0"
+description = "Local-first meeting memory that compiles conversations into an evolving Markdown wiki"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Meeting Wiki contributors" }]
+keywords = ["meeting", "transcription", "local-first", "markdown", "mcp"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Office/Business",
+]
+dependencies = [
+  "httpx==0.28.1",
+  "mcp==2.1.1",
+  "pydantic==2.13.5",
+]
+
+[project.optional-dependencies]
+mlx = ["mlx-whisper==0.4.3"]
+aws = ["boto3==1.43.88"]
+ics = ["icalendar==7.3.0"]
+dev = [
+  "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.6",
+  "pip-audit==2.10.1",
+]
+all = [
+  "boto3==1.43.88",
+  "icalendar==7.3.0",
+  "mlx-whisper==0.4.3",
+]
+
+[project.scripts]
+meeting-wiki = "meeting_wiki.cli:main"
+meeting-wiki-mcp = "meeting_wiki.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["meeting_wiki"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

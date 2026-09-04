@@ -1,0 +1,23 @@
+Meeting Wiki
+Copyright 2026 Meeting Wiki contributors
+
+Licensed under the Apache License, Version 2.0.
+
+This product includes or depends on open-source software:
+
+- Electron, MIT License.
+- electron-builder, MIT License.
+- AudioTee, MIT License.
+- MCP Python SDK, MIT License.
+- Pydantic, MIT License.
+- httpx, BSD-3-Clause License.
+- MLX Whisper, MIT License (optional).
+- AWS SDK for Python (boto3/botocore), Apache License 2.0 (optional).
+- icalendar, BSD-2-Clause License (optional).
+
+SoX is invoked as a separately installed system executable and is not bundled
+or redistributed by Meeting Wiki.
+
+Model weights are downloaded separately by the selected provider and retain
+their own licenses. Users are responsible for reviewing the license of any
+model they select.

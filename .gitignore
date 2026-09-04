@@ -1,0 +1,52 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node/Electron
+desktop/node_modules/
+desktop/dist/
+desktop/out/
+
+# Local data and secrets
+.meeting-wiki/
+config.toml
+.env
+.env.*
+*.pem
+*.key
+*credentials*
+*.bak
+
+# Meeting artifacts
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.webm
+transcripts/
+recordings/
+wiki/
+private/
+*.db
+*.db-wal
+*.db-shm
+
+# Models
+models/
+*.gguf
+*.onnx
+*.safetensors
+
+# OS/editors
+.DS_Store
+.vscode/
+.idea/
