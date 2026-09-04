@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: python -m pip install --upgrade pip==26.2.1
+      - run: python -m pip install --upgrade pip==26.2.1 setuptools==84.0.0 wheel==0.48.0
       - run: python -m pip install -e '.[dev]'
       - run: ruff check meeting_wiki tests
       - run: ruff format --check meeting_wiki tests
