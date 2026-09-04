@@ -13,7 +13,7 @@ for file in README.md SECURITY.md PRIVACY.md CONTRIBUTING.md NOTICE pyproject.to
 done
 
 if grep -InE \
-  'meetings\.amazon\.com|taskei\.amazon|quip-amazon|pippin\.sara|isengard|midway|dmawsome|@amazon\.com|[0-9]{12}' \
+  'meetings\.amazon\.com|taskei\.amazon|quip-amazon|pippin\.sara|isengard|midway|dmawsome|@amazon\.com|(^|[^0-9])[0-9]{12}([^0-9]|$)' \
   "${FIRST_PARTY[@]}"; then
   echo "Internal/personal identifiers found." >&2
   exit 1

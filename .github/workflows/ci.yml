@@ -14,8 +14,8 @@ jobs:
         python: ["3.11", "3.12"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@820762786026740c76f36085b0efc47a31fe5020 # v7.0.1
+      - uses: actions/setup-python@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -36,8 +36,8 @@ jobs:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@820762786026740c76f36085b0efc47a31fe5020 # v7.0.1
+      - uses: actions/setup-node@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -51,6 +51,6 @@ jobs:
   public-safety:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@820762786026740c76f36085b0efc47a31fe5020 # v7.0.1
       - name: Block internal identifiers, credentials, and meeting artifacts
         run: bash scripts/public-safety-scan.sh
