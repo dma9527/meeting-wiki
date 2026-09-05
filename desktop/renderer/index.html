@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meeting Wiki</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="workbench">
+      <header class="masthead">
+        <div class="mark" aria-hidden="true">MW</div>
+        <div>
+          <h1>Meeting Wiki</h1>
+          <p class="tagline">Local knowledge workbench</p>
+        </div>
+        <p id="scope-note" class="scope-note">Reads only your shared wiki. Private meetings never appear here.</p>
+      </header>
+
+      <nav class="rail" aria-label="Sections">
+        <button type="button" class="rail-item" data-view="recent" aria-current="page">
+          <span class="rail-label">Recent meetings</span>
+        </button>
+        <button type="button" class="rail-item" data-view="search">
+          <span class="rail-label">Search</span>
+        </button>
+        <button type="button" class="rail-item" data-view="actions">
+          <span class="rail-label">Open action items</span>
+        </button>
+        <button type="button" class="rail-item" data-view="corrections">
+          <span class="rail-label">Correction inbox</span>
+          <span id="corrections-count" class="badge" hidden>0</span>
+        </button>
+      </nav>
+
+      <main id="main" class="stage" tabindex="-1">
+        <section id="view-recent" class="view" aria-labelledby="recent-heading" tabindex="-1">
+          <h2 id="recent-heading">Recent meetings</h2>
+          <div id="recent-list" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-search" class="view" hidden aria-labelledby="search-heading" tabindex="-1">
+          <h2 id="search-heading">Search the wiki</h2>
+          <div class="searchbar">
+            <label for="search-input">Search terms</label>
+            <input id="search-input" type="search" autocomplete="off" placeholder="e.g. migration rollout" />
+            <button id="search-button" type="button">Search</button>
+          </div>
+          <div id="search-results" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-actions" class="view" hidden aria-labelledby="actions-heading" tabindex="-1">
+          <h2 id="actions-heading">Open action items</h2>
+          <div id="actions-list" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-corrections" class="view" hidden aria-labelledby="corrections-heading" tabindex="-1">
+          <h2 id="corrections-heading">Correction inbox</h2>
+          <p class="explainer">
+            Meetings whose transcript still uses an ambiguous speaker label, such as
+            <code>Remote participant</code> or <code>spk_1</code>. Rename a speaker, review the
+            plan, then reprocess.
+          </p>
+          <div id="corrections-list" class="list" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <aside id="page-viewer" class="viewer" role="dialog" aria-modal="true" aria-labelledby="page-title" hidden>
+        <div class="viewer-head">
+          <h2 id="page-title">Page</h2>
+          <button id="page-close" type="button" aria-label="Close page">Close</button>
+        </div>
+        <pre id="page-content" class="page-content" tabindex="0"></pre>
+      </aside>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>

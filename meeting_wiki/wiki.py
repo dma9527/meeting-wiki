@@ -8,8 +8,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC
+from pathlib import PurePosixPath
 
-from .models import ActionItem, MeetingAnalysis, MeetingInput, MeetingType
+from .models import ActionItem, DecisionStatus, MeetingAnalysis, MeetingInput, MeetingType
 from .providers.base import StorageProvider
 
 SECTION_ORDER: dict[MeetingType, list[str]] = {
@@ -94,6 +95,97 @@ def frontmatter(fields: dict[str, str | list[str]]) -> str:
     return "\n".join(lines)
 
 
+def canonical(value: str) -> str:
+    """Stable identity key: collapse whitespace and casefold. No fuzzy matching."""
+    return " ".join(value.split()).casefold()
+
+
+def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
+    """Split a page into (frontmatter fields, body).
+
+    Values written by ``frontmatter`` are JSON scalars/arrays, so they round-trip
+    exactly; bare legacy values fall back to a quote-stripped string.
+    """
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, text
+    fields: dict[str, object] = {}
+    for line in text[4:end].split("\n"):
+        if ":" not in line:
+            continue
+        key, raw = line.split(":", 1)
+        raw = raw.strip()
+        try:
+            fields[key.strip()] = json.loads(raw) if raw else ""
+        except json.JSONDecodeError:
+            fields[key.strip()] = raw.strip('"')
+    return fields, text[end + len("\n---\n") :]
+
+
+def decision_status(fields: dict[str, object]) -> str:
+    """A decision page with no status is accepted (backward-compatible reader)."""
+    return str(fields.get("status") or DecisionStatus.ACCEPTED.value)
+
+
+def _has_private_part(key: str) -> bool:
+    normalized = key.replace("\\", "/").lstrip("/")
+    return any(part.lower() == "private" for part in PurePosixPath(normalized).parts)
+
+
+def _resolve_decision_target(storage: StorageProvider, supersedes: str) -> str | None:
+    """Resolve an explicit reference to a shared decision page, or None.
+
+    Accepts an exact ``decision_id`` or an exact ``wiki/decisions/*.md`` path.
+    Refuses traversal and any private path, so a shared decision can never
+    supersede across the privacy boundary. Never matches decision titles.
+    """
+    ref = (supersedes or "").strip()
+    if not ref or "\x00" in ref:
+        return None
+    normalized = ref.replace("\\", "/").lstrip("/")
+    parts = PurePosixPath(normalized).parts
+    if ".." in parts or _has_private_part(normalized):
+        return None
+    if "/" in normalized or normalized.endswith(".md"):
+        if not normalized.startswith("wiki/decisions/") or not normalized.endswith(".md"):
+            return None
+        return normalized if storage.exists(normalized) else None
+    for key in storage.list_keys("wiki/decisions/"):
+        if not key.endswith(".md") or key.endswith("/index.md"):
+            continue
+        fields, _ = parse_frontmatter(storage.read_text(key) or "")
+        if fields.get("decision_id") == ref:
+            return key
+    return None
+
+
+def apply_supersession(storage: StorageProvider, supersedes: str, superseded_by: str) -> str | None:
+    """Mark the referenced decision page superseded. Exact, idempotent, shared-only.
+
+    Returns the updated page key, or None when the reference does not resolve to
+    an existing shared decision page. Rewriting an already-superseded page with
+    the same reference is a byte-identical no-op.
+    """
+    target = _resolve_decision_target(storage, supersedes)
+    if target is None:
+        return None
+    text = storage.read_text(target)
+    if text is None:
+        return None
+    fields, body = parse_frontmatter(text)
+    if fields.get("type") != "decision":
+        return None
+    updated = dict(fields)
+    updated["status"] = DecisionStatus.SUPERSEDED.value
+    updated["superseded_by"] = superseded_by
+    rewritten = frontmatter(updated) + body
+    if rewritten != text:
+        storage.write_text(target, rewritten)
+    return target
+
+
 def bullet_list(items: list[str], empty: str = "None recorded.") -> str:
     cleaned = [inline_text(item) for item in items if item and item.strip()]
     return "\n".join(f"- {item}" for item in cleaned) if cleaned else empty
@@ -152,6 +244,7 @@ def render_meeting(meeting: MeetingInput, analysis: MeetingAnalysis, source_key:
     meeting_type = analysis.meeting_type
     fields = {
         "description": analysis.summary[0],
+        "ingest_id": meeting.ingest_id,
         "meeting_type": meeting_type.value,
         "privacy": "private" if analysis.private else "shared",
         "resource": source_key,
@@ -238,14 +331,28 @@ class WikiRenderer:
             )
             written.append(key)
 
+        occurred_iso = occurred.isoformat().replace("+00:00", "Z")
+        supersessions: list[tuple[str, str]] = []
         for decision in analysis.decisions:
             decision_id = stable_id(source, decision.title)
-            key = f"wiki/decisions/{date}-{slugify(decision.title)}-{decision_id}.md"
+            stem = f"{date}-{slugify(decision.title)}-{decision_id}"
+            key = f"wiki/decisions/{stem}.md"
+            # Preserve a supersession applied by a later meeting: reprocessing the
+            # meeting that first recorded a decision must not silently reset it.
+            prior_fields, _ = parse_frontmatter(self.storage.read_text(key) or "")
+            superseded_by = str(prior_fields.get("superseded_by") or "")
+            status = DecisionStatus.SUPERSEDED.value if superseded_by else decision.status.value
             decision_text = frontmatter(
                 {
+                    "decision_id": decision_id,
                     "description": decision.decision,
+                    "effective": occurred_iso,
+                    "source": f"meetings/{source}",
+                    "status": status,
+                    "superseded_by": superseded_by,
+                    "supersedes": decision.supersedes or "",
                     "tags": [slugify(topic.topic) for topic in analysis.topics],
-                    "timestamp": occurred.isoformat().replace("+00:00", "Z"),
+                    "timestamp": occurred_iso,
                     "title": decision.title,
                     "type": "decision",
                 }
@@ -258,46 +365,135 @@ class WikiRenderer:
             )
             self.storage.write_text(key, decision_text)
             written.append(key)
+            if decision.supersedes:
+                supersessions.append((decision.supersedes, f"decisions/{stem}"))
 
-        self._update_actions(analysis.action_items, source)
+        for supersedes, superseded_by in supersessions:
+            target = apply_supersession(self.storage, supersedes, superseded_by)
+            if target:
+                written.append(target)
+
+        self._update_actions(analysis.action_items, source, occurred_iso)
         written.append("wiki/action-items/active.md")
+        written.append("wiki/action-items/archive.md")
         self._rebuild_indexes()
         return RenderResult(meeting_key=meeting_key, written_keys=sorted(set(written)))
 
-    def _update_actions(self, items: list[ActionItem], source: str) -> None:
-        key = "wiki/action-items/active.md"
-        existing = self.storage.read_text(key) or ""
-        rows: dict[str, str] = {}
-        for line in existing.splitlines():
-            if (
-                line.startswith("|")
-                and not line.startswith("| Owner")
-                and not line.startswith("|---")
-            ):
-                columns = [column.strip() for column in line.strip("|").split("|")]
-                if len(columns) >= 5:
-                    rows[columns[0] + "\x00" + columns[1]] = line
+    def _update_actions(
+        self,
+        items: list[ActionItem],
+        source: str,
+        occurred_iso: str,
+    ) -> None:
+        """Carry actions forward by exact canonical owner+action identity.
+
+        Each action keeps one row. The full meeting timestamp decides recency,
+        with the source stem as a deterministic legacy fallback. A later done
+        closes an action and a later open reopens it.
+        """
+        active_key = "wiki/action-items/active.md"
+        archive_key = "wiki/action-items/archive.md"
+        entries: dict[str, dict[str, str]] = {}
+        for existing_key in (active_key, archive_key):
+            for row in self._parse_action_rows(self.storage.read_text(existing_key)):
+                row["seen_at"] = self._meeting_timestamp(row["source"])
+                identity = canonical(row["owner"]) + "\x00" + canonical(row["action"])
+                current = entries.get(identity)
+                if current is None or self._action_recency(row) >= self._action_recency(current):
+                    entries[identity] = row
         for item in items:
-            status = "done" if item.done else "open"
             owner = inline_text(item.owner)
             action = inline_text(item.action)
-            due = inline_text(item.due or "")
-            row = f"| {owner} | {action} | [[meetings/{source}]] | {due} | {status} |"
-            rows[owner + "\x00" + action] = row
+            identity = canonical(owner) + "\x00" + canonical(action)
+            current = entries.get(identity)
+            candidate = {
+                "owner": owner,
+                "action": action,
+                "source": source,
+                "seen_at": occurred_iso,
+                "due": inline_text(item.due or ""),
+                "status": "done" if item.done else "open",
+            }
+            if current is None or self._action_recency(candidate) >= self._action_recency(current):
+                entries[identity] = candidate
+        rows = list(entries.values())
+        self.storage.write_text(
+            active_key,
+            self._render_action_table(
+                [row for row in rows if row["status"] != "done"],
+                "Action Items",
+                "Open action items across meetings.",
+                "action-items",
+            ),
+        )
+        self.storage.write_text(
+            archive_key,
+            self._render_action_table(
+                [row for row in rows if row["status"] == "done"],
+                "Completed Action Items",
+                "Completed action items across meetings.",
+                "action-archive",
+            ),
+        )
+
+    def _meeting_timestamp(self, source: str) -> str:
+        fields, _body = parse_frontmatter(
+            self.storage.read_text(f"wiki/meetings/{source}.md") or ""
+        )
+        return str(fields.get("timestamp") or "")
+
+    @staticmethod
+    def _action_recency(row: dict[str, str]) -> tuple[str, str]:
+        return row.get("seen_at", ""), row.get("source", "")
+
+    @staticmethod
+    def _parse_action_rows(text: str | None) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for line in (text or "").splitlines():
+            if not line.startswith("|") or line.startswith("| Owner") or line.startswith("|---"):
+                continue
+            columns = [column.strip() for column in line.strip("|").split("|")]
+            if len(columns) < 5:
+                continue
+            match = re.search(r"\[\[meetings/([^\]]+)\]\]", columns[2])
+            rows.append(
+                {
+                    "owner": columns[0],
+                    "action": columns[1],
+                    "source": match.group(1) if match else "",
+                    "due": columns[3],
+                    "status": columns[4],
+                }
+            )
+        return rows
+
+    @staticmethod
+    def _render_action_table(
+        rows: list[dict[str, str]], title: str, description: str, page_type: str
+    ) -> str:
         content = frontmatter(
             {
-                "description": "Open and completed action items across meetings.",
+                "description": description,
                 "tags": ["actions"],
                 "timestamp": "",
-                "title": "Action Items",
-                "type": "action-items",
+                "title": title,
+                "type": page_type,
             }
         )
-        content += (
-            "# Action Items\n\n| Owner | Action | Source | Due | Status |\n|---|---|---|---|---|\n"
+        content += f"# {title}\n\n"
+        content += "| Owner | Action | Source | Due | Status |\n|---|---|---|---|---|\n"
+        lines = sorted(
+            "| {owner} | {action} | {source} | {due} | {status} |".format(
+                owner=row["owner"],
+                action=row["action"],
+                source=f"[[meetings/{row['source']}]]" if row["source"] else "",
+                due=row["due"],
+                status=row["status"],
+            )
+            for row in rows
         )
-        content += "\n".join(rows[key] for key in sorted(rows)) + ("\n" if rows else "")
-        self.storage.write_text(key, content)
+        content += "\n".join(lines) + ("\n" if lines else "")
+        return content
 
     def _rebuild_indexes(self) -> None:
         for category in ("meetings", "people", "topics", "decisions"):

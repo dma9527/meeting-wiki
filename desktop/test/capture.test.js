@@ -41,9 +41,13 @@ test("mic-only recording finalizes without external merge", async () => {
     const output = capture.start("2026-09-04-120000");
     fs.writeFileSync(path.join(dir, "2026-09-04-120000_mic.wav"), "audio");
     const result = await capture.stop();
-    assert.equal(result, output);
+    assert.equal(result.audioPath, output);
+    assert.equal(result.micAudioPath, path.join(dir, "2026-09-04-120000_mic.wav"));
+    assert.equal(result.systemAudioPath, null);
     assert.equal(fs.readFileSync(output, "utf8"), "audio");
+    assert.equal(fs.readFileSync(result.micAudioPath, "utf8"), "audio");
     assert.equal(fs.statSync(output).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(result.micAudioPath).mode & 0o777, 0o600);
     assert.equal(spawned.length, 1);
     assert.equal(spawned[0].command, "/fake/rec");
   } finally {

@@ -3,13 +3,35 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 from .config import AppConfig
 from .engine import MeetingEngine
 from .jobs import JobQueue
-from .models import JobType, MeetingInput
+from .models import JobStage, JobType, MeetingInput
 from .providers.registry import build_providers
+
+
+class _LeaseHeartbeat:
+    def __init__(self, queue: JobQueue, job_id: int, interval_seconds: float):
+        self.queue = queue
+        self.job_id = job_id
+        self.interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=self.interval_seconds + 1)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_seconds):
+            if not self.queue.heartbeat(self.job_id):
+                return
 
 
 class Worker:
@@ -29,11 +51,23 @@ class Worker:
         job = self.queue.claim()
         if job is None:
             return False
+        heartbeat_interval = max(
+            1.0,
+            min(30.0, self.config.jobs.visibility_timeout_seconds / 3),
+        )
+        heartbeat = _LeaseHeartbeat(self.queue, job.id, heartbeat_interval)
+        heartbeat.start()
         try:
             if job.job_type is not JobType.INGEST:
                 raise ValueError(f"Unsupported job type: {job.job_type}")
             meeting = MeetingInput.model_validate(job.payload)
-            result = self.engine.ingest(meeting)
+
+            def progress(stage: JobStage) -> None:
+                self.queue.set_stage(job.id, stage)
+                self.queue.heartbeat(job.id)
+
+            result = self.engine.ingest(meeting, progress)
+            heartbeat.stop()
             self.queue.complete(job.id)
             output = {"job_id": job.id, "state": "done"}
             if result.analysis.private:
@@ -45,6 +79,7 @@ class Worker:
                 )
             print(json.dumps(output))
         except Exception as error:
+            heartbeat.stop()
             state = self.queue.fail(job.id, f"{type(error).__name__}: {error}")
             # Detailed error remains in the mode-0600 SQLite job row. Stdout is
             # redirected to a general worker log and must not contain private

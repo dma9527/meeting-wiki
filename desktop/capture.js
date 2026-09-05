@@ -96,19 +96,26 @@ class AudioCapture {
     if (state.systemStream) {
       await new Promise((resolve) => state.systemStream.end(resolve));
     }
+    let systemWav = null;
     if (fs.existsSync(state.rawPath) && fs.statSync(state.rawPath).size > 0) {
-      const systemWav = state.rawPath.replace(".raw", ".wav");
+      systemWav = state.rawPath.replace(".raw", ".wav");
       await run(this.soxBin, rawToWavArgs(state.rawPath, systemWav));
       await run(this.soxBin, ["-m", state.micPath, systemWav, state.outputPath]);
-      for (const file of [state.micPath, state.rawPath, systemWav]) {
-        try { fs.unlinkSync(file); } catch (_) {}
-      }
+      try { fs.unlinkSync(state.rawPath); } catch (_) {}
     } else {
-      fs.renameSync(state.micPath, state.outputPath);
+      fs.copyFileSync(state.micPath, state.outputPath);
       try { fs.unlinkSync(state.rawPath); } catch (_) {}
     }
-    fs.chmodSync(state.outputPath, 0o600);
-    return state.outputPath;
+    for (const file of [state.outputPath, state.micPath, systemWav].filter(Boolean)) {
+      fs.chmodSync(file, 0o600);
+    }
+    // Per-stream WAVs are retained (0600): the Correction Inbox reprocess
+    // re-transcribes these exact streams to preserve speaker attribution.
+    return {
+      audioPath: state.outputPath,
+      micAudioPath: state.micPath,
+      systemAudioPath: systemWav,
+    };
   }
 
   async discard() {
@@ -118,7 +125,8 @@ class AudioCapture {
     await waitForExit(state.mic, "SIGINT");
     if (state.system) await waitForExit(state.system, "SIGTERM", 2_000);
     if (state.systemStream) state.systemStream.end();
-    for (const file of [state.micPath, state.rawPath, state.outputPath]) {
+    const systemWav = state.rawPath.replace(".raw", ".wav");
+    for (const file of [state.micPath, state.rawPath, systemWav, state.outputPath]) {
       try { fs.unlinkSync(file); } catch (_) {}
     }
   }

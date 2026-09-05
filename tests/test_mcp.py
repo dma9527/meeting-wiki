@@ -34,6 +34,11 @@ Option B was selected.
         "|---|---|---|---|---|\n"
         "| Alex | Write plan | meeting | | open |\n"
     )
+    (actions / "archive.md").write_text(
+        "| Owner | Action | Source | Due | Status |\n"
+        "|---|---|---|---|---|\n"
+        "| Sam | Shipped release | meeting | | done |\n"
+    )
 
     async def run():
         env = os.environ.copy()
@@ -75,6 +80,10 @@ Option B was selected.
             assert recent.structured_content["items"][0]["meeting_type"] == "design-review"
             action_items = await session.call_tool("meeting_wiki_action_items", {"owner": "Alex"})
             assert action_items.structured_content["count"] == 1
+            all_actions = await session.call_tool("meeting_wiki_action_items", {})
+            open_rows = all_actions.structured_content["items"]
+            assert not any("Shipped release" in row for row in open_rows)
+            assert all("| done |" not in row.lower() for row in open_rows)
 
     asyncio.run(run())
 

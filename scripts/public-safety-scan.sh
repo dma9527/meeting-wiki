@@ -8,7 +8,7 @@ while IFS= read -r -d '' file; do
   FIRST_PARTY+=("$file")
 done < <(find meeting_wiki tests docs .github/workflows scripts -type f \
   ! -name 'public-safety-scan.sh' -print0)
-for file in README.md SECURITY.md PRIVACY.md CONTRIBUTING.md NOTICE pyproject.toml config.example.toml desktop/main.js desktop/capture.js desktop/package.json desktop/entitlements.mac.plist; do
+for file in README.md SECURITY.md PRIVACY.md CONTRIBUTING.md NOTICE pyproject.toml config.example.toml desktop/main.js desktop/capture.js desktop/status.js desktop/wiki-window.js desktop/wiki-store.js desktop/corrections-client.js desktop/preload.js desktop/renderer/index.html desktop/renderer/app.js desktop/renderer/styles.css desktop/package.json desktop/entitlements.mac.plist; do
   [ -f "$file" ] && FIRST_PARTY+=("$file")
 done
 

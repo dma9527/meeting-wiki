@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -49,13 +49,18 @@ class CalendarEvent:
         end: datetime,
         attendees: list[str] | None = None,
         private_hint: bool = False,
+        all_day: bool = False,
+        description: str = "",
     ):
         self.event_id = event_id
         self.title = title
-        self.start = start
-        self.end = end
+        # Guarantee tz-aware bounds so downstream .astimezone(UTC) stays deterministic.
+        self.start = start if start.tzinfo else start.replace(tzinfo=UTC)
+        self.end = end if end.tzinfo else end.replace(tzinfo=UTC)
         self.attendees = attendees or []
         self.private_hint = private_hint
+        self.all_day = all_day
+        self.description = description
 
 
 @runtime_checkable
@@ -63,6 +68,12 @@ class CalendarProvider(Protocol):
     name: str
 
     def upcoming(self, within_minutes: int) -> list[CalendarEvent]: ...
+
+    def match(
+        self,
+        occurred_at: datetime,
+        tolerance_minutes: int = 15,
+    ) -> CalendarEvent | None: ...
 
 
 @runtime_checkable

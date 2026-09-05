@@ -31,7 +31,16 @@
         "NSScreenCaptureUsageDescription": "Meeting Wiki captures system audio only when you start a recording."
       }
     },
-    "files": ["main.js", "capture.js"],
+    "files": [
+      "main.js",
+      "capture.js",
+      "status.js",
+      "wiki-window.js",
+      "wiki-store.js",
+      "corrections-client.js",
+      "preload.js",
+      "renderer/**"
+    ],
     "asarUnpack": ["node_modules/audiotee/**"]
   }
 }

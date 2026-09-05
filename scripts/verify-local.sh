@@ -17,6 +17,12 @@ echo "== Package build =="
 echo "== Desktop syntax/tests =="
 node --check desktop/main.js
 node --check desktop/capture.js
+node --check desktop/status.js
+node --check desktop/wiki-window.js
+node --check desktop/wiki-store.js
+node --check desktop/corrections-client.js
+node --check desktop/preload.js
+node --check desktop/renderer/app.js
 (cd desktop && npm test)
 
 echo "== Dependency audits =="

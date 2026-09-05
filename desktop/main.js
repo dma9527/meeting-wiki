@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, dialog, globalShortcut, Menu, nativeImage, Notification, shell, systemPreferences, Tray } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, shell, systemPreferences, Tray } = require("electron");
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -9,6 +9,13 @@ const path = require("path");
 // Meeting audio, titles, job payloads and logs are sensitive on shared Macs.
 process.umask(0o077);
 const { AudioCapture } = require("./capture");
+const { createWikiWindow } = require("./wiki-window");
+const {
+  formatQueueLabel,
+  readDoctorStatus,
+  readQueueStatus,
+  retryDeadJobs,
+} = require("./status");
 
 const DATA_DIR = process.env.MEETING_WIKI_DATA_DIR || path.join(os.homedir(), ".meeting-wiki");
 const RECORDINGS_DIR = path.join(DATA_DIR, "audio");
@@ -22,6 +29,10 @@ let shuttingDown = false;
 let recordingStartedAt;
 let nextTitle = "";
 let nextPrivate = false;
+let queueSummary = { total: 0, active: 0, action_required: 0 };
+let queueStatusReady = false;
+let queueStatusError = false;
+let queueStatusRefreshing = false;
 
 const capture = new AudioCapture({
   recordingsDir: RECORDINGS_DIR,
@@ -44,6 +55,52 @@ function timestamp() {
 
 function notify(title, body) {
   if (Notification.isSupported()) new Notification({ title, body }).show();
+}
+
+async function refreshQueueStatus() {
+  if (queueStatusRefreshing || !fs.existsSync(PYTHON)) return;
+  queueStatusRefreshing = true;
+  try {
+    queueSummary = await readQueueStatus(PYTHON, CONFIG_PATH);
+    queueStatusError = false;
+  } catch (_) {
+    queueStatusError = true;
+  } finally {
+    queueStatusReady = true;
+    queueStatusRefreshing = false;
+    if (tray) updateMenu();
+  }
+}
+
+function openWikiWindow() {
+  createWikiWindow(
+    { app, BrowserWindow, ipcMain },
+    { dataDir: DATA_DIR, python: PYTHON, configPath: CONFIG_PATH },
+  );
+}
+
+async function showSystemHealth() {
+  if (!fs.existsSync(PYTHON)) {
+    notify("Meeting Wiki setup required", "Run scripts/setup.sh before checking health.");
+    return;
+  }
+  const health = await readDoctorStatus(PYTHON, CONFIG_PATH);
+  await dialog.showMessageBox({
+    type: health.ok ? "info" : "warning",
+    title: "Meeting Wiki health",
+    message: health.ok ? "All configured providers are ready." : "Setup needs attention.",
+    detail: health.text,
+  });
+}
+
+async function retryFailedJobs() {
+  try {
+    const count = await retryDeadJobs(PYTHON, CONFIG_PATH);
+    notify("Meeting processing resumed", `${count} failed job${count === 1 ? "" : "s"} queued.`);
+  } catch (error) {
+    notify("Retry failed", error.message);
+  }
+  await refreshQueueStatus();
 }
 
 function askTitle() {
@@ -74,7 +131,14 @@ function startWorker() {
   });
 }
 
-function enqueue(filePath, title, isPrivate) {
+function enqueue(
+  filePath,
+  title,
+  isPrivate,
+  titleExplicit,
+  micAudioPath = null,
+  systemAudioPath = null,
+) {
   if (!fs.existsSync(PYTHON)) {
     notify("Meeting Wiki setup required", "Run scripts/setup.sh before processing meetings.");
     return;
@@ -83,15 +147,20 @@ function enqueue(filePath, title, isPrivate) {
     "-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "ingest",
     "--audio", filePath, "--title", title,
   ];
+  if (micAudioPath) args.push("--mic-audio", micAudioPath);
+  if (systemAudioPath) args.push("--system-audio", systemAudioPath);
+  if (!titleExplicit) args.push("--title-auto");
   if (isPrivate) args.push("--private");
   const child = spawn(PYTHON, args, { stdio: "ignore" });
   child.once("exit", (code) => {
     notify(code === 0 ? "Meeting queued" : "Meeting queue failed", path.basename(filePath));
+    void refreshQueueStatus();
   });
 }
 
 async function startRecording() {
   if (capture.active) return;
+  const titleExplicit = Boolean(nextTitle);
   const title = nextTitle || `Meeting ${new Date().toLocaleString()}`;
   const isPrivate = nextPrivate;
   nextTitle = "";
@@ -101,17 +170,26 @@ async function startRecording() {
   updateMenu();
   notify(isPrivate ? "Private recording started" : "Recording started", title);
   capture.active.title = title;
+  capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
 }
 
 async function stopRecording() {
   if (!capture.active) return;
   const title = capture.active.title;
+  const titleExplicit = capture.active.titleExplicit;
   const isPrivate = capture.active.private;
   try {
-    const file = await capture.stop();
-    enqueue(file, title, isPrivate);
-    notify("Recording saved", file);
+    const files = await capture.stop();
+    enqueue(
+      files.audioPath,
+      title,
+      isPrivate,
+      titleExplicit,
+      files.micAudioPath,
+      files.systemAudioPath,
+    );
+    notify("Recording saved", files.audioPath);
   } catch (error) {
     notify("Recording failed", error.message);
   }
@@ -126,8 +204,9 @@ async function importAudio() {
     filters: [{ name: "Audio", extensions: ["wav", "mp3", "m4a", "flac", "ogg", "webm"] }],
   });
   if (result.canceled) return;
+  const titleExplicit = Boolean(nextTitle);
   const title = nextTitle || "Imported meeting";
-  for (const file of result.filePaths) enqueue(file, title, nextPrivate);
+  for (const file of result.filePaths) enqueue(file, title, nextPrivate, titleExplicit);
   nextTitle = "";
   nextPrivate = false;
   updateMenu();
@@ -150,8 +229,23 @@ function updateMenu() {
       { label: "Import audio...", click: importAudio },
     );
   }
+  const processingLabel = queueStatusError
+    ? "Processing status unavailable"
+    : queueStatusReady
+      ? formatQueueLabel(queueSummary)
+      : "Checking processing status...";
   items.push(
     { type: "separator" },
+    { label: processingLabel, enabled: false },
+  );
+  if (queueSummary.action_required > 0) {
+    items.push({ label: "Retry failed processing", click: retryFailedJobs });
+  }
+  items.push(
+    { label: "Check system health...", click: showSystemHealth },
+    { label: "Open logs", click: () => shell.openPath(path.join(DATA_DIR, "logs")) },
+    { type: "separator" },
+    { label: "Open Wiki & Corrections", click: openWikiWindow },
     { label: "Open wiki", click: () => shell.openPath(path.join(DATA_DIR, "wiki")) },
     { label: "Open private meetings", click: () => shell.openPath(path.join(DATA_DIR, "private", "meetings")) },
     { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
@@ -179,9 +273,11 @@ app.whenReady().then(async () => {
   });
   startWorker();
   updateMenu();
+  void refreshQueueStatus();
 });
 
 setInterval(() => { if (tray && capture.active) updateMenu(); }, 1000).unref();
+setInterval(() => { if (tray) void refreshQueueStatus(); }, 5000).unref();
 
 app.on("will-quit", () => {
   shuttingDown = true;

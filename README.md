@@ -73,6 +73,35 @@ pages. A deterministic renderer owns frontmatter, section order, indexes,
 action-item tables, and append-only entity timelines. Reprocessing the same
 meeting is idempotent and cannot erase unseen page content.
 
+## Pre-meeting briefs
+
+Compile a privacy-safe brief for each upcoming calendar event from the wiki you
+already have, with no LLM call and no network beyond reading the local ICS file:
+
+```bash
+meeting-wiki brief --within 120
+```
+
+A shared event's brief reads only `wiki/` (participant history, matching open
+action items, recent related meetings, open questions) plus the event's own
+agenda, and is written to `wiki/briefs/`. A private or one-on-one event gets a
+no-history brief built only from the event's own details, written to
+`private/briefs/`; it reads no shared content. Briefs are deterministic and
+idempotent: rerunning overwrites with identical bytes.
+
+## Decision lifecycle and action carry-over
+
+Decision pages carry a `status` (accepted by default), a stable `decision_id`,
+their source meeting, an effective timestamp, and `superseded_by`. A decision may
+explicitly supersede another by exact `decision_id` or page path. Supersession is
+idempotent and refuses to cross the private/shared boundary; decision titles are
+never fuzzy-matched. Decision pages written before this existed read as accepted.
+
+Action items carry forward by exact canonical owner and action identity, with no
+fuzzy matching. The most recent meeting wins, so a later `done` closes an action
+and a later reappearance reopens it. Open items live in
+`wiki/action-items/active.md` and completed ones in `wiki/action-items/archive.md`.
+
 ## Private meetings
 
 Use `--private` or mark the next desktop recording private. Private meetings:
@@ -99,10 +128,60 @@ Read-only tools:
 - `meeting_wiki_list_recent`
 - `meeting_wiki_action_items`
 
+## Desktop wiki and correction inbox
+
+The menubar item "Open Wiki & Corrections" opens a local window for browsing the
+shared wiki: recent meetings, full-text search, exact page reads, and open action
+items. The window loads no remote content, runs with context isolation and a
+sandboxed renderer, and reaches the main process only through a narrow preload
+bridge. That bridge reads `data_dir/wiki` and nothing else; path containment
+rejects `../`, absolute paths, null bytes, and symlinks that escape the tree, so
+`private/` is unreachable from the window.
+
+The correction inbox lists shared meetings whose transcript still uses an
+ambiguous speaker label such as `Remote participant` or `spk_1`. Candidates are
+derived only from shared `transcript-data` and `analysis` records; the private
+tree is never read and transcript text never reaches the window. You rename a
+speaker, preview a plan, then reprocess. Reprocessing re-enqueues the meeting's
+original ingest job with an exact OLD=NEW mapping.
+
+Correction is a review-before-reprocess flow because a rename cannot cleanly
+update every wiki surface. The per-meeting page is rewritten, but the
+deterministic renderer never deletes content it did not load, and re-analysis is
+non-deterministic. So the old label is kept on append-only surfaces (people
+timelines, the action-item table). The plan states exactly which entries remain
+and the window shows this limitation before you confirm, rather than silently
+corrupting the wiki. The same actions are available from the CLI:
+
+```bash
+meeting-wiki correct-inbox
+meeting-wiki correct --meeting wiki/meetings/<page>.md --speaker "Remote participant=Sam Rivera"
+meeting-wiki correct --meeting wiki/meetings/<page>.md --speaker "Remote participant=Sam Rivera" --reprocess
+```
+
+Without `--reprocess`, `correct` prints the plan and enqueues nothing.
+
+## Processing status and recovery
+
+The menubar shows whether meetings are processing or need attention. It also
+provides system health checks, local logs, and a one-click retry for dead jobs.
+The same privacy-safe controls are available from the CLI:
+
+```bash
+meeting-wiki status --summary
+meeting-wiki status --state dead
+meeting-wiki retry 12
+```
+
+Default status output never includes meeting titles, source paths, transcripts,
+or provider error details. Use `status --verbose` only when inspecting your own
+private machine.
+
 ## Development
 
 ```bash
 ./scripts/verify-local.sh
+```
 
 `setup.sh` optionally registers these read-only tools with Kiro and auto-approves
 them. This lets agents read the shared `wiki/` without a prompt; `private/` is
@@ -115,7 +194,6 @@ S3 is not required. If enabled, use a dedicated private bucket with Block Public
 Access, default encryption, versioning, and a least-privilege identity scoped to
 the configured prefix. Meeting Wiki requests SSE-S3 for every object and refuses
 to mirror any `private/` key. Review retention and deletion policies before use.
-```
 
 ## License
 
