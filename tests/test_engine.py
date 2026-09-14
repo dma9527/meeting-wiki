@@ -25,8 +25,8 @@ class FakeTranscriber:
         self.result = result
         self.calls = []
 
-    def transcribe(self, audio_path, language=None):
-        self.calls.append((audio_path, language))
+    def transcribe(self, audio_path, language=None, context=None):
+        self.calls.append((audio_path, language, context))
         return self.result
 
     def health(self):
@@ -34,10 +34,10 @@ class FakeTranscriber:
 
 
 class PathCheckingTranscriber(FakeTranscriber):
-    def transcribe(self, audio_path, language=None):
+    def transcribe(self, audio_path, language=None, context=None):
         if not audio_path.exists():
             raise FileNotFoundError(audio_path)
-        return super().transcribe(audio_path, language)
+        return super().transcribe(audio_path, language, context)
 
 
 class SplitTranscriber:
@@ -47,8 +47,8 @@ class SplitTranscriber:
         self.results = results
         self.calls = []
 
-    def transcribe(self, audio_path, language=None):
-        self.calls.append(audio_path)
+    def transcribe(self, audio_path, language=None, context=None):
+        self.calls.append((audio_path, context))
         return self.results[audio_path.name]
 
     def health(self):
@@ -332,7 +332,15 @@ def test_dual_stream_transcription_labels_and_corrects_speakers(tmp_path, meetin
         meeting
     )
 
-    assert providers.transcription.calls == [mic, system]
+    mic_call, system_call = providers.transcription.calls
+    assert mic_call[0] == mic
+    assert mic_call[1].expected_speakers == ("Martin",)
+    assert system_call[0] == system
+    assert system_call[1].expected_speakers == ("Alex", "Sam")
+    assert system_call[1].meeting_title == "Architecture Design Review"
+    assert "Architecture Design Review" in system_call[1].hotwords
+    assert "Alex" in system_call[1].hotwords
+    assert "Sam" in system_call[1].hotwords
     assert [segment.speaker for segment in result.transcript.segments] == ["Martin", "Sam"]
     assert result.transcript.text == ("Martin: I will own it.\nSam: Please finish by Friday.")
     assert result.transcript.diarized is True

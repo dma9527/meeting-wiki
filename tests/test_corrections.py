@@ -39,7 +39,7 @@ class _FakeTranscriber:
     def __init__(self, result: TranscriptResult):
         self.result = result
 
-    def transcribe(self, audio_path, language=None):
+    def transcribe(self, audio_path, language=None, context=None):
         return self.result
 
     def health(self):

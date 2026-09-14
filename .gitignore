@@ -40,6 +40,10 @@ private/
 *.db-wal
 *.db-shm
 
+# Local ASR benchmarks
+benchmarks/asr/local/
+benchmarks/asr/results/
+
 # Models
 models/
 *.gguf

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -9,11 +10,35 @@ from typing import Protocol, runtime_checkable
 from ..models import ActionItem, MeetingAnalysis, MeetingInput, TranscriptResult
 
 
+@dataclass(frozen=True)
+class TranscriptionCapabilities:
+    diarization: bool = False
+    timestamps: bool = False
+    streaming: bool = False
+    hotwords: bool = False
+    max_duration_minutes: int | None = None
+    supported_languages: tuple[str, ...] = ()
+    hardware: str = "any"
+
+
+@dataclass(frozen=True)
+class TranscriptionContext:
+    expected_speakers: tuple[str, ...] = ()
+    hotwords: tuple[str, ...] = ()
+    meeting_title: str = ""
+
+
 @runtime_checkable
 class TranscriptionProvider(Protocol):
     name: str
+    capabilities: TranscriptionCapabilities
 
-    def transcribe(self, audio_path: Path, language: str | None = None) -> TranscriptResult: ...
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        context: TranscriptionContext | None = None,
+    ) -> TranscriptResult: ...
 
     def health(self) -> tuple[bool, str]: ...
 

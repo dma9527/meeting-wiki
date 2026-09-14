@@ -18,6 +18,7 @@ from .models import (
     TranscriptSegment,
 )
 from .privacy import classify
+from .providers.base import TranscriptionContext
 from .providers.registry import ProviderBundle
 from .providers.transcription import TextImportTranscriber
 from .wiki import RenderResult, WikiRenderer, stable_id
@@ -177,15 +178,25 @@ class MeetingEngine:
             moved.add(resolved)
 
     def _transcribe(self, meeting: MeetingInput) -> TranscriptResult:
+        shared_context = self._transcription_context(
+            meeting,
+            tuple(meeting.attendees),
+        )
         if meeting.transcript_path:
             result = TextImportTranscriber().transcribe(
-                meeting.transcript_path, self.config.language
+                meeting.transcript_path,
+                self.config.language,
+                shared_context,
             )
             return self._apply_speaker_corrections(result, meeting.speaker_corrections)
 
-        streams: list[tuple[Path, str]] = []
+        streams: list[tuple[Path, str, TranscriptionContext]] = []
         if meeting.mic_audio_path:
-            streams.append((meeting.mic_audio_path, self.config.user_name))
+            mic_context = self._transcription_context(
+                meeting,
+                (self.config.user_name,),
+            )
+            streams.append((meeting.mic_audio_path, self.config.user_name, mic_context))
         if meeting.system_audio_path:
             other_attendees = [
                 attendee
@@ -195,23 +206,58 @@ class MeetingEngine:
             remote_speaker = (
                 other_attendees[0] if len(other_attendees) == 1 else "Remote participant"
             )
-            streams.append((meeting.system_audio_path, remote_speaker))
+            system_context = self._transcription_context(
+                meeting,
+                tuple(other_attendees),
+            )
+            streams.append((meeting.system_audio_path, remote_speaker, system_context))
 
         if streams:
             results = [
                 (
-                    self.providers.transcription.transcribe(path, self.config.language),
+                    self.providers.transcription.transcribe(
+                        path,
+                        self.config.language,
+                        context,
+                    ),
                     speaker,
                 )
-                for path, speaker in streams
+                for path, speaker, context in streams
             ]
             result = self._merge_stream_transcripts(results)
             return self._apply_speaker_corrections(result, meeting.speaker_corrections)
 
         if not meeting.audio_path:
             raise ValueError("Meeting requires audio_path or transcript_path")
-        result = self.providers.transcription.transcribe(meeting.audio_path, self.config.language)
+        result = self.providers.transcription.transcribe(
+            meeting.audio_path,
+            self.config.language,
+            shared_context,
+        )
         return self._apply_speaker_corrections(result, meeting.speaker_corrections)
+
+    def _transcription_context(
+        self,
+        meeting: MeetingInput,
+        expected_speakers: tuple[str, ...],
+    ) -> TranscriptionContext:
+        candidates = [meeting.title, self.config.user_name, *meeting.attendees]
+        hotwords: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            value = candidate.strip()
+            key = value.casefold()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            hotwords.append(value[:200])
+        return TranscriptionContext(
+            expected_speakers=tuple(
+                speaker.strip()[:100] for speaker in expected_speakers if speaker.strip()
+            ),
+            hotwords=tuple(hotwords),
+            meeting_title=meeting.title[:300],
+        )
 
     @staticmethod
     def _merge_stream_transcripts(

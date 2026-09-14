@@ -8,12 +8,19 @@ from pathlib import Path
 import httpx
 
 from ..models import TranscriptResult, TranscriptSegment
+from .base import TranscriptionCapabilities, TranscriptionContext
 
 
 class TextImportTranscriber:
     name = "text"
+    capabilities = TranscriptionCapabilities()
 
-    def transcribe(self, audio_path: Path, language: str | None = None) -> TranscriptResult:
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        context: TranscriptionContext | None = None,
+    ) -> TranscriptResult:
         text = audio_path.read_text(encoding="utf-8").strip()
         if not text:
             raise ValueError(f"Transcript file is empty: {audio_path}")
@@ -32,11 +39,20 @@ class TextImportTranscriber:
 
 class MLXWhisperTranscriber:
     name = "mlx_whisper"
+    capabilities = TranscriptionCapabilities(
+        timestamps=True,
+        hardware="apple-silicon",
+    )
 
     def __init__(self, model: str):
         self.model = model
 
-    def transcribe(self, audio_path: Path, language: str | None = None) -> TranscriptResult:
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        context: TranscriptionContext | None = None,
+    ) -> TranscriptResult:
         try:
             import mlx_whisper
         except ImportError as error:
@@ -79,6 +95,10 @@ class MLXWhisperTranscriber:
 
 class OpenAITranscriber:
     name = "openai_compatible"
+    capabilities = TranscriptionCapabilities(
+        timestamps=True,
+        hardware="remote-or-server",
+    )
 
     def __init__(self, base_url: str, model: str, api_key: str, timeout_seconds: float):
         self.base_url = base_url.rstrip("/")
@@ -86,7 +106,12 @@ class OpenAITranscriber:
         self.api_key = api_key
         self.timeout = timeout_seconds
 
-    def transcribe(self, audio_path: Path, language: str | None = None) -> TranscriptResult:
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        context: TranscriptionContext | None = None,
+    ) -> TranscriptResult:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         data = {"model": self.model, "response_format": "verbose_json"}
         if language:

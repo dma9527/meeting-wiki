@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "case_id": "synthetic-en-two-speaker",
+      "audio_path": "local/synthetic-en-two-speaker.wav",
+      "language": "en",
+      "duration_seconds": 4.0,
+      "expected_speakers": ["speaker-a", "speaker-b"],
+      "hotwords": ["Meeting Wiki", "speaker attribution"],
+      "reference_segments": [
+        {
+          "start_seconds": 0.0,
+          "end_seconds": 2.0,
+          "speaker": "speaker-a",
+          "text": "Meeting Wiki keeps meeting knowledge local."
+        },
+        {
+          "start_seconds": 2.0,
+          "end_seconds": 4.0,
+          "speaker": "speaker-b",
+          "text": "The next action is to test speaker attribution."
+        }
+      ]
+    }
+  ]
+}

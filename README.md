@@ -68,6 +68,13 @@ Edit `~/.meeting-wiki/config.toml`:
 Secrets are referenced by environment-variable name and never stored in TOML.
 Local providers need no account or API key.
 
+## ASR benchmarking
+
+Use the [privacy-safe ASR benchmark harness](benchmarks/asr/README.md) to compare
+transcription providers with synthetic, openly licensed, or local consented
+audio. Default outputs contain aggregate metrics only and exclude paths,
+transcripts, predictions, speaker names, and case identifiers.
+
 ## Deterministic wiki
 
 The LLM returns a validated `MeetingAnalysis` object. It never rewrites Markdown

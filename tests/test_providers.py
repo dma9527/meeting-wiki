@@ -5,7 +5,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from meeting_wiki.providers.base import CalendarEvent
+from meeting_wiki.providers.base import (
+    CalendarEvent,
+    TranscriptionCapabilities,
+    TranscriptionContext,
+)
 from meeting_wiki.providers.calendar import ICSCalendarProvider
 from meeting_wiki.providers.integrations import validate_webhook_url
 from meeting_wiki.providers.s3_storage import S3Storage
@@ -116,3 +120,22 @@ def test_calendar_event_normalizes_naive_datetimes_to_utc():
     assert event.start.tzinfo == UTC
     assert event.start == datetime(2026, 9, 10, 15, 0, tzinfo=UTC)
     assert event.end is aware
+
+
+def test_transcription_context_and_capabilities_are_typed_and_immutable():
+    context = TranscriptionContext(
+        expected_speakers=("Alex", "Sam"),
+        hotwords=("Meeting Wiki", "VibeVoice"),
+        meeting_title="ASR review",
+    )
+    capabilities = TranscriptionCapabilities(
+        diarization=True,
+        timestamps=True,
+        hotwords=True,
+        max_duration_minutes=60,
+        hardware="cpu",
+    )
+    assert context.expected_speakers == ("Alex", "Sam")
+    assert capabilities.max_duration_minutes == 60
+    with pytest.raises((AttributeError, TypeError)):
+        context.hotwords = ()
