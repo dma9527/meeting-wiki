@@ -12,7 +12,9 @@ Markdown tool.
 
 Early alpha. macOS is the first supported desktop platform. The local pipeline
 and MCP server are functional; release signing and wider hardware testing are
-in progress.
+in progress. Local builds are not public release artifacts. See the
+[signed macOS release runbook](docs/releasing-macos.md) for Developer ID,
+notarization, Gatekeeper verification, and public alpha gates.
 
 ## Default architecture
 

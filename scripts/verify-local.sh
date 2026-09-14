@@ -7,6 +7,11 @@ RUFF="$ROOT/.venv/bin/ruff"
 [ -x "$PY" ] || { echo "Run: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'"; exit 1; }
 
 cd "$ROOT"
+echo "== Shell syntax =="
+for script in scripts/*.sh; do
+  bash -n "$script"
+done
+
 echo "== Python lint =="
 "$RUFF" check meeting_wiki tests
 echo "== Python tests =="
