@@ -18,6 +18,40 @@ echo "== Python tests =="
 "$PY" -m pytest
 echo "== Package build =="
 "$PY" -m pip wheel --no-deps -w /tmp/meeting-wiki-wheel . >/dev/null
+SDIST_DIR="$(mktemp -d /tmp/meeting-wiki-sdist.XXXXXX)"
+trap 'rm -rf "$SDIST_DIR"' EXIT
+"$PY" -m build --sdist --outdir "$SDIST_DIR" . >/dev/null
+SDIST="$(find "$SDIST_DIR" -name '*.tar.gz' -print -quit)"
+"$PY" - "$SDIST" <<'PY'
+import sys
+import tarfile
+from pathlib import PurePosixPath
+
+archive = sys.argv[1]
+forbidden_segments = {".venv", "__pycache__", "dist", "node_modules", "out"}
+forbidden_names = {".DS_Store", "config.toml"}
+forbidden_suffixes = {
+    ".db", ".db-shm", ".db-wal", ".flac", ".key", ".m4a", ".mp3",
+    ".ogg", ".pem", ".pyc", ".wav", ".webm",
+}
+with tarfile.open(archive, "r:gz") as source:
+    members = source.getmembers()
+    for member in members:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or ".." in path.parts:
+            raise SystemExit(f"unsafe sdist path: {member.name}")
+        if member.issym() or member.islnk():
+            raise SystemExit(f"sdist link is not allowed: {member.name}")
+        if forbidden_segments.intersection(path.parts):
+            raise SystemExit(f"generated directory in sdist: {member.name}")
+        if path.name in forbidden_names or path.name.startswith(".env"):
+            raise SystemExit(f"private file in sdist: {member.name}")
+        if any(path.name.endswith(suffix) for suffix in forbidden_suffixes):
+            raise SystemExit(f"private artifact in sdist: {member.name}")
+    if not any(member.name.endswith("/meeting_wiki/__init__.py") for member in members):
+        raise SystemExit("meeting_wiki package missing from sdist")
+print(f"sdist safety passed: {len(members)} members")
+PY
 
 echo "== Desktop syntax/tests =="
 node --check desktop/main.js

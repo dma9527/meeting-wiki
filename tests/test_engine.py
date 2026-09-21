@@ -328,21 +328,21 @@ def test_dual_stream_transcription_labels_and_corrects_speakers(tmp_path, meetin
     providers, _, _ = bundle(tmp_path, mic_result, analysis)
     providers.transcription = SplitTranscriber({mic.name: mic_result, system.name: system_result})
 
-    result = MeetingEngine(AppConfig(data_dir=tmp_path, user_name="Martin"), providers).ingest(
+    result = MeetingEngine(AppConfig(data_dir=tmp_path, user_name="Local User"), providers).ingest(
         meeting
     )
 
     mic_call, system_call = providers.transcription.calls
     assert mic_call[0] == mic
-    assert mic_call[1].expected_speakers == ("Martin",)
+    assert mic_call[1].expected_speakers == ("Local User",)
     assert system_call[0] == system
     assert system_call[1].expected_speakers == ("Alex", "Sam")
     assert system_call[1].meeting_title == "Architecture Design Review"
     assert "Architecture Design Review" in system_call[1].hotwords
     assert "Alex" in system_call[1].hotwords
     assert "Sam" in system_call[1].hotwords
-    assert [segment.speaker for segment in result.transcript.segments] == ["Martin", "Sam"]
-    assert result.transcript.text == ("Martin: I will own it.\nSam: Please finish by Friday.")
+    assert [segment.speaker for segment in result.transcript.segments] == ["Local User", "Sam"]
+    assert result.transcript.text == ("Local User: I will own it.\nSam: Please finish by Friday.")
     assert result.transcript.diarized is True
     assert providers.storage.exists(result.transcript_data_key)
 

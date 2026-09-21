@@ -28,6 +28,7 @@ mlx = ["mlx-whisper==0.4.3"]
 aws = ["boto3==1.43.88"]
 ics = ["icalendar==7.3.0"]
 dev = [
+  "build==1.3.0",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
   "ruff==0.16.6",
@@ -56,3 +57,44 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/.github/workflows",
+  "/benchmarks",
+  "/desktop",
+  "/docs",
+  "/meeting_wiki",
+  "/scripts",
+  "/tests",
+  "/config.example.toml",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/NOTICE",
+  "/PRIVACY.md",
+  "/README.md",
+  "/SECURITY.md",
+]
+exclude = [
+  "**/.DS_Store",
+  "**/.env*",
+  "**/__pycache__",
+  "**/*.db",
+  "**/*.db-shm",
+  "**/*.db-wal",
+  "**/*.flac",
+  "**/*.key",
+  "**/*.m4a",
+  "**/*.mp3",
+  "**/*.ogg",
+  "**/*.pem",
+  "**/*.pyc",
+  "**/*.wav",
+  "**/*.webm",
+  "**/config.toml",
+  "/benchmarks/asr/local",
+  "/benchmarks/asr/results",
+  "/desktop/dist",
+  "/desktop/node_modules",
+  "/desktop/out",
+]

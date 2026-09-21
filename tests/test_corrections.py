@@ -100,9 +100,13 @@ class _FakeTask:
 
 def _transcript() -> TranscriptResult:
     return TranscriptResult(
-        text=f"Martin: I will own the rollout.\nRemote participant: {REMOTE_TEXT}\nspk_1: Noted.",
+        text=(
+            f"Local User: I will own the rollout.\n"
+            f"Remote participant: {REMOTE_TEXT}\n"
+            "spk_1: Noted."
+        ),
         segments=[
-            TranscriptSegment(speaker="Martin", text="I will own the rollout."),
+            TranscriptSegment(speaker="Local User", text="I will own the rollout."),
             TranscriptSegment(speaker="Remote participant", text=REMOTE_TEXT),
             TranscriptSegment(speaker="spk_1", text="Noted."),
         ],
@@ -116,7 +120,7 @@ def _analysis() -> MeetingAnalysis:
     return MeetingAnalysis(
         title="Weekly rollout sync",
         summary=["The team synced on rollout ownership."],
-        participants=[Participant(name="Martin"), Participant(name="Remote participant")],
+        participants=[Participant(name="Local User"), Participant(name="Remote participant")],
         action_items=[ActionItem(owner="Remote participant", action="Finish the migration")],
         topics=[TopicInsight(topic="Rollout", insight="Ownership still ambiguous")],
     )
@@ -141,7 +145,7 @@ def _meeting(tmp_path, *, private=False) -> MeetingInput:
     return MeetingInput(
         title="Weekly rollout sync",
         audio_path=audio,
-        attendees=["Martin", "Alex"],
+        attendees=["Local User", "Alex"],
         private=private,
         occurred_at=datetime(2026, 9, 4, 15, 0, tzinfo=UTC),
     )
@@ -188,7 +192,7 @@ def _only_meeting_key(storage) -> str:
 def test_is_ambiguous_label_matches_sentinel_and_auto_ids():
     for label in ["Remote participant", "spk_0", "spk_12", "SPEAKER_01", "speaker 2", "spk-3"]:
         assert is_ambiguous_label(label) is True
-    for label in ["Martin", "Sam Rivera", "Remote", "speaker of the house", "", None]:
+    for label in ["Local User", "Sam Rivera", "Remote", "speaker of the house", "", None]:
         assert is_ambiguous_label(label) is False
 
 
@@ -227,7 +231,7 @@ def test_plan_rejects_unknown_nonambiguous_or_invalid_names(tmp_path, monkeypatc
     _config, storage, _queue = _prepare(tmp_path, monkeypatch)
     meeting_key = _only_meeting_key(storage)
     with pytest.raises(ValueError, match="not an ambiguous label"):
-        plan_correction(storage, meeting_key, {"Martin": "Sam"})
+        plan_correction(storage, meeting_key, {"Local User": "Sam"})
     with pytest.raises(ValueError, match="not present in meeting"):
         plan_correction(storage, meeting_key, {"spk_9": "Sam"})
     with pytest.raises(ValueError, match="itself ambiguous"):
@@ -389,7 +393,7 @@ def test_apply_matches_job_after_calendar_rewrote_title_and_time(tmp_path, monke
         title="Weekly rollout sync",
         start=datetime(2026, 9, 4, 15, 0, tzinfo=UTC),
         end=datetime(2026, 9, 4, 16, 0, tzinfo=UTC),
-        attendees=["Martin", "Alex", "Jordan"],
+        attendees=["Local User", "Alex", "Jordan"],
         private_hint=False,
     )
     config, storage, queue = _prepare(
