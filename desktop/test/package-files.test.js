@@ -13,6 +13,7 @@ test("build.files lists every runtime source file that must ship", () => {
   const required = [
     "main.js",
     "capture.js",
+    "runtime-paths.js",
     "status.js",
     "wiki-window.js",
     "wiki-store.js",

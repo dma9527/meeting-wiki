@@ -3,13 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { missingRuntimeMessage, resolveAudioBinary } = require("./runtime-paths");
 
-function resolveBinary(name, envName) {
-  if (process.env[envName]) return process.env[envName];
-  for (const candidate of [`/opt/homebrew/bin/${name}`, `/usr/local/bin/${name}`]) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return name;
+function missingBinaryError(name, packaged) {
+  return new Error(missingRuntimeMessage(name, { packaged }).body);
 }
 
 function recArgs(micPath) {
@@ -52,8 +49,11 @@ class AudioCapture {
   constructor(options = {}) {
     this.recordingsDir = options.recordingsDir;
     this.audioTeePath = options.audioTeePath;
-    this.recBin = options.recBin || resolveBinary("rec", "MEETING_WIKI_REC_BIN");
-    this.soxBin = options.soxBin || resolveBinary("sox", "MEETING_WIKI_SOX_BIN");
+    // Callers pass resolved paths; null means the packaged runtime is absent (fail closed).
+    this.packaged = Boolean(options.packaged);
+    const devDeps = { env: process.env, isPackaged: false, existsSync: fs.existsSync };
+    this.recBin = "recBin" in options ? options.recBin : resolveAudioBinary("rec", devDeps);
+    this.soxBin = "soxBin" in options ? options.soxBin : resolveAudioBinary("sox", devDeps);
     this.spawn = options.spawn || spawn;
     this.onError = options.onError || (() => {});
     this.active = null;
@@ -61,6 +61,9 @@ class AudioCapture {
 
   start(prefix) {
     if (this.active) throw new Error("recording already active");
+    const captureSystem = Boolean(this.audioTeePath && fs.existsSync(this.audioTeePath));
+    if (!this.recBin) throw missingBinaryError("rec", this.packaged);
+    if (captureSystem && !this.soxBin) throw missingBinaryError("sox", this.packaged);
     fs.mkdirSync(this.recordingsDir, { recursive: true, mode: 0o700 });
     fs.chmodSync(this.recordingsDir, 0o700);
     const micPath = path.join(this.recordingsDir, `${prefix}_mic.wav`);
@@ -70,10 +73,12 @@ class AudioCapture {
       stdio: ["ignore", "ignore", "pipe"],
     });
     if (mic.stderr) mic.stderr.on("data", () => {});
-    mic.on("error", (error) => this.onError(error));
+    mic.on("error", (error) => {
+      this.onError(error && error.code === "ENOENT" ? missingBinaryError("rec", this.packaged) : error);
+    });
     let system = null;
     let systemStream = null;
-    if (this.audioTeePath && fs.existsSync(this.audioTeePath)) {
+    if (captureSystem) {
       systemStream = fs.createWriteStream(rawPath);
       system = this.spawn(
         this.audioTeePath,
@@ -98,6 +103,7 @@ class AudioCapture {
     }
     let systemWav = null;
     if (fs.existsSync(state.rawPath) && fs.statSync(state.rawPath).size > 0) {
+      if (!this.soxBin) throw missingBinaryError("sox", this.packaged);
       systemWav = state.rawPath.replace(".raw", ".wav");
       await run(this.soxBin, rawToWavArgs(state.rawPath, systemWav));
       await run(this.soxBin, ["-m", state.micPath, systemWav, state.outputPath]);
@@ -132,4 +138,4 @@ class AudioCapture {
   }
 }
 
-module.exports = { AudioCapture, rawToWavArgs, recArgs, resolveBinary };
+module.exports = { AudioCapture, rawToWavArgs, recArgs };

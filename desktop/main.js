@@ -12,6 +12,7 @@ const { AudioCapture } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
 const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-window");
+const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const {
   formatQueueLabel,
   readDoctorStatus,
@@ -22,7 +23,14 @@ const {
 const DATA_DIR = process.env.MEETING_WIKI_DATA_DIR || path.join(os.homedir(), ".meeting-wiki");
 const RECORDINGS_DIR = path.join(DATA_DIR, "audio");
 const CONFIG_PATH = process.env.MEETING_WIKI_CONFIG || path.join(DATA_DIR, "config.toml");
-const PYTHON = process.env.MEETING_WIKI_PYTHON || path.join(DATA_DIR, "venv", "bin", "python");
+const RUNTIME = resolveRuntimePaths({
+  env: process.env,
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  dataDir: DATA_DIR,
+  existsSync: fs.existsSync,
+});
+const PYTHON = RUNTIME.python;
 const AUDIO_TEE = path.join(__dirname, "node_modules", "audiotee", "bin", "audiotee").replace("app.asar", "app.asar.unpacked");
 
 let tray;
@@ -39,6 +47,9 @@ let queueStatusRefreshing = false;
 const capture = new AudioCapture({
   recordingsDir: RECORDINGS_DIR,
   audioTeePath: AUDIO_TEE,
+  recBin: RUNTIME.rec,
+  soxBin: RUNTIME.sox,
+  packaged: RUNTIME.packaged,
   onError: (error) => notify("Audio capture error", error.message),
 });
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
@@ -75,8 +86,17 @@ function notify(title, body) {
   if (Notification.isSupported()) new Notification({ title, body }).show();
 }
 
+function pythonAvailable() {
+  return Boolean(PYTHON) && fs.existsSync(PYTHON);
+}
+
+function notifyMissingPython() {
+  const message = missingRuntimeMessage("python", { packaged: RUNTIME.packaged, resolvedPath: PYTHON });
+  notify(message.title, message.body);
+}
+
 async function refreshQueueStatus() {
-  if (queueStatusRefreshing || !fs.existsSync(PYTHON)) return;
+  if (queueStatusRefreshing || !pythonAvailable()) return;
   const env = processingEnv({ background: true });
   if (!env) {
     queueStatusError = true;
@@ -124,8 +144,8 @@ function openSetupWindow() {
 }
 
 async function showSystemHealth() {
-  if (!fs.existsSync(PYTHON)) {
-    notify("Meeting Wiki setup required", "Run scripts/setup.sh before checking health.");
+  if (!pythonAvailable()) {
+    notifyMissingPython();
     return;
   }
   const env = processingEnv();
@@ -162,7 +182,7 @@ function askTitle() {
 
 function startWorker() {
   if (worker || shuttingDown) return;
-  if (!fs.existsSync(PYTHON)) return;
+  if (!pythonAvailable()) return;
   const env = processingEnv();
   if (!env) return;
   const logDir = path.join(DATA_DIR, "logs");
@@ -190,8 +210,8 @@ function enqueue(
   micAudioPath = null,
   systemAudioPath = null,
 ) {
-  if (!fs.existsSync(PYTHON)) {
-    notify("Meeting Wiki setup required", "Run scripts/setup.sh before processing meetings.");
+  if (!pythonAvailable()) {
+    notifyMissingPython();
     return;
   }
   const args = [
@@ -218,7 +238,12 @@ async function startRecording() {
   const isPrivate = nextPrivate;
   nextTitle = "";
   nextPrivate = false;
-  capture.start(timestamp());
+  try {
+    capture.start(timestamp());
+  } catch (error) {
+    notify("Recording failed", error.message);
+    return;
+  }
   recordingStartedAt = Date.now();
   updateMenu();
   notify(isPrivate ? "Private recording started" : "Recording started", title);
@@ -326,6 +351,7 @@ app.whenReady().then(async () => {
     if (capture.active) void stopRecording(); else void startRecording();
   });
   startWorker();
+  if (RUNTIME.packaged && !pythonAvailable()) notifyMissingPython();
   updateMenu();
   void refreshQueueStatus();
   if (needsSetup(fs, DATA_DIR, CONFIG_PATH)) openSetupWindow();
