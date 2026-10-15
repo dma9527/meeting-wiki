@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -52,13 +55,59 @@ class TranscriptionProvider(Protocol):
 
 @runtime_checkable
 class LiveTranscriptionProvider(Protocol):
-    """Turn a bounded audio chunk into ordered final transcript segments."""
+    """Chunked live contract: turn a bounded audio file chunk into ordered final segments."""
 
     name: str
 
     def transcribe_chunk(self, request: LiveTranscriptRequest) -> list[TranscriptSegment]: ...
 
     def health(self) -> tuple[bool, str]: ...
+
+
+class LiveTranscriptKind(StrEnum):
+    INTERIM = "interim"
+    FINAL = "final"
+
+
+@dataclass(frozen=True)
+class LiveTranscriptEvent:
+    """Display-only live text. Interim text may be revised; final text is settled."""
+
+    kind: LiveTranscriptKind
+    text: str
+
+    @property
+    def is_final(self) -> bool:
+        return self.kind is LiveTranscriptKind.FINAL
+
+
+@runtime_checkable
+class LiveTranscriptionSession(Protocol):
+    """One open streaming session fed raw 16-bit mono PCM at 16 kHz."""
+
+    async def send_audio(self, pcm: bytes) -> None: ...
+
+    async def end_audio(self) -> None: ...
+
+    def events(self) -> AsyncIterator[LiveTranscriptEvent]: ...
+
+    async def close(self) -> None: ...
+
+
+@runtime_checkable
+class LiveSessionTranscriptionProvider(Protocol):
+    """Session live contract: open_session is an async context manager that closes on exit."""
+
+    name: str
+
+    def open_session(
+        self, language: str | None = None
+    ) -> AbstractAsyncContextManager[LiveTranscriptionSession]: ...
+
+    def health(self) -> tuple[bool, str]: ...
+
+
+AnyLiveTranscriptionProvider = LiveTranscriptionProvider | LiveSessionTranscriptionProvider
 
 
 @runtime_checkable

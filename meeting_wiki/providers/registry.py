@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from ..config import AppConfig
 from .base import (
+    AnyLiveTranscriptionProvider,
     CalendarProvider,
+    LiveLanguageProvider,
     LLMProvider,
     NotificationProvider,
     StorageProvider,
@@ -14,13 +16,14 @@ from .base import (
     TranscriptionProvider,
 )
 from .calendar import ICSCalendarProvider, NoneCalendarProvider
-from .gemini import GeminiLanguageProvider, GeminiTranscriber
+from .gemini import GeminiLanguageProvider, GeminiLiveTranscriber, GeminiTranscriber
 from .integrations import (
     MacOSNotificationProvider,
     NoneTaskProvider,
     NoopNotificationProvider,
     WebhookTaskProvider,
 )
+from .live import ChunkedMLXWhisperProvider, OllamaLiveLanguageProvider
 from .llm import OllamaProvider, OpenAICompatibleProvider
 from .local_storage import LocalFileStorage
 from .s3_storage import S3Storage
@@ -36,6 +39,9 @@ class ProviderBundle:
     calendar: CalendarProvider
     notification: NotificationProvider
     task: TaskProvider
+    # None when the selected live provider has no adapter yet; the live runtime must reject it.
+    live_transcription: AnyLiveTranscriptionProvider | None = None
+    live_language: LiveLanguageProvider | None = None
 
 
 def validate_live_provider_selection(config: AppConfig) -> None:
@@ -49,6 +55,29 @@ def validate_live_provider_selection(config: AppConfig) -> None:
         )
     if config.providers.live_language not in {"ollama", "openai_compatible", "gemini"}:
         raise ValueError(f"Unknown live language provider: {config.providers.live_language}")
+
+
+def build_live_transcription(config: AppConfig) -> AnyLiveTranscriptionProvider | None:
+    selection = config.providers.live_transcription
+    if selection == "chunked_mlx_whisper":
+        return ChunkedMLXWhisperProvider(config.mlx_whisper.model)
+    if selection == "gemini":
+        return GeminiLiveTranscriber(
+            config.gemini.live_model,
+            config.secret(config.gemini.api_key_env),
+            config.gemini.timeout_seconds,
+        )
+    return None
+
+
+def build_live_language(config: AppConfig) -> LiveLanguageProvider | None:
+    if config.providers.live_language == "ollama":
+        return OllamaLiveLanguageProvider(
+            config.ollama.base_url,
+            config.ollama.model,
+            config.ollama.timeout_seconds,
+        )
+    return None
 
 
 def build_providers(config: AppConfig) -> ProviderBundle:
@@ -143,4 +172,6 @@ def build_providers(config: AppConfig) -> ProviderBundle:
         calendar=calendar,
         notification=notification,
         task=task,
+        live_transcription=build_live_transcription(config),
+        live_language=build_live_language(config),
     )

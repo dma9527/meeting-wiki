@@ -174,3 +174,67 @@ def test_live_provider_selection_accepts_gemini():
         }
     )
     validate_live_provider_selection(config)
+
+
+def test_registry_builds_default_local_live_providers():
+    from meeting_wiki.config import AppConfig
+    from meeting_wiki.providers.base import LiveLanguageProvider, LiveTranscriptionProvider
+    from meeting_wiki.providers.live import ChunkedMLXWhisperProvider, OllamaLiveLanguageProvider
+    from meeting_wiki.providers.registry import build_providers
+
+    config = AppConfig.model_validate(
+        {
+            "mlx_whisper": {"model": "test-mlx-model"},
+            "ollama": {"base_url": "http://127.0.0.1:11434/", "model": "test-ollama-model"},
+        }
+    )
+
+    bundle = build_providers(config)
+
+    assert isinstance(bundle.live_transcription, ChunkedMLXWhisperProvider)
+    assert isinstance(bundle.live_transcription, LiveTranscriptionProvider)
+    assert bundle.live_transcription._batch.model == "test-mlx-model"
+    assert isinstance(bundle.live_language, OllamaLiveLanguageProvider)
+    assert isinstance(bundle.live_language, LiveLanguageProvider)
+    assert bundle.live_language.base_url == "http://127.0.0.1:11434"
+    assert bundle.live_language.model == "test-ollama-model"
+    assert bundle.live_language.timeout == config.ollama.timeout_seconds
+
+
+def test_registry_leaves_unimplemented_live_selections_unbuilt(monkeypatch):
+    from meeting_wiki.config import AppConfig
+    from meeting_wiki.providers.registry import build_providers
+
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", "test-gemini-key-not-real")
+    config = AppConfig.model_validate(
+        {
+            "providers": {"live_transcription": "openai_compatible", "live_language": "gemini"},
+            "live": {"allow_external_providers": True},
+            "gemini": {"language_model": "test-gemini-language-model"},
+        }
+    )
+
+    bundle = build_providers(config)
+
+    assert bundle.live_transcription is None
+    assert bundle.live_language is None
+
+
+def test_session_live_contract_is_distinct_from_chunked_contract():
+    from meeting_wiki.providers.base import (
+        LiveSessionTranscriptionProvider,
+        LiveTranscriptEvent,
+        LiveTranscriptionSession,
+        LiveTranscriptKind,
+    )
+    from meeting_wiki.providers.live import ChunkedMLXWhisperProvider
+
+    event = LiveTranscriptEvent(kind=LiveTranscriptKind.FINAL, text="hello")
+    assert event.is_final is True
+    assert LiveTranscriptEvent(LiveTranscriptKind.INTERIM, "he").is_final is False
+    with pytest.raises((AttributeError, TypeError)):
+        event.text = "changed"
+    assert isinstance(LiveTranscriptionSession, type)
+    assert not isinstance(
+        ChunkedMLXWhisperProvider("test-mlx-model"), LiveSessionTranscriptionProvider
+    )

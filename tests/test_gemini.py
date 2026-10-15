@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -8,10 +11,21 @@ import pytest
 from meeting_wiki.config import AppConfig, PrivacyConfig
 from meeting_wiki.models import MeetingType
 from meeting_wiki.providers import gemini as gemini_module
-from meeting_wiki.providers.base import LLMProvider, TranscriptionProvider
-from meeting_wiki.providers.gemini import GeminiLanguageProvider, GeminiTranscriber
+from meeting_wiki.providers.base import (
+    LiveSessionTranscriptionProvider,
+    LiveTranscriptEvent,
+    LiveTranscriptionProvider,
+    LiveTranscriptKind,
+    LLMProvider,
+    TranscriptionProvider,
+)
+from meeting_wiki.providers.gemini import (
+    GeminiLanguageProvider,
+    GeminiLiveTranscriber,
+    GeminiTranscriber,
+)
 from meeting_wiki.providers.registry import build_providers
-from meeting_wiki.providers.transcription import OpenAITranscriber
+from meeting_wiki.providers.transcription import MLXWhisperTranscriber, OpenAITranscriber
 
 TEST_KEY = "test-gemini-key-not-real"
 BATCH_MODEL = "test-gemini-batch-model"
@@ -312,3 +326,349 @@ def test_registry_reads_only_the_configured_gemini_key_env(monkeypatch):
         }
     )
     assert build_providers(custom).transcription.api_key == TEST_KEY
+
+
+LIVE_MODEL = "test-gemini-live-model"
+PCM_CHUNK = b"\x01\x00\x02\x00"
+
+
+@dataclass(frozen=True)
+class FakeBlob:
+    data: bytes
+    mime_type: str
+
+
+def live_message(final=None, interim=None, server_content=True):
+    if not server_content:
+        return SimpleNamespace(server_content=None)
+    return SimpleNamespace(
+        server_content=SimpleNamespace(
+            input_transcription=SimpleNamespace(text=final) if final is not None else None,
+            interim_input_transcription=(
+                SimpleNamespace(text=interim) if interim is not None else None
+            ),
+        )
+    )
+
+
+class FakeLiveSession:
+    def __init__(self, turns=(), send_error=None, receive_error=None, close_error=None):
+        self.turns = [list(turn) for turn in turns]
+        self.send_error = send_error
+        self.receive_error = receive_error
+        self.close_error = close_error
+        self.sent = []
+        self.close_calls = 0
+
+    async def send_realtime_input(self, **kwargs):
+        if self.send_error:
+            raise self.send_error
+        self.sent.append(kwargs)
+
+    async def receive(self):
+        if self.receive_error:
+            raise self.receive_error
+        turn = self.turns.pop(0) if self.turns else []
+        for message in turn:
+            yield message
+
+    async def close(self):
+        self.close_calls += 1
+        if self.close_error:
+            raise self.close_error
+
+
+class FakeLive:
+    def __init__(self, session, connect_error=None):
+        self.session = session
+        self.connect_error = connect_error
+        self.calls = []
+        self.exited = 0
+
+    @asynccontextmanager
+    async def connect(self, *, model, config):
+        self.calls.append({"model": model, "config": config})
+        if self.connect_error:
+            raise self.connect_error
+        try:
+            yield self.session
+        finally:
+            self.exited += 1
+
+
+def fake_live_client(session=None, connect_error=None):
+    live = FakeLive(session or FakeLiveSession(), connect_error)
+    return SimpleNamespace(aio=SimpleNamespace(live=live))
+
+
+@pytest.fixture
+def fake_sdk_types(monkeypatch):
+    monkeypatch.setattr(
+        gemini_module, "_import_genai_types", lambda: SimpleNamespace(Blob=FakeBlob)
+    )
+
+
+def live_provider(client=None, api_key=TEST_KEY):
+    factory = (lambda: client) if client is not None else forbid_client
+    return GeminiLiveTranscriber(LIVE_MODEL, api_key, 30, client_factory=factory)
+
+
+async def stream_all(provider, chunks, language=None):
+    async with provider.open_session(language) as session:
+        for chunk in chunks:
+            await session.send_audio(chunk)
+        await session.end_audio()
+        return [event async for event in session.events()]
+
+
+def test_live_transcriber_satisfies_session_protocol():
+    provider = live_provider()
+
+    assert isinstance(provider, LiveSessionTranscriptionProvider)
+    assert not isinstance(provider, LiveTranscriptionProvider)
+
+
+def test_live_session_sends_pcm_then_stream_end_and_closes(fake_sdk_types):
+    sdk_session = FakeLiveSession(
+        turns=[[live_message(interim="hel"), live_message(final="hello")]]
+    )
+    client = fake_live_client(sdk_session)
+
+    events = asyncio.run(stream_all(live_provider(client), [PCM_CHUNK, PCM_CHUNK * 2], "en"))
+
+    assert client.aio.live.calls == [
+        {"model": LIVE_MODEL, "config": {"input_audio_transcription": {"language_codes": ["en"]}}}
+    ]
+    assert sdk_session.sent == [
+        {"audio": FakeBlob(data=PCM_CHUNK, mime_type="audio/pcm;rate=16000")},
+        {"audio": FakeBlob(data=PCM_CHUNK * 2, mime_type="audio/pcm;rate=16000")},
+        {"audio_stream_end": True},
+    ]
+    assert events == [
+        LiveTranscriptEvent(kind=LiveTranscriptKind.INTERIM, text="hel"),
+        LiveTranscriptEvent(kind=LiveTranscriptKind.FINAL, text="hello"),
+    ]
+    assert sdk_session.close_calls == 1
+    assert client.aio.live.exited == 1
+
+
+def test_live_session_omits_language_hint_when_unset(fake_sdk_types):
+    client = fake_live_client()
+
+    asyncio.run(stream_all(live_provider(client), []))
+
+    assert client.aio.live.calls[0]["config"] == {"input_audio_transcription": {}}
+
+
+def test_live_events_classify_by_field_not_text_and_skip_noise(fake_sdk_types):
+    turns = [
+        [
+            live_message(server_content=False),
+            SimpleNamespace(server_content=SimpleNamespace(model_turn="ignored")),
+            live_message(final="   "),
+            live_message(interim="final-looking interim."),
+            live_message(final="both", interim="bo"),
+        ],
+        [live_message(final="second turn")],
+    ]
+    sdk_session = FakeLiveSession(turns=turns)
+
+    events = asyncio.run(stream_all(live_provider(fake_live_client(sdk_session)), []))
+
+    assert events == [
+        LiveTranscriptEvent(LiveTranscriptKind.INTERIM, "final-looking interim."),
+        LiveTranscriptEvent(LiveTranscriptKind.INTERIM, "bo"),
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "both"),
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "second turn"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("chunk", "error_type", "match"),
+    [
+        ("not bytes", TypeError, "bytes"),
+        (bytearray(PCM_CHUNK), TypeError, "bytes"),
+        (memoryview(PCM_CHUNK), TypeError, "bytes"),
+        (b"", ValueError, "empty"),
+        (b"\x01\x00\x02", ValueError, "16-bit"),
+    ],
+)
+def test_live_session_rejects_invalid_pcm_without_sending(fake_sdk_types, chunk, error_type, match):
+    sdk_session = FakeLiveSession()
+
+    async def run():
+        async with live_provider(fake_live_client(sdk_session)).open_session() as session:
+            await session.send_audio(chunk)
+
+    with pytest.raises(error_type, match=match):
+        asyncio.run(run())
+    assert sdk_session.sent == []
+    assert sdk_session.close_calls == 1
+
+
+def test_live_session_rejects_audio_after_stream_end_or_close(fake_sdk_types):
+    sdk_session = FakeLiveSession()
+
+    async def run():
+        async with live_provider(fake_live_client(sdk_session)).open_session() as session:
+            await session.end_audio()
+            with pytest.raises(RuntimeError, match="ended"):
+                await session.send_audio(PCM_CHUNK)
+            with pytest.raises(RuntimeError, match="ended"):
+                await session.end_audio()
+            await session.close()
+            await session.close()
+            with pytest.raises(RuntimeError, match="closed"):
+                await session.send_audio(PCM_CHUNK)
+            assert [event async for event in session.events()] == []
+
+    asyncio.run(run())
+    assert sdk_session.sent == [{"audio_stream_end": True}]
+    assert sdk_session.close_calls == 1
+
+
+def test_live_session_closes_and_propagates_caller_error(fake_sdk_types):
+    sdk_session = FakeLiveSession(close_error=OSError(f"close {TEST_KEY}"))
+    client = fake_live_client(sdk_session)
+
+    async def run():
+        async with live_provider(client).open_session():
+            raise KeyError("caller failure")
+
+    with pytest.raises(KeyError, match="caller failure"):
+        asyncio.run(run())
+    assert sdk_session.close_calls == 1
+    assert client.aio.live.exited == 1
+
+
+LEAK = f"{TEST_KEY} /private/capture.pcm Alex: secret transcript"
+
+
+@pytest.mark.parametrize(
+    ("client_kwargs", "expected"),
+    [
+        ({"connect_error": ConnectionError(LEAK)}, "Gemini live connection failed"),
+        (
+            {"session": FakeLiveSession(send_error=ValueError(LEAK))},
+            "Gemini live audio send failed",
+        ),
+        (
+            {"session": FakeLiveSession(receive_error=ConnectionError(LEAK))},
+            "Gemini live receive failed",
+        ),
+        (
+            {"session": FakeLiveSession(close_error=OSError(LEAK))},
+            "Gemini live close failed",
+        ),
+    ],
+)
+def test_live_errors_are_redacted(fake_sdk_types, client_kwargs, expected):
+    provider = live_provider(fake_live_client(**client_kwargs))
+
+    with pytest.raises(RuntimeError) as raised:
+        asyncio.run(stream_all(provider, [PCM_CHUNK]))
+
+    message = str(raised.value)
+    assert message.startswith(expected)
+    for secret in (TEST_KEY, "capture.pcm", "secret transcript", "Alex"):
+        assert secret not in message
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+
+
+def test_live_transcriber_imports_sdk_lazily_and_reports_missing_extra(monkeypatch):
+    def missing_sdk():
+        raise ImportError("No module named 'google.genai'")
+
+    monkeypatch.setattr(gemini_module, "_import_genai", missing_sdk)
+    provider = GeminiLiveTranscriber(LIVE_MODEL, TEST_KEY, 30)
+
+    with pytest.raises(RuntimeError, match=r"meeting-wiki\[gemini\]"):
+        asyncio.run(stream_all(provider, []))
+    assert provider.health() == (False, "install meeting-wiki[gemini]")
+
+
+def test_live_default_client_uses_exact_api_key_and_timeout(fake_sdk_types, monkeypatch):
+    constructed = []
+    client = fake_live_client()
+
+    def client_class(**kwargs):
+        constructed.append(kwargs)
+        return client
+
+    monkeypatch.setattr(
+        gemini_module, "_import_genai", lambda: SimpleNamespace(Client=client_class)
+    )
+
+    asyncio.run(stream_all(GeminiLiveTranscriber(LIVE_MODEL, TEST_KEY, 2.5), []))
+
+    assert constructed == [{"api_key": TEST_KEY, "http_options": {"timeout": 2500}}]
+
+
+def test_live_health_is_local_and_sends_nothing(monkeypatch):
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace(Client=object))
+
+    assert live_provider().health() == (True, f"Gemini SDK ready ({LIVE_MODEL})")
+    assert live_provider(api_key="").health() == (False, "Gemini API key is not set")
+
+
+def live_gemini_config(**providers):
+    return AppConfig.model_validate(
+        {
+            "providers": providers,
+            "live": {"allow_external_providers": True},
+            "gemini": {"live_model": LIVE_MODEL},
+        }
+    )
+
+
+def test_registry_builds_gemini_live_transcriber_with_configured_secret(monkeypatch):
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+
+    bundle = build_providers(live_gemini_config(live_transcription="gemini"))
+
+    assert isinstance(bundle.live_transcription, GeminiLiveTranscriber)
+    assert bundle.live_transcription.api_key == TEST_KEY
+    assert bundle.live_transcription.model == LIVE_MODEL
+    assert isinstance(bundle.transcription, MLXWhisperTranscriber)
+
+
+def test_registry_reads_only_the_configured_gemini_key_env_for_live(monkeypatch):
+    monkeypatch.delenv("MEETING_WIKI_GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider-key")
+    monkeypatch.setenv("TEST_CUSTOM_GEMINI_KEY", TEST_KEY)
+    config = live_gemini_config(live_transcription="gemini")
+
+    with pytest.raises(RuntimeError, match="'MEETING_WIKI_GEMINI_API_KEY' is not set"):
+        build_providers(config)
+
+    custom = config.model_copy(
+        update={
+            "gemini": config.gemini.model_copy(update={"api_key_env": "TEST_CUSTOM_GEMINI_KEY"})
+        }
+    )
+    assert build_providers(custom).live_transcription.api_key == TEST_KEY
+
+
+def test_live_payloads_validate_against_installed_sdk_types():
+    sdk_types = pytest.importorskip("google.genai.types")
+    sdk_session = FakeLiveSession()
+    client = fake_live_client(sdk_session)
+
+    asyncio.run(stream_all(live_provider(client), [PCM_CHUNK], "en"))
+
+    config = sdk_types.LiveConnectConfig(**client.aio.live.calls[0]["config"])
+    assert config.input_audio_transcription.language_codes == ["en"]
+    blob = sdk_session.sent[0]["audio"]
+    assert isinstance(blob, sdk_types.Blob)
+    assert (blob.data, blob.mime_type) == (PCM_CHUNK, "audio/pcm;rate=16000")
+    message = sdk_types.LiveServerMessage(
+        server_content=sdk_types.LiveServerContent(
+            interim_input_transcription=sdk_types.Transcription(text="hel"),
+            input_transcription=sdk_types.Transcription(text="hello"),
+        )
+    )
+    assert gemini_module._transcript_events(message) == [
+        LiveTranscriptEvent(LiveTranscriptKind.INTERIM, "hel"),
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "hello"),
+    ]
