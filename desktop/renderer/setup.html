@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Set up Meeting Wiki</title>
+    <link rel="stylesheet" href="setup.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#setup-main">Skip to setup</a>
+
+    <div class="setup-shell">
+      <header class="setup-head">
+        <p class="wordmark">Meeting Wiki <span class="wordmark-sub">first-run setup</span></p>
+        <ol class="steps" aria-label="Setup progress">
+          <li class="step" data-step="choose" aria-current="step"><span class="step-index">1</span> Choose a path</li>
+          <li class="step" data-step="configure"><span class="step-index">2</span> Configure</li>
+          <li class="step" data-step="confirm"><span class="step-index">3</span> Confirm</li>
+        </ol>
+      </header>
+
+      <main id="setup-main" class="setup-main" tabindex="-1">
+        <div id="bridge-missing" class="notice notice-error" role="alert" hidden>
+          Setup cannot reach the app. Close this window and reopen Meeting Wiki.
+        </div>
+
+        <!-- Step 1: choose a processing path -->
+        <section id="panel-choose" class="panel" aria-labelledby="choose-heading" tabindex="-1">
+          <h1 id="choose-heading" class="display">Where should your meetings be processed?</h1>
+          <p class="lede">
+            Recordings, transcripts, and your wiki are stored on this Mac either way. This choice decides
+            which service turns audio into text and summaries.
+          </p>
+
+          <form id="choose-form" novalidate>
+            <fieldset class="paths">
+              <legend class="visually-hidden">Processing path</legend>
+
+              <label class="path-card" for="mode-online">
+                <input type="radio" id="mode-online" name="mode" value="online" aria-describedby="mode-online-desc" />
+                <span class="path-body">
+                  <span class="path-title">Online API key <span class="tag">Recommended</span></span>
+                  <span id="mode-online-desc" class="path-desc">
+                    Use an OpenAI-compatible provider. Fast setup, no large downloads. Audio and transcript
+                    text are sent to the provider you choose.
+                  </span>
+                </span>
+              </label>
+
+              <label class="path-card" for="mode-local">
+                <input type="radio" id="mode-local" name="mode" value="local" aria-describedby="mode-local-desc" />
+                <span class="path-body">
+                  <span class="path-title">Local only</span>
+                  <span id="mode-local-desc" class="path-desc">
+                    Download models and process everything on this Mac. Needs disk space and works offline once
+                    models are installed.
+                  </span>
+                </span>
+              </label>
+            </fieldset>
+
+            <p id="choose-error" class="field-error" hidden></p>
+
+            <div class="actions">
+              <button type="submit" class="button button-primary" id="choose-continue">Continue</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Step 2a: online provider -->
+        <section id="panel-online" class="panel" aria-labelledby="online-heading" tabindex="-1" hidden>
+          <h1 id="online-heading" class="display">Connect an online provider</h1>
+          <p class="lede">
+            Any OpenAI-compatible endpoint works. Your API key is saved in the macOS Keychain and is not shown
+            again after you save it.
+          </p>
+
+          <form id="online-form" novalidate>
+            <div class="field">
+              <label for="online-base-url">Endpoint URL</label>
+              <input
+                id="online-base-url"
+                name="baseUrl"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                value="https://api.openai.com/v1"
+                aria-describedby="online-base-url-hint online-base-url-error"
+              />
+              <p id="online-base-url-hint" class="hint">Must use https, unless the server runs on this Mac.</p>
+              <p id="online-base-url-error" class="field-error" hidden></p>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="online-transcription-model">Transcription model</label>
+                <input
+                  id="online-transcription-model"
+                  name="transcriptionModel"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                  value="whisper-1"
+                  aria-describedby="online-transcription-model-error"
+                />
+                <p id="online-transcription-model-error" class="field-error" hidden></p>
+              </div>
+
+              <div class="field">
+                <label for="online-language-model">Summary and translation model</label>
+                <input
+                  id="online-language-model"
+                  name="languageModel"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                  placeholder="Model name from your provider"
+                  aria-describedby="online-language-model-error"
+                />
+                <p id="online-language-model-error" class="field-error" hidden></p>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="online-api-key">API key</label>
+              <input
+                id="online-api-key"
+                name="apiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                aria-describedby="online-api-key-hint online-api-key-error"
+              />
+              <p id="online-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs.</p>
+              <p id="online-api-key-error" class="field-error" hidden></p>
+            </div>
+
+            <div class="consent">
+              <input id="online-egress-ack" name="egressAck" type="checkbox" aria-describedby="online-egress-ack-error" />
+              <label for="online-egress-ack">
+                I understand that meeting audio and transcript text will be sent to
+                <span class="host-ref" data-host-ref>the provider above</span> whenever I record.
+              </label>
+            </div>
+            <p id="online-egress-ack-error" class="field-error" hidden></p>
+
+            <p id="online-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="button" class="button button-quiet" data-back="choose">Back</button>
+              <button type="submit" class="button button-primary" id="online-save">Save and test connection</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Step 2b: local models -->
+        <section id="panel-local" class="panel" aria-labelledby="local-heading" tabindex="-1" hidden>
+          <h1 id="local-heading" class="display">Install local models</h1>
+          <p class="lede">
+            Local only mode needs no API key. After the models below are installed, recording, transcription,
+            translation, and summaries run without a network connection.
+          </p>
+
+          <ul class="local-facts">
+            <li>Models come from third-party registries and carry their own licenses.</li>
+            <li>Downloads can be several gigabytes. Each model shows its size and source before you start.</li>
+            <li>Processing speed depends on this Mac. Long meetings can take a while to summarize.</li>
+          </ul>
+
+          <h2 class="subhead" id="models-heading">Models</h2>
+          <div id="models-list" class="models" aria-labelledby="models-heading" aria-busy="true">
+            <p class="list-empty">Loading available models.</p>
+          </div>
+
+          <p id="local-status" class="status" role="status" aria-live="polite"></p>
+
+          <div class="actions">
+            <button type="button" class="button button-quiet" data-back="choose">Back</button>
+            <button type="button" class="button button-primary" id="local-continue" disabled aria-describedby="local-continue-hint">
+              Continue
+            </button>
+          </div>
+          <p id="local-continue-hint" class="hint hint-actions">Available after the required models are installed.</p>
+        </section>
+
+        <!-- Step 3: confirm -->
+        <section id="panel-confirm" class="panel" aria-labelledby="confirm-heading" tabindex="-1" hidden>
+          <h1 id="confirm-heading" class="display">Review and finish</h1>
+          <dl id="confirm-summary" class="summary"></dl>
+
+          <p id="confirm-status" class="status" role="status" aria-live="polite"></p>
+
+          <div class="actions">
+            <button type="button" class="button button-quiet" id="confirm-back">Back</button>
+            <button type="button" class="button button-primary" id="confirm-finish">Finish setup</button>
+          </div>
+        </section>
+
+        <!-- Done -->
+        <section id="panel-done" class="panel" aria-labelledby="done-heading" tabindex="-1" hidden>
+          <h1 id="done-heading" class="display">Setup saved</h1>
+          <p class="lede">
+            Meeting Wiki is ready to record. You can change providers later in Settings, which runs a new
+            connection check first.
+          </p>
+        </section>
+      </main>
+
+      <aside class="boundary" id="boundary" data-mode="undecided" aria-labelledby="boundary-heading">
+        <h2 id="boundary-heading" class="boundary-title">Data boundary</h2>
+
+        <div class="enclosure">
+          <p class="enclosure-label">This Mac</p>
+          <ul class="keeps">
+            <li>Meeting audio files</li>
+            <li>Transcripts and the Markdown wiki</li>
+            <li>Private meetings</li>
+            <li>Job queue and search cache</li>
+            <li>API key, in the Keychain</li>
+          </ul>
+          <p class="store-path">
+            <span class="store-path-label">Stored in</span>
+            <code id="boundary-storage">~/.meeting-wiki/</code>
+          </p>
+          <span class="port" aria-hidden="true"></span>
+        </div>
+
+        <div class="crossing" aria-hidden="true"></div>
+
+        <div class="outside" id="boundary-outside">
+          <p class="outside-undecided">Choose a path to see what leaves this Mac.</p>
+
+          <div class="outside-online">
+            <p class="outside-label">Leaves this Mac while recording</p>
+            <ul class="sends">
+              <li>Meeting audio, for transcription</li>
+              <li>Transcript text, for translation and summaries</li>
+            </ul>
+            <p class="dest">
+              <span class="dest-label">Sent to</span>
+              <code id="boundary-host">api.openai.com</code>
+            </p>
+            <p id="boundary-loopback" class="dest-note" hidden>
+              This endpoint runs on this Mac. Data stays local unless that server forwards it elsewhere.
+            </p>
+            <p class="dest-note">The provider's own privacy terms apply to what it receives.</p>
+          </div>
+
+          <div class="outside-local">
+            <p class="outside-label">Leaves this Mac</p>
+            <p class="sealed">Nothing. Meeting content is processed on this Mac.</p>
+            <p class="dest-note">Model downloads contact the listed model source once, before first use.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <p id="announcer" class="visually-hidden" role="status" aria-live="polite"></p>
+    <script src="setup.js" defer></script>
+  </body>
+</html>
