@@ -40,3 +40,25 @@ def test_loopback_bridge_uses_an_ephemeral_local_port():
         return port
 
     assert asyncio.run(run()) > 0
+
+
+def test_ollama_live_language_provider_uses_chinese_target(monkeypatch):
+    from meeting_wiki.providers.live import OllamaLiveLanguageProvider
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "中文翻译"}}
+
+    def fake_post(url, json, timeout):
+        captured.update({"url": url, "json": json, "timeout": timeout})
+        return Response()
+
+    monkeypatch.setattr("meeting_wiki.providers.live.httpx.post", fake_post)
+    provider = OllamaLiveLanguageProvider("http://127.0.0.1:11434", "qwen3:8b", 30)
+    assert provider.translate("Hello", "zh") == "中文翻译"
+    assert "Chinese" in captured["json"]["messages"][0]["content"]
