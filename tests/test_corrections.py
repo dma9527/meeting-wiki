@@ -101,9 +101,7 @@ class _FakeTask:
 def _transcript() -> TranscriptResult:
     return TranscriptResult(
         text=(
-            f"Local User: I will own the rollout.\n"
-            f"Remote participant: {REMOTE_TEXT}\n"
-            "spk_1: Noted."
+            f"Local User: I will own the rollout.\nRemote participant: {REMOTE_TEXT}\nspk_1: Noted."
         ),
         segments=[
             TranscriptSegment(speaker="Local User", text="I will own the rollout."),
