@@ -39,6 +39,7 @@
       "wiki-store.js",
       "corrections-client.js",
       "preload.js",
+      "secret-store.js",
       "renderer/**"
     ],
     "asarUnpack": ["node_modules/audiotee/**"]

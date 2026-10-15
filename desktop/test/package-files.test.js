@@ -18,6 +18,7 @@ test("build.files lists every runtime source file that must ship", () => {
     "wiki-store.js",
     "corrections-client.js",
     "preload.js",
+    "secret-store.js",
     "renderer/**",
   ];
   for (const entry of required) {
