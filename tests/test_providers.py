@@ -156,3 +156,21 @@ def test_live_provider_selection_rejects_unknown_provider():
     config = AppConfig.model_validate({"providers": {"live_language": "unknown"}})
     with pytest.raises(ValueError, match="Unknown live language provider"):
         validate_live_provider_selection(config)
+
+
+def test_live_provider_selection_accepts_gemini():
+    from meeting_wiki.config import AppConfig
+    from meeting_wiki.providers.registry import validate_live_provider_selection
+
+    config = AppConfig.model_validate(
+        {
+            "providers": {"live_transcription": "gemini", "live_language": "gemini"},
+            "live": {"allow_external_providers": True},
+            "gemini": {
+                "batch_audio_model": "gemini-3.5-transcribe",
+                "live_model": "gemini-3.5-transcribe-live",
+                "language_model": "gemini-test-language",
+            },
+        }
+    )
+    validate_live_provider_selection(config)

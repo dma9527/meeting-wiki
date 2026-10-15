@@ -38,11 +38,15 @@ class ProviderBundle:
 
 
 def validate_live_provider_selection(config: AppConfig) -> None:
-    if config.providers.live_transcription not in {"chunked_mlx_whisper", "openai_compatible"}:
+    if config.providers.live_transcription not in {
+        "chunked_mlx_whisper",
+        "openai_compatible",
+        "gemini",
+    }:
         raise ValueError(
             f"Unknown live transcription provider: {config.providers.live_transcription}"
         )
-    if config.providers.live_language not in {"ollama", "openai_compatible"}:
+    if config.providers.live_language not in {"ollama", "openai_compatible", "gemini"}:
         raise ValueError(f"Unknown live language provider: {config.providers.live_language}")
 
 

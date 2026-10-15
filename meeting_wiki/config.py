@@ -25,6 +25,13 @@ class ProviderSelection(BaseModel):
     notification: str = "macos"
     task: str = "none"
 
+    @model_validator(mode="after")
+    def restrict_gemini_to_supported_capabilities(self) -> ProviderSelection:
+        for field in ("storage", "calendar", "notification", "task"):
+            if getattr(self, field) == "gemini":
+                raise ValueError(f"providers.{field} does not support gemini")
+        return self
+
 
 class MLXWhisperConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -68,6 +75,15 @@ class OpenAITranscriptionConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     model: str = "whisper-1"
     api_key_env: str = "OPENAI_API_KEY"
+    timeout_seconds: float = Field(default=600, gt=0, le=1800)
+
+
+class GeminiConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    api_key_env: str = "MEETING_WIKI_GEMINI_API_KEY"
+    batch_audio_model: str = ""
+    live_model: str = ""
+    language_model: str = ""
     timeout_seconds: float = Field(default=600, gt=0, le=1800)
 
 
@@ -149,6 +165,7 @@ class AppConfig(BaseModel):
     openai_transcription: OpenAITranscriptionConfig = Field(
         default_factory=OpenAITranscriptionConfig
     )
+    gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     s3: S3Config = Field(default_factory=S3Config)
     ics: ICSConfig = Field(default_factory=ICSConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
@@ -166,8 +183,28 @@ class AppConfig(BaseModel):
             self.providers.live_transcription == "openai_compatible"
             or self.providers.live_language == "openai_compatible"
         ) and not is_loopback_url(self.openai_compatible.base_url)
-        if uses_external_endpoint and not self.live.allow_external_providers:
+        uses_gemini = "gemini" in {
+            self.providers.live_transcription,
+            self.providers.live_language,
+        }
+        if (uses_external_endpoint or uses_gemini) and not self.live.allow_external_providers:
             raise ValueError("live external providers require allow_external_providers = true")
+        return self
+
+    @model_validator(mode="after")
+    def require_gemini_models(self) -> AppConfig:
+        required = {
+            "transcription": "batch_audio_model",
+            "live_transcription": "live_model",
+            "llm": "language_model",
+            "live_language": "language_model",
+        }
+        for capability, model_field in required.items():
+            selected = getattr(self.providers, capability) == "gemini"
+            if selected and not getattr(self.gemini, model_field).strip():
+                raise ValueError(
+                    f"providers.{capability} = gemini requires a nonempty gemini.{model_field}"
+                )
         return self
 
     def secret(self, env_name: str) -> str:

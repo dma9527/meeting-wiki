@@ -100,3 +100,31 @@ def test_live_external_provider_requires_explicit_opt_in():
         }
     )
     assert config.live.allow_external_providers is True
+
+
+def test_gemini_all_capability_selection_requires_models_and_live_egress_opt_in():
+    valid = {
+        "providers": {
+            "transcription": "gemini",
+            "llm": "gemini",
+            "live_transcription": "gemini",
+            "live_language": "gemini",
+        },
+        "live": {"allow_external_providers": True},
+        "gemini": {
+            "api_key_env": "MEETING_WIKI_GEMINI_API_KEY",
+            "batch_audio_model": "gemini-3.5-transcribe",
+            "live_model": "gemini-3.5-transcribe-live",
+            "language_model": "gemini-test-language",
+        },
+    }
+    config = AppConfig.model_validate(valid)
+    assert config.gemini.api_key_env == "MEETING_WIKI_GEMINI_API_KEY"
+
+    missing_language_model = {**valid, "gemini": {**valid["gemini"], "language_model": ""}}
+    with pytest.raises(ValueError, match="language_model"):
+        AppConfig.model_validate(missing_language_model)
+
+    missing_live_opt_in = {**valid, "live": {"allow_external_providers": False}}
+    with pytest.raises(ValueError, match="allow_external_providers"):
+        AppConfig.model_validate(missing_live_opt_in)
