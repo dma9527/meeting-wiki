@@ -39,6 +39,8 @@
       "wiki-store.js",
       "corrections-client.js",
       "preload.js",
+      "setup-window.js",
+      "setup-preload.js",
       "secret-store.js",
       "renderer/**"
     ],

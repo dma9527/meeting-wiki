@@ -2,13 +2,16 @@
 
 const { execFile } = require("child_process");
 
-function executeCli(python, configPath, args, execFileFn = execFile) {
+// `env` is an optional per-child environment; omitted means inherit the parent's.
+function executeCli(python, configPath, args, execFileFn = execFile, env = undefined) {
   const commandArgs = ["-m", "meeting_wiki.cli", "--config", configPath, ...args];
+  const options = { encoding: "utf8", maxBuffer: 1024 * 1024 };
+  if (env) options.env = env;
   return new Promise((resolve) => {
     execFileFn(
       python,
       commandArgs,
-      { encoding: "utf8", maxBuffer: 1024 * 1024 },
+      options,
       (error, stdout, stderr) => {
         resolve({
           ok: !error,
@@ -41,8 +44,8 @@ function formatQueueLabel(summary) {
   return "No meetings yet";
 }
 
-async function readQueueStatus(python, configPath, execFileFn = execFile) {
-  const result = await executeCli(python, configPath, ["status", "--summary"], execFileFn);
+async function readQueueStatus(python, configPath, execFileFn = execFile, env = undefined) {
+  const result = await executeCli(python, configPath, ["status", "--summary"], execFileFn, env);
   if (!result.ok) throw new Error("Unable to read processing status");
   const summary = parseJson(result.stdout, "Status command");
   for (const field of ["total", "active", "action_required"]) {
@@ -53,12 +56,13 @@ async function readQueueStatus(python, configPath, execFileFn = execFile) {
   return summary;
 }
 
-async function retryDeadJobs(python, configPath, execFileFn = execFile) {
+async function retryDeadJobs(python, configPath, execFileFn = execFile, env = undefined) {
   const listResult = await executeCli(
     python,
     configPath,
     ["status", "--state", "dead"],
     execFileFn,
+    env,
   );
   if (!listResult.ok) throw new Error("Unable to list failed jobs");
   const jobs = parseJson(listResult.stdout, "Status command");
@@ -71,6 +75,7 @@ async function retryDeadJobs(python, configPath, execFileFn = execFile) {
       configPath,
       ["retry", String(job.id)],
       execFileFn,
+      env,
     );
     if (!retryResult.ok) throw new Error(`Unable to retry job ${job.id}`);
     retried += 1;
@@ -78,8 +83,8 @@ async function retryDeadJobs(python, configPath, execFileFn = execFile) {
   return retried;
 }
 
-async function readDoctorStatus(python, configPath, execFileFn = execFile) {
-  const result = await executeCli(python, configPath, ["doctor"], execFileFn);
+async function readDoctorStatus(python, configPath, execFileFn = execFile, env = undefined) {
+  const result = await executeCli(python, configPath, ["doctor"], execFileFn, env);
   return {
     ok: result.ok,
     text: result.stdout || result.stderr || "No health details available.",

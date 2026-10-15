@@ -1,0 +1,456 @@
+"use strict";
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("events");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const { createSecretStore } = require("../secret-store");
+const setup = require("../setup-window");
+
+const TEST_KEY = "test-online-key-not-real-0000";
+const VALID_SETTINGS = Object.freeze({
+  baseUrl: "https://provider.example.test/v1",
+  transcriptionModel: "test-transcribe-1",
+  languageModel: "test-language-1",
+  apiKey: TEST_KEY,
+  acknowledgedEgress: true,
+});
+
+function tempDataDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "meeting-wiki-setup-"));
+}
+
+function fakeSafeStorage() {
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(`enc:${Buffer.from(value).toString("hex")}`),
+    decryptString: (value) => Buffer.from(value.toString().slice(4), "hex").toString(),
+  };
+}
+
+function fakeSpawn({ code = 0, stdout = "" } = {}) {
+  const calls = [];
+  const spawnFn = (command, args, options) => {
+    calls.push({ command, args, env: { ...options.env }, liveEnv: options.env });
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => {
+      if (stdout) child.stdout.emit("data", Buffer.from(stdout));
+      child.emit("close", code);
+    });
+    return child;
+  };
+  return { spawnFn, calls };
+}
+
+function controllerFor(dataDir, spawnOptions) {
+  const python = path.join(dataDir, "python");
+  fs.writeFileSync(python, "", { mode: 0o700 });
+  const spawn = fakeSpawn(spawnOptions);
+  const completed = [];
+  const baseEnv = { PATH: "/usr/bin" };
+  const controller = setup.createSetupController({
+    fs,
+    secretStore: createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") }),
+    dataDir,
+    configPath: path.join(dataDir, "config.toml"),
+    python,
+    spawnFn: spawn.spawnFn,
+    baseEnv,
+    now: () => new Date("2026-01-01T00:00:00Z"),
+    onComplete: (mode) => completed.push(mode),
+  });
+  return { controller, spawn, completed, baseEnv };
+}
+
+function mode(filePath) {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
+function filesUnder(dir) {
+  return fs.readdirSync(dir).map((name) => fs.readFileSync(path.join(dir, name), "utf8"));
+}
+
+test("validation requires egress acknowledgement, https, safe model names, and a clean key", () => {
+  const cases = [
+    [{ acknowledgedEgress: false }, /Confirm that meeting data/],
+    [{ acknowledgedEgress: "true" }, /Confirm that meeting data/],
+    [{ baseUrl: "http://provider.example.test/v1" }, /https/],
+    [{ baseUrl: "https://user:pass@provider.example.test/v1" }, /username or password/],
+    [{ baseUrl: "https://provider.example.test/v1?token=x" }, /query string/],
+    [{ transcriptionModel: 'bad"model' }, /transcription model/],
+    [{ languageModel: "" }, /summary and translation model/],
+    [{ apiKey: "has space" }, /API key/],
+    [{ apiKey: "line\nbreak" }, /API key/],
+  ];
+  for (const [override, pattern] of cases) {
+    assert.throws(
+      () => setup.validateOnlineSettings({ ...VALID_SETTINGS, ...override }),
+      (error) => error instanceof setup.SetupError && pattern.test(error.message) && !error.message.includes(TEST_KEY),
+    );
+  }
+  const loopback = setup.validateOnlineSettings({ ...VALID_SETTINGS, baseUrl: "http://127.0.0.1:8080/v1/" });
+  assert.equal(loopback.settings.baseUrl, "http://127.0.0.1:8080/v1");
+  assert.equal(loopback.settings.loopback, true);
+});
+
+test("tomlString escapes quotes, backslashes, and control characters", () => {
+  assert.equal(setup.tomlString('a"b\\c\n'), '"a\\"b\\\\c\\u000a"');
+});
+
+test("saveOnlineProvider stores the key encrypted and writes only its env name to TOML", () => {
+  const dataDir = tempDataDir();
+  const { controller } = controllerFor(dataDir);
+
+  const result = controller.saveOnlineProvider({ ...VALID_SETTINGS });
+
+  assert.deepEqual(result, { ok: true });
+  const configPath = path.join(dataDir, "config.toml");
+  const config = fs.readFileSync(configPath, "utf8");
+  assert.ok(config.startsWith(setup.MANAGED_HEADER));
+  assert.match(config, /^api_key_env = "MEETING_WIKI_ONLINE_API_KEY"$/m);
+  assert.match(config, /^base_url = "https:\/\/provider\.example\.test\/v1"$/m);
+  assert.match(config, /^model = "test-transcribe-1"$/m);
+  assert.match(config, /^model = "test-language-1"$/m);
+  assert.equal(mode(configPath), 0o600);
+  assert.equal(mode(dataDir), 0o700);
+  for (const content of filesUnder(dataDir)) assert.ok(!content.includes(TEST_KEY), "plaintext key on disk");
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
+});
+
+test("saveOnlineProvider backs up a hand-written config owner-only before replacing it", () => {
+  const dataDir = tempDataDir();
+  const configPath = path.join(dataDir, "config.toml");
+  fs.writeFileSync(configPath, 'user_name = "Test User"\n', { mode: 0o600 });
+  const { controller } = controllerFor(dataDir);
+
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+
+  const backups = fs.readdirSync(dataDir).filter((name) => name.startsWith("config.toml.before-setup-"));
+  assert.equal(backups.length, 1);
+  const backupPath = path.join(dataDir, backups[0]);
+  assert.equal(fs.readFileSync(backupPath, "utf8"), 'user_name = "Test User"\n');
+  assert.equal(mode(backupPath), 0o600);
+
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  assert.equal(fs.readdirSync(dataDir).filter((name) => name.startsWith("config.toml.before-setup-")).length, 1);
+});
+
+test("saveOnlineProvider writes nothing when Keychain encryption is unavailable", () => {
+  const dataDir = tempDataDir();
+  const controller = setup.createSetupController({
+    fs,
+    secretStore: createSecretStore({
+      safeStorage: { isEncryptionAvailable: () => false },
+      fs,
+      filePath: path.join(dataDir, "secrets.json"),
+    }),
+    dataDir,
+    configPath: path.join(dataDir, "config.toml"),
+    python: "/nonexistent/python",
+    spawnFn: () => assert.fail("spawn must not run"),
+  });
+  assert.throws(() => controller.saveOnlineProvider({ ...VALID_SETTINGS }), /Keychain encryption is unavailable/);
+  assert.deepEqual(fs.readdirSync(dataDir), []);
+});
+
+test("testOnlineProvider injects the key only into the checker child environment", async () => {
+  const dataDir = tempDataDir();
+  const { controller, spawn, baseEnv } = controllerFor(dataDir, { code: 0, stdout: "OK transcription: ok\nOK llm: ok\n" });
+
+  await assert.rejects(async () => controller.testOnlineProvider(), /Save the provider settings/);
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  const result = await controller.testOnlineProvider();
+
+  assert.equal(result.ok, true);
+  assert.ok(!JSON.stringify(result).includes(TEST_KEY));
+  assert.equal(spawn.calls.length, 1);
+  const [call] = spawn.calls;
+  assert.equal(call.env.MEETING_WIKI_ONLINE_API_KEY, TEST_KEY);
+  assert.equal(call.env.PATH, "/usr/bin");
+  assert.deepEqual(call.args, ["-m", "meeting_wiki.cli", "--config", path.join(dataDir, "config.toml"), "doctor"]);
+  assert.ok(!call.args.some((arg) => arg.includes(TEST_KEY)));
+  assert.equal("MEETING_WIKI_ONLINE_API_KEY" in call.liveEnv, false, "key not discarded after check");
+  assert.equal("MEETING_WIKI_ONLINE_API_KEY" in baseEnv, false);
+  assert.equal("MEETING_WIKI_ONLINE_API_KEY" in process.env, false);
+});
+
+test("a failed check reports only provider FAIL lines with the key redacted", async () => {
+  const dataDir = tempDataDir();
+  const stdout = `OK storage: ${dataDir}\nFAIL llm: 401 for key ${TEST_KEY}\nFAIL transcription: ConnectError\n`;
+  const { controller } = controllerFor(dataDir, { code: 1, stdout });
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+
+  const result = await controller.testOnlineProvider();
+
+  assert.equal(result.ok, undefined);
+  assert.ok(!result.error.includes(TEST_KEY));
+  assert.ok(!result.error.includes(dataDir));
+  assert.match(result.error, /FAIL llm: 401 for key \[redacted\]/);
+  assert.match(result.error, /FAIL transcription: ConnectError/);
+  assert.throws(() => controller.completeSetup({ mode: "online" }), /Test the provider connection/);
+});
+
+test("runProviderCheck kills a hung checker and still discards the key", async () => {
+  let killed = "";
+  let liveEnv;
+  const spawnFn = (_command, _args, options) => {
+    liveEnv = options.env;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = (signal) => { killed = signal; };
+    return child;
+  };
+  const result = await setup.runProviderCheck({
+    spawnFn,
+    python: "/test/python",
+    configPath: "/test/config.toml",
+    apiKey: TEST_KEY,
+    baseEnv: {},
+    timeoutMs: 10,
+  });
+  assert.match(result.error, /did not respond/);
+  assert.equal(killed, "SIGKILL");
+  assert.equal("MEETING_WIKI_ONLINE_API_KEY" in liveEnv, false);
+});
+
+test("completeSetup requires a passing online test and records completion", async () => {
+  const dataDir = tempDataDir();
+  const configPath = path.join(dataDir, "config.toml");
+  const { controller, completed } = controllerFor(dataDir, { code: 0 });
+  assert.equal(setup.needsSetup(fs, dataDir, configPath), true);
+
+  assert.throws(() => controller.completeSetup({ mode: "online" }), /Test the provider connection/);
+  assert.throws(() => controller.completeSetup({ mode: "other" }), /Choose a setup path/);
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  assert.deepEqual(controller.completeSetup({ mode: "online" }), { ok: true });
+
+  assert.deepEqual(completed, ["online"]);
+  const statePath = path.join(dataDir, "setup-state.json");
+  assert.equal(mode(statePath), 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).mode, "online");
+  assert.equal(setup.needsSetup(fs, dataDir, configPath), false);
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online" });
+});
+
+test("needsSetup treats a pre-existing hand-written config as configured", () => {
+  const dataDir = tempDataDir();
+  const configPath = path.join(dataDir, "config.toml");
+  fs.writeFileSync(configPath, 'user_name = "Test User"\n');
+  assert.equal(setup.needsSetup(fs, dataDir, configPath), false);
+  fs.writeFileSync(configPath, `${setup.MANAGED_HEADER}\n`);
+  assert.equal(setup.needsSetup(fs, dataDir, configPath), true);
+});
+
+test("local model actions return a safe not-yet-available status", () => {
+  const dataDir = tempDataDir();
+  const { controller, completed } = controllerFor(dataDir);
+  assert.deepEqual(controller.listLocalModels(), []);
+  assert.deepEqual(controller.downloadLocalModel("any-model"), { error: setup.LOCAL_UNAVAILABLE });
+  assert.throws(() => controller.completeSetup({ mode: "local" }), /not yet available/);
+  assert.deepEqual(completed, []);
+});
+
+test("IPC handlers reject other senders and hide unexpected error details", async () => {
+  const handlers = new Map();
+  const ipcMain = { handle: (channel, fn) => handlers.set(channel, fn) };
+  const controller = {
+    getSetupState: () => ({ storagePath: "/test" }),
+    saveOnlineProvider: () => { throw new Error(`/secret/path ${TEST_KEY}`); },
+    testOnlineProvider: () => ({ ok: true }),
+    listLocalModels: () => [],
+    downloadLocalModel: () => ({ error: "x" }),
+    completeSetup: () => ({ ok: true }),
+  };
+  const trusted = { trusted: true };
+  setup.registerSetupHandlers(ipcMain, () => controller, (event) => event === trusted);
+
+  const expected = Object.entries(setup.CHANNELS)
+    .filter(([name]) => name !== "localModelProgress")
+    .map(([, channel]) => channel)
+    .sort();
+  assert.deepEqual([...handlers.keys()].sort(), expected);
+
+  assert.deepEqual(await handlers.get(setup.CHANNELS.getSetupState)({}), {
+    error: "This request did not come from the setup window.",
+  });
+  assert.deepEqual(await handlers.get(setup.CHANNELS.getSetupState)(trusted), { storagePath: "/test" });
+  assert.deepEqual(await handlers.get(setup.CHANNELS.saveOnlineProvider)(trusted, {}), {
+    error: "Setup could not complete this step.",
+  });
+});
+
+function fakeElectron() {
+  const windows = [];
+  class BrowserWindow extends EventEmitter {
+    constructor(options) {
+      super();
+      this.options = options;
+      this.destroyed = false;
+      this.handlers = {};
+      this.webContents = {
+        on: (name, fn) => { this.handlers[name] = fn; },
+        setWindowOpenHandler: (fn) => { this.openHandler = fn; },
+      };
+      windows.push(this);
+    }
+    isDestroyed() { return this.destroyed; }
+    isVisible() { return false; }
+    show() {}
+    focus() {}
+    loadFile(file) { this.loadedFile = file; }
+    static getAllWindows() { return windows.filter((window) => !window.destroyed); }
+  }
+  const handlers = new Map();
+  return {
+    windows,
+    handlers,
+    electron: {
+      app: { dock: { show() {}, hide() {} } },
+      BrowserWindow,
+      ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
+    },
+  };
+}
+
+test("setup window uses the same hardening as the wiki window and loads only setup.html", async () => {
+  const wikiFake = fakeElectron();
+  require("../wiki-window").createWikiWindow(wikiFake.electron, { dataDir: tempDataDir(), python: "", configPath: "" });
+  const setupFake = fakeElectron();
+  const dataDir = tempDataDir();
+  const win = setup.createSetupWindow(setupFake.electron, {
+    fs,
+    secretStore: { save() {}, read: () => "" },
+    dataDir,
+    configPath: path.join(dataDir, "config.toml"),
+    python: "/nonexistent/python",
+    spawnFn: () => assert.fail("spawn must not run"),
+  });
+
+  const { preload: wikiPreload, ...wikiPrefs } = wikiFake.windows[0].options.webPreferences;
+  const { preload: setupPreload, ...setupPrefs } = win.options.webPreferences;
+  assert.deepEqual(setupPrefs, wikiPrefs);
+  assert.equal(setupPrefs.sandbox, true);
+  assert.equal(setupPrefs.contextIsolation, true);
+  assert.equal(setupPrefs.nodeIntegration, false);
+  assert.equal(path.basename(wikiPreload), "preload.js");
+  assert.equal(setupPreload, path.join(__dirname, "..", "setup-preload.js"));
+  assert.equal(win.loadedFile, path.join(__dirname, "..", "renderer", "setup.html"));
+
+  for (const name of ["will-navigate", "will-attach-webview"]) {
+    let prevented = false;
+    win.handlers[name]({ preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true, `${name} is not denied`);
+  }
+  assert.deepEqual(win.openHandler({ url: "https://example.test" }), { action: "deny" });
+
+  const getState = setupFake.handlers.get(setup.CHANNELS.getSetupState);
+  const setupUrl = require("url").pathToFileURL(path.join(__dirname, "..", "renderer", "setup.html")).href;
+  assert.deepEqual(await getState({ sender: win.webContents, senderFrame: { url: setupUrl } }), { storagePath: dataDir });
+  assert.match((await getState({ sender: win.webContents, senderFrame: { url: "https://evil.test/" } })).error, /setup window/);
+  assert.match((await getState({ sender: {}, senderFrame: { url: setupUrl } })).error, /setup window/);
+});
+
+test("setup main-process code never logs", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "setup-window.js"), "utf8");
+  assert.doesNotMatch(source, /console\.|process\.stdout|process\.stderr/);
+});
+
+const REPO_PYTHON = path.join(__dirname, "..", "..", ".venv", "bin", "python");
+const LOAD_CONFIG_SCRIPT = [
+  "import sys",
+  "from pathlib import Path",
+  "from meeting_wiki.config import load_config",
+  "config = load_config(Path(sys.argv[1]))",
+  "print(config.providers.live_transcription, config.providers.live_language, config.live.allow_external_providers)",
+].join("\n");
+
+test("managed online config routes live providers online and opts in to external live providers", () => {
+  const config = setup.renderOnlineConfig({
+    baseUrl: "https://provider.example.test/v1",
+    transcriptionModel: "test-transcribe-1",
+    languageModel: "test-language-1",
+  });
+  assert.match(config, /^live_transcription = "openai_compatible"$/m);
+  assert.match(config, /^live_language = "openai_compatible"$/m);
+  assert.match(config, /^\[live\]\n(#.*\n)*allow_external_providers = true$/m);
+});
+
+test("managed online config is accepted by AppConfig", { skip: !fs.existsSync(REPO_PYTHON) && "repo .venv not installed" }, () => {
+  const dataDir = tempDataDir();
+  const configPath = path.join(dataDir, "config.toml");
+  fs.writeFileSync(configPath, setup.renderOnlineConfig({
+    baseUrl: "https://provider.example.test/v1",
+    transcriptionModel: "test-transcribe-1",
+    languageModel: "test-language-1",
+  }));
+  const env = { ...process.env, MEETING_WIKI_DATA_DIR: dataDir };
+  delete env[setup.API_KEY_ENV];
+  const result = require("child_process").spawnSync(REPO_PYTHON, ["-", configPath], {
+    input: LOAD_CONFIG_SCRIPT,
+    env,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "openai_compatible openai_compatible True");
+});
+
+function writeSetupState(dataDir, mode) {
+  fs.writeFileSync(path.join(dataDir, "setup-state.json"), JSON.stringify({ version: 1, completed: true, mode }));
+}
+
+function storeWithKey(dataDir) {
+  const secretStore = createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") });
+  secretStore.save(setup.SECRET_ID, TEST_KEY);
+  return secretStore;
+}
+
+test("resolveProcessEnv injects the key into a copy only when setup completed online", () => {
+  const dataDir = tempDataDir();
+  const secretStore = storeWithKey(dataDir);
+  const baseEnv = Object.freeze({ PATH: "/usr/bin" });
+
+  assert.deepEqual(setup.resolveProcessEnv({ fs, dataDir, secretStore, baseEnv }), { env: { PATH: "/usr/bin" } });
+
+  writeSetupState(dataDir, "local");
+  assert.deepEqual(setup.resolveProcessEnv({ fs, dataDir, secretStore, baseEnv }), { env: { PATH: "/usr/bin" } });
+
+  writeSetupState(dataDir, "online");
+  const first = setup.resolveProcessEnv({ fs, dataDir, secretStore, baseEnv });
+  const second = setup.resolveProcessEnv({ fs, dataDir, secretStore, baseEnv });
+  assert.deepEqual(first, { env: { PATH: "/usr/bin", [setup.API_KEY_ENV]: TEST_KEY } });
+  assert.notEqual(first.env, second.env, "each child gets its own env object");
+  assert.deepEqual(baseEnv, { PATH: "/usr/bin" });
+});
+
+test("resolveProcessEnv overrides an inherited key with the Keychain value", () => {
+  const dataDir = tempDataDir();
+  writeSetupState(dataDir, "online");
+  const result = setup.resolveProcessEnv({
+    fs,
+    dataDir,
+    secretStore: storeWithKey(dataDir),
+    baseEnv: { [setup.API_KEY_ENV]: "inherited-value" },
+  });
+  assert.equal(result.env[setup.API_KEY_ENV], TEST_KEY);
+});
+
+test("resolveProcessEnv returns a safe error and no env when the online key is unavailable", () => {
+  const dataDir = tempDataDir();
+  writeSetupState(dataDir, "online");
+  const baseEnv = { PATH: "/usr/bin", [setup.API_KEY_ENV]: "inherited-value" };
+  const stores = [
+    { read: () => { throw new Error(`macOS Keychain encryption is unavailable ${TEST_KEY}`); } },
+    { read: () => "" },
+  ];
+  for (const secretStore of stores) {
+    const result = setup.resolveProcessEnv({ fs, dataDir, secretStore, baseEnv });
+    assert.deepEqual(result, { error: setup.KEY_UNAVAILABLE });
+    assert.ok(!result.error.includes(TEST_KEY));
+  }
+});

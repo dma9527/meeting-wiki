@@ -69,3 +69,36 @@ test("doctor output remains available when a provider is unhealthy", async () =>
   assert.equal(result.ok, false);
   assert.match(result.text, /FAIL llm/);
 });
+
+test("status helpers pass an optional per-child env to every CLI call", async () => {
+  const env = { PATH: "/usr/bin", CHILD_ONLY: "1" };
+  const calls = [];
+  const execFile = fakeExec([
+    { stdout: JSON.stringify({ total: 0, active: 0, action_required: 0 }) },
+    { stdout: "OK storage: local\n" },
+    { stdout: JSON.stringify([{ id: 4, state: "dead" }]) },
+    { stdout: JSON.stringify({ job_id: 4, state: "pending", retried: true }) },
+  ], calls);
+
+  await readQueueStatus("/python", "/config.toml", execFile, env);
+  await readDoctorStatus("/python", "/config.toml", execFile, env);
+  assert.equal(await retryDeadJobs("/python", "/config.toml", execFile, env), 1);
+
+  assert.equal(calls.length, 4);
+  for (const { options } of calls) assert.equal(options.env, env);
+});
+
+test("status helpers inherit the parent env when none is given", async () => {
+  const calls = [];
+  const execFile = fakeExec([
+    { stdout: JSON.stringify({ total: 0, active: 0, action_required: 0 }) },
+    { stdout: "OK storage: local\n" },
+    { stdout: JSON.stringify([]) },
+  ], calls);
+
+  await readQueueStatus("/python", "/config.toml", execFile);
+  await readDoctorStatus("/python", "/config.toml", execFile);
+  await retryDeadJobs("/python", "/config.toml", execFile);
+
+  for (const { options } of calls) assert.equal("env" in options, false);
+});

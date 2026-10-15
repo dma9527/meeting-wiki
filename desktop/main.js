@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, shell, systemPreferences, Tray } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray } = require("electron");
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -10,6 +10,8 @@ const path = require("path");
 process.umask(0o077);
 const { AudioCapture } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
+const { createSecretStore } = require("./secret-store");
+const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-window");
 const {
   formatQueueLabel,
   readDoctorStatus,
@@ -39,6 +41,22 @@ const capture = new AudioCapture({
   audioTeePath: AUDIO_TEE,
   onError: (error) => notify("Audio capture error", error.message),
 });
+const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
+
+let keyUnavailableNotified = false;
+
+// Per-child env copy; the online key is never written to process.env. Null when the key is unavailable.
+// Background polls notify once per outage so the 5s status refresh does not spam.
+function processingEnv({ background = false } = {}) {
+  const result = resolveProcessEnv({ fs, dataDir: DATA_DIR, secretStore, baseEnv: process.env });
+  if (result.error) {
+    if (!background || !keyUnavailableNotified) notify("Meeting processing paused", result.error);
+    keyUnavailableNotified = true;
+    return null;
+  }
+  keyUnavailableNotified = false;
+  return result.env;
+}
 
 function icon() {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><rect x="6" y="2" width="6" height="10" rx="3" fill="black"/><path d="M4 8a5 5 0 0010 0M9 13v3M6 16h6" fill="none" stroke="black" stroke-width="1.5"/></svg>`;
@@ -59,9 +77,16 @@ function notify(title, body) {
 
 async function refreshQueueStatus() {
   if (queueStatusRefreshing || !fs.existsSync(PYTHON)) return;
+  const env = processingEnv({ background: true });
+  if (!env) {
+    queueStatusError = true;
+    queueStatusReady = true;
+    if (tray) updateMenu();
+    return;
+  }
   queueStatusRefreshing = true;
   try {
-    queueSummary = await readQueueStatus(PYTHON, CONFIG_PATH);
+    queueSummary = await readQueueStatus(PYTHON, CONFIG_PATH, execFile, env);
     queueStatusError = false;
   } catch (_) {
     queueStatusError = true;
@@ -79,12 +104,33 @@ function openWikiWindow() {
   );
 }
 
+function openSetupWindow() {
+  createSetupWindow(
+    { app, BrowserWindow, ipcMain },
+    {
+      fs,
+      secretStore,
+      dataDir: DATA_DIR,
+      configPath: CONFIG_PATH,
+      python: PYTHON,
+      spawnFn: spawn,
+      onComplete: () => {
+        // Pick up the new provider config on the next worker start.
+        if (worker) worker.kill("SIGTERM"); else startWorker();
+        void refreshQueueStatus();
+      },
+    },
+  );
+}
+
 async function showSystemHealth() {
   if (!fs.existsSync(PYTHON)) {
     notify("Meeting Wiki setup required", "Run scripts/setup.sh before checking health.");
     return;
   }
-  const health = await readDoctorStatus(PYTHON, CONFIG_PATH);
+  const env = processingEnv();
+  if (!env) return;
+  const health = await readDoctorStatus(PYTHON, CONFIG_PATH, execFile, env);
   await dialog.showMessageBox({
     type: health.ok ? "info" : "warning",
     title: "Meeting Wiki health",
@@ -94,8 +140,10 @@ async function showSystemHealth() {
 }
 
 async function retryFailedJobs() {
+  const env = processingEnv();
+  if (!env) return;
   try {
-    const count = await retryDeadJobs(PYTHON, CONFIG_PATH);
+    const count = await retryDeadJobs(PYTHON, CONFIG_PATH, execFile, env);
     notify("Meeting processing resumed", `${count} failed job${count === 1 ? "" : "s"} queued.`);
   } catch (error) {
     notify("Retry failed", error.message);
@@ -115,6 +163,8 @@ function askTitle() {
 function startWorker() {
   if (worker || shuttingDown) return;
   if (!fs.existsSync(PYTHON)) return;
+  const env = processingEnv();
+  if (!env) return;
   const logDir = path.join(DATA_DIR, "logs");
   fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
   fs.chmodSync(logDir, 0o700);
@@ -123,6 +173,7 @@ function startWorker() {
   fs.chmodSync(logPath, 0o600);
   worker = spawn(PYTHON, ["-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "worker"], {
     detached: false,
+    env,
     stdio: ["ignore", log, log],
   });
   worker.once("exit", () => {
@@ -151,7 +202,9 @@ function enqueue(
   if (systemAudioPath) args.push("--system-audio", systemAudioPath);
   if (!titleExplicit) args.push("--title-auto");
   if (isPrivate) args.push("--private");
-  const child = spawn(PYTHON, args, { stdio: "ignore" });
+  const env = processingEnv();
+  if (!env) return;
+  const child = spawn(PYTHON, args, { env, stdio: "ignore" });
   child.once("exit", (code) => {
     notify(code === 0 ? "Meeting queued" : "Meeting queue failed", path.basename(filePath));
     void refreshQueueStatus();
@@ -248,6 +301,7 @@ function updateMenu() {
     { label: "Open Wiki & Corrections", click: openWikiWindow },
     { label: "Open wiki", click: () => shell.openPath(path.join(DATA_DIR, "wiki")) },
     { label: "Open private meetings", click: () => shell.openPath(path.join(DATA_DIR, "private", "meetings")) },
+    { label: "Run setup...", click: openSetupWindow },
     { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
@@ -274,6 +328,7 @@ app.whenReady().then(async () => {
   startWorker();
   updateMenu();
   void refreshQueueStatus();
+  if (needsSetup(fs, DATA_DIR, CONFIG_PATH)) openSetupWindow();
 });
 
 setInterval(() => { if (tray && capture.active) updateMenu(); }, 1000).unref();
