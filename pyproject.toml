@@ -23,11 +23,12 @@ dependencies = [
   "pydantic==2.13.5",
   "pyjwt[crypto]==2.15.0",
   "urllib3==2.8.0",
-  "websockets==17.2",
+  "websockets==16.1.1",
 ]
 
 [project.optional-dependencies]
 mlx = ["mlx-whisper==0.4.3"]
+gemini = ["google-genai==2.31.0"]
 aws = ["boto3==1.43.88"]
 ics = ["icalendar==7.3.0"]
 dev = [
