@@ -232,7 +232,6 @@ function runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, timeou
       if (child) child.kill("SIGKILL");
       finish({ error: "The provider did not respond within 30 seconds." });
     }, timeoutMs);
-    if (typeof timer.unref === "function") timer.unref();
     try {
       child = spawnFn(python, ["-m", "meeting_wiki.cli", "--config", configPath, "doctor"], {
         env: childEnv,
