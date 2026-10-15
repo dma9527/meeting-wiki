@@ -33,13 +33,13 @@ supported.
 
 1. Download `Meeting Wiki-<version>-arm64.dmg` and `SHA256SUMS` from the
    GitHub release page.
-2. In the download directory, verify the artifact:
+2. In the download directory, verify the DMG was not changed in transit:
 
    ```bash
-   shasum -a 256 -c SHA256SUMS
+   grep 'Meeting Wiki-.*-arm64\.dmg$' SHA256SUMS | shasum -a 256 -c -
    ```
 
-   The DMG line must end in `OK`.
+   The command must print `OK`.
 3. Open the DMG and drag **Meeting Wiki** to **Applications**.
 4. Open **Meeting Wiki** from Applications. Complete the first-run wizard:
    - Choose an online provider or Local only.

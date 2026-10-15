@@ -15,11 +15,10 @@ the person who built them.
    Mac. Check the file was not changed in transit:
 
    ```bash
-   shasum -a 256 -c SHA256SUMS
+   grep 'Meeting Wiki-.*-arm64\.dmg$' SHA256SUMS | shasum -a 256 -c -
    ```
 
-   Every line must end in `OK`. The line for whichever file you did not copy
-   reports missing; that is fine.
+   The command must print `OK`.
 
 2. Open the DMG and drag **Meeting Wiki** to **Applications**. For the ZIP,
    double-click it and move `Meeting Wiki.app` to `/Applications`.
