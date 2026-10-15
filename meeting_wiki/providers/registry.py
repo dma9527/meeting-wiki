@@ -14,6 +14,7 @@ from .base import (
     TranscriptionProvider,
 )
 from .calendar import ICSCalendarProvider, NoneCalendarProvider
+from .gemini import GeminiLanguageProvider, GeminiTranscriber
 from .integrations import (
     MacOSNotificationProvider,
     NoneTaskProvider,
@@ -63,6 +64,12 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             config.secret(settings.api_key_env),
             settings.timeout_seconds,
         )
+    elif config.providers.transcription == "gemini":
+        transcription = GeminiTranscriber(
+            config.gemini.batch_audio_model,
+            config.secret(config.gemini.api_key_env),
+            config.gemini.timeout_seconds,
+        )
     elif config.providers.transcription == "text":
         transcription = TextImportTranscriber()
     else:
@@ -83,6 +90,13 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             settings.model,
             config.secret(settings.api_key_env),
             settings.timeout_seconds,
+            config.privacy,
+        )
+    elif config.providers.llm == "gemini":
+        llm = GeminiLanguageProvider(
+            config.gemini.language_model,
+            config.secret(config.gemini.api_key_env),
+            config.gemini.timeout_seconds,
             config.privacy,
         )
     else:
