@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from ..models import ActionItem, MeetingAnalysis, MeetingInput, TranscriptResult
+from ..models import ActionItem, MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,13 @@ class TranscriptionContext:
     meeting_title: str = ""
 
 
+@dataclass(frozen=True)
+class LiveTranscriptRequest:
+    audio_path: Path
+    sequence: int
+    language: str | None = None
+
+
 @runtime_checkable
 class TranscriptionProvider(Protocol):
     name: str
@@ -44,10 +51,34 @@ class TranscriptionProvider(Protocol):
 
 
 @runtime_checkable
+class LiveTranscriptionProvider(Protocol):
+    """Turn a bounded audio chunk into ordered final transcript segments."""
+
+    name: str
+
+    def transcribe_chunk(self, request: LiveTranscriptRequest) -> list[TranscriptSegment]: ...
+
+    def health(self) -> tuple[bool, str]: ...
+
+
+@runtime_checkable
 class LLMProvider(Protocol):
     name: str
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis: ...
+
+    def health(self) -> tuple[bool, str]: ...
+
+
+@runtime_checkable
+class LiveLanguageProvider(Protocol):
+    """Translate final transcript text and derive a rolling display-only summary."""
+
+    name: str
+
+    def translate(self, text: str, target_language: str) -> str: ...
+
+    def summarize(self, transcript: str) -> list[str]: ...
 
     def health(self) -> tuple[bool, str]: ...
 
@@ -79,7 +110,6 @@ class CalendarEvent:
     ):
         self.event_id = event_id
         self.title = title
-        # Guarantee tz-aware bounds so downstream .astimezone(UTC) stays deterministic.
         self.start = start if start.tzinfo else start.replace(tzinfo=UTC)
         self.end = end if end.tzinfo else end.replace(tzinfo=UTC)
         self.attendees = attendees or []

@@ -4,6 +4,8 @@ language = "en"
 [providers]
 transcription = "mlx_whisper"  # mlx_whisper | openai_compatible | text
 llm = "ollama"                 # ollama | openai_compatible
+live_transcription = "chunked_mlx_whisper"  # chunked_mlx_whisper | openai_compatible
+live_language = "ollama"       # ollama | openai_compatible
 storage = "local"              # local | s3
 calendar = "none"              # none | ics
 notification = "macos"         # macos | none
@@ -17,6 +19,13 @@ base_url = "http://127.0.0.1:11434"
 model = "qwen3:8b"
 timeout_seconds = 300
 num_ctx = 32768
+
+[live]
+translation_target_language = "zh"
+chunk_seconds = 8
+overlap_seconds = 2
+summary_context_characters = 12000
+allow_external_providers = false
 
 [openai_compatible]
 base_url = "http://127.0.0.1:11434/v1"

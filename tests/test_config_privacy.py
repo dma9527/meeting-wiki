@@ -58,3 +58,45 @@ def test_shipped_example_config_validates():
     assert config.providers.transcription == "mlx_whisper"
     assert config.providers.llm == "ollama"
     assert config.ollama.model
+
+
+def test_live_defaults_use_local_models_and_chinese_translation():
+    config = AppConfig()
+
+    assert config.providers.live_transcription == "chunked_mlx_whisper"
+    assert config.providers.live_language == "ollama"
+    assert config.live.translation_target_language == "zh"
+    assert config.live.allow_external_providers is False
+
+
+def test_live_external_provider_requires_explicit_opt_in():
+    with pytest.raises(ValueError, match="allow_external_providers"):
+        AppConfig.model_validate(
+            {
+                "providers": {
+                    "live_transcription": "openai_compatible",
+                    "live_language": "openai_compatible",
+                },
+                "openai_compatible": {
+                    "base_url": "https://models.example.test/v1",
+                    "model": "test-model",
+                    "api_key_env": "TEST_API_KEY",
+                },
+            }
+        )
+
+    config = AppConfig.model_validate(
+        {
+            "providers": {
+                "live_transcription": "openai_compatible",
+                "live_language": "openai_compatible",
+            },
+            "live": {"allow_external_providers": True},
+            "openai_compatible": {
+                "base_url": "https://models.example.test/v1",
+                "model": "test-model",
+                "api_key_env": "TEST_API_KEY",
+            },
+        }
+    )
+    assert config.live.allow_external_providers is True

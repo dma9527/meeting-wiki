@@ -37,7 +37,18 @@ class ProviderBundle:
     task: TaskProvider
 
 
+def validate_live_provider_selection(config: AppConfig) -> None:
+    if config.providers.live_transcription not in {"chunked_mlx_whisper", "openai_compatible"}:
+        raise ValueError(
+            f"Unknown live transcription provider: {config.providers.live_transcription}"
+        )
+    if config.providers.live_language not in {"ollama", "openai_compatible"}:
+        raise ValueError(f"Unknown live language provider: {config.providers.live_language}")
+
+
 def build_providers(config: AppConfig) -> ProviderBundle:
+    validate_live_provider_selection(config)
+
     if config.providers.transcription == "mlx_whisper":
         transcription = MLXWhisperTranscriber(config.mlx_whisper.model)
     elif config.providers.transcription == "openai_compatible":

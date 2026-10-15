@@ -139,3 +139,20 @@ def test_transcription_context_and_capabilities_are_typed_and_immutable():
     assert capabilities.max_duration_minutes == 60
     with pytest.raises((AttributeError, TypeError)):
         context.hotwords = ()
+
+
+def test_live_provider_contracts_are_runtime_checkable():
+    from meeting_wiki.providers.base import LiveLanguageProvider, LiveTranscriptionProvider
+
+    assert isinstance(LiveTranscriptionProvider, type)
+    assert isinstance(LiveLanguageProvider, type)
+
+
+def test_live_provider_selection_rejects_unknown_provider():
+    from meeting_wiki.config import AppConfig
+    from meeting_wiki.providers.registry import validate_live_provider_selection
+
+    validate_live_provider_selection(AppConfig())
+    config = AppConfig.model_validate({"providers": {"live_language": "unknown"}})
+    with pytest.raises(ValueError, match="Unknown live language provider"):
+        validate_live_provider_selection(config)
