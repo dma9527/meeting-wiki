@@ -6,8 +6,9 @@ cd "$ROOT"
 FIRST_PARTY=()
 while IFS= read -r -d '' file; do
   FIRST_PARTY+=("$file")
+# runtime-requirements.txt is generated sha256 pins; hex runs trip the account-id pattern.
 done < <(find meeting_wiki tests docs benchmarks .github/workflows scripts -type f \
-  ! -name 'public-safety-scan.sh' -print0)
+  ! -name 'public-safety-scan.sh' ! -name 'runtime-requirements.txt' -print0)
 for file in README.md SECURITY.md PRIVACY.md CONTRIBUTING.md NOTICE pyproject.toml config.example.toml desktop/main.js desktop/capture.js desktop/status.js desktop/wiki-window.js desktop/wiki-store.js desktop/corrections-client.js desktop/preload.js desktop/renderer/index.html desktop/renderer/app.js desktop/renderer/styles.css desktop/package.json desktop/entitlements.mac.plist; do
   [ -f "$file" ] && FIRST_PARTY+=("$file")
 done
@@ -31,7 +32,7 @@ if find . -type f \
      -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.pem' -o -name '*.key' \
      -o -name '.env' -o -name 'config.toml' \) \
   -not -path './.venv/*' -not -path './desktop/node_modules/*' \
-  -not -path './desktop/dist/*' | grep .; then
+  -not -path './desktop/dist/*' -not -path './desktop/runtime/*' | grep .; then
   echo "Private/generated artifacts found in project tree." >&2
   exit 1
 fi

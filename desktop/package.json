@@ -45,6 +45,13 @@
       "secret-store.js",
       "renderer/**"
     ],
-    "asarUnpack": ["node_modules/audiotee/**"]
+    "asarUnpack": ["node_modules/audiotee/**"],
+    "extraResources": [
+      {
+        "from": "runtime",
+        "to": "runtime",
+        "filter": ["**/*"]
+      }
+    ]
   }
 }

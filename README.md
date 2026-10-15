@@ -10,11 +10,91 @@ Markdown tool.
 
 ## Status
 
-Early alpha. macOS is the first supported desktop platform. The local pipeline
-and MCP server are functional; release signing and wider hardware testing are
-in progress. Local builds are not public release artifacts. See the
-[signed macOS release runbook](docs/releasing-macos.md) for Developer ID,
-notarization, Gatekeeper verification, and public alpha gates.
+Early alpha. macOS on Apple Silicon is the first supported desktop platform.
+The packaged app now contains an app-owned Python runtime, Meeting Wiki
+components, `rec`, and `sox`; it does not require Homebrew, Node.js, Python, a
+source checkout, or a user venv on the target Mac.
+
+The current local artifact is unsigned and contains a test-only source offer
+for bundled copyleft audio components. It is appropriate only for Martin's own
+Macs. Do not upload it as a public GitHub release or send it to other people.
+A distributable release requires a Developer ID certificate, notarization, and
+a real source offer or a replacement for the copyleft audio toolchain. See the
+[signed macOS release runbook](docs/releasing-macos.md) and
+[portable runtime notes](docs/portable-runtime.md).
+
+## Install on another Apple Silicon Mac
+
+This section is the complete installation guide to send with a signed release.
+The target Mac needs macOS 14 or later and Apple Silicon. Intel Macs are not
+supported.
+
+### Install a signed release
+
+1. Download `Meeting Wiki-<version>-arm64.dmg` and `SHA256SUMS` from the
+   GitHub release page.
+2. In the download directory, verify the artifact:
+
+   ```bash
+   shasum -a 256 -c SHA256SUMS
+   ```
+
+   The DMG line must end in `OK`.
+3. Open the DMG and drag **Meeting Wiki** to **Applications**.
+4. Open **Meeting Wiki** from Applications. Complete the first-run wizard:
+   - Choose an online provider or Local only.
+   - For an online provider, enter the endpoint, model names, and API key.
+     The key is encrypted through macOS Keychain facilities, never written to
+     `config.toml` or application logs.
+   - Read and acknowledge the data-egress notice before saving an external
+     provider. Meeting audio and transcript text are sent only to the provider
+     selected in the wizard.
+   - Grant Microphone and Screen & System Audio Recording permission when
+     macOS requests them.
+   - Run the provider connection test, then make a short recording.
+
+Your meetings, local wiki, jobs, logs, and private meeting data stay under
+`~/.meeting-wiki/` by default. Removing the app does not delete this data.
+
+### Install an unsigned personal test build
+
+Unsigned builds must only be used on a Mac you control. After copying the app
+to `/Applications`, remove the macOS download quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Meeting Wiki.app"
+```
+
+Then follow the first-run steps above. If macOS reports that the installation
+is damaged, do not bypass it. Obtain a fresh artifact whose bundled runtime
+passes the release checks.
+
+### Build on the target Mac
+
+Use this only when no signed release is available. Install the build tools,
+clone the repository, then create an app-owned runtime and an unsigned local
+artifact:
+
+```bash
+xcode-select --install
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install uv node sox
+
+cd meeting-wiki
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python -e '.[dev,gemini]'
+printf '%s\n' 'Personal build, not distributed.' > /tmp/meeting-wiki-source-offer.txt
+MEETING_WIKI_GPL_SOURCE_OFFER=/tmp/meeting-wiki-source-offer.txt \
+  bash scripts/build-macos.sh
+```
+
+The build writes the DMG, ZIP, checksums, and app bundle under `desktop/dist/`.
+The temporary source offer above is valid only for a build you keep on your own
+Mac. Read `docs/portable-runtime.md` before distributing an artifact to anyone
+else.
+
+For detailed troubleshooting and uninstall instructions, read
+[docs/install-macos.md](docs/install-macos.md).
 
 ## Default architecture
 

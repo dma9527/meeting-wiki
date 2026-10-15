@@ -11,7 +11,7 @@ fail() {
   exit 1
 }
 
-for command in node npm python3 security codesign xcrun ditto hdiutil spctl shasum; do
+for command in node npm python3 uv security codesign xcrun ditto hdiutil spctl shasum; do
   command -v "$command" >/dev/null || fail "$command is required"
 done
 
@@ -61,6 +61,7 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
 fi
 
 "$ROOT/scripts/verify-local.sh"
+bash "$ROOT/scripts/prepare-runtime-macos.sh"
 
 cd "$DESKTOP"
 VERSION="$DESKTOP_VERSION"
@@ -79,6 +80,7 @@ npm ci
 npm test
 CSC_NAME="$IDENTITY" npx electron-builder --mac dir
 [ -d "$APP" ] || fail "electron-builder did not create $APP"
+bash "$ROOT/scripts/assert-packaged-runtime.sh" "$APP"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign -d --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime' \

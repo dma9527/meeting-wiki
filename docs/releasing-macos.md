@@ -102,6 +102,10 @@ scripts/release-macos.sh
 
 The script performs these gates:
 
+1. Stages the bundled runtime with `scripts/prepare-runtime-macos.sh`
+   (requires `MEETING_WIKI_GPL_SOURCE_OFFER`; see `docs/portable-runtime.md`).
+   After electron-builder, `scripts/assert-packaged-runtime.sh` checks
+   `Resources/runtime/bin/{python,rec,sox}` before signing checks.
 1. Installs exact desktop dependencies with `npm ci`.
 2. Runs desktop tests.
 3. Builds the `.app` with the Developer ID Application identity.

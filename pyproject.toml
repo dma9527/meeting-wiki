@@ -101,4 +101,6 @@ exclude = [
   "/desktop/dist",
   "/desktop/node_modules",
   "/desktop/out",
+  "/desktop/runtime",
+  "/desktop/runtime.blocked.json",
 ]

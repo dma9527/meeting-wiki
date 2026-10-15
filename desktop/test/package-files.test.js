@@ -40,3 +40,37 @@ test("every packaged path exists on disk", () => {
     assert.ok(fs.existsSync(path.join(ROOT, asset)), `missing renderer asset ${asset}`);
   }
 });
+
+test("extraResources ships desktop/runtime at Resources/runtime", () => {
+  const resources = pkg.build.extraResources;
+  assert.ok(Array.isArray(resources), "build.extraResources must be an array");
+  const runtime = resources.find((entry) => entry.from === "runtime");
+  assert.ok(runtime, "build.extraResources must stage desktop/runtime");
+  assert.equal(runtime.to, "runtime");
+  assert.deepEqual(runtime.filter, ["**/*"]);
+});
+
+test("extraResources destination matches where runtime-paths looks for bundled tools", () => {
+  const { resolveRuntimePaths } = require("../runtime-paths");
+  const resourcesPath = "/Applications/Meeting Wiki.app/Contents/Resources";
+  const runtime = pkg.build.extraResources.find((entry) => entry.from === "runtime");
+  const bundled = ["python", "rec", "sox"].map((name) =>
+    path.join(resourcesPath, runtime.to, "bin", name),
+  );
+  const resolved = resolveRuntimePaths({
+    env: {},
+    isPackaged: true,
+    resourcesPath,
+    dataDir: "/Users/test/.meeting-wiki",
+    existsSync: (candidate) => bundled.includes(candidate),
+  });
+  assert.deepEqual([resolved.python, resolved.rec, resolved.sox], bundled);
+});
+
+test("runtime staging output is never committed or packaged as app source", () => {
+  const ignore = fs.readFileSync(path.join(ROOT, "..", ".gitignore"), "utf8").split("\n");
+  assert.ok(ignore.includes("desktop/runtime/"), ".gitignore must exclude desktop/runtime/");
+  for (const entry of pkg.build.files) {
+    assert.ok(!/^runtime(\/|$)/.test(entry), `build.files must not include ${entry}`);
+  }
+});
