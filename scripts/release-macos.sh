@@ -60,6 +60,8 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+"$ROOT/scripts/verify-local.sh"
+
 cd "$DESKTOP"
 VERSION="$DESKTOP_VERSION"
 ARCH="$(uname -m)"
