@@ -213,9 +213,29 @@ meeting-wiki-mcp
 Read-only tools:
 
 - `meeting_wiki_search`
+- `meeting_wiki_memory_search` (shared memory only)
 - `meeting_wiki_read_page`
 - `meeting_wiki_list_recent`
 - `meeting_wiki_action_items`
+
+## Canonical memory
+
+Each processed meeting is also indexed into `data_dir/memory.db`, a local graph
+of people, topics, decisions, action items, and transcript lines with links back
+to the source meeting. Rebuild it from existing local artifacts, for example
+after upgrading or restoring a backup:
+
+```bash
+meeting-wiki reindex-memory
+meeting-wiki memory-search --query "canary rollout" --type decision --type topic
+meeting-wiki memory-search --query "canary rollout" --include-private
+```
+
+`reindex-memory` prints only counts. `memory-search` returns shared memory
+unless you pass `--include-private`. The MCP `meeting_wiki_memory_search` tool
+never returns private memory. The desktop window has a Memory search view with
+type filters and an "Include private memory on this Mac" checkbox that starts
+unchecked.
 
 ## Desktop wiki and correction inbox
 
@@ -225,7 +245,9 @@ items. The window loads no remote content, runs with context isolation and a
 sandboxed renderer, and reaches the main process only through a narrow preload
 bridge. That bridge reads `data_dir/wiki` and nothing else; path containment
 rejects `../`, absolute paths, null bytes, and symlinks that escape the tree, so
-`private/` is unreachable from the window.
+`private/` is unreachable from the window. The only private data the window can
+show is canonical memory, and only after you tick "Include private memory on this
+Mac" for a Memory search.
 
 The correction inbox lists shared meetings whose transcript still uses an
 ambiguous speaker label such as `Remote participant` or `spk_1`. Candidates are

@@ -64,6 +64,29 @@ The SQLite queue runs in WAL mode with synchronous FULL. Jobs have unique dedupe
 keys, exponential backoff, max attempts, and visibility-timeout recovery.
 Rendering is idempotent, so at-least-once processing is safe.
 
+## Canonical memory
+
+`data_dir/memory.db` (mode 0600) holds a derived graph of meetings, people,
+topics, decisions, action items, and transcript segments with source-backed
+edges and an FTS5 index. Every node carries `shared` or `private`. Shared-only
+search filters the matched node, every related node, and every cited source
+meeting, so a shared result never names private memory. MCP always searches
+shared-only.
+
+`meeting-wiki reindex-memory` rebuilds the database from local artifacts in one
+transaction. It anchors on `wiki/meetings/*.md` and `private/meetings/*.md`,
+reads the matching `analysis` and `transcript-data` record from the same tree,
+and skips any artifact reached through a symlink, a shared-tree page that claims
+to be private, or a resource outside its own tree. A private copy replaces a
+shared copy of the same meeting. It prints counts only and refuses to run with
+S3 storage, where shared artifacts are not local.
+
+The desktop Memory Search view calls `meeting-wiki memory-search` through one
+`memory:search` IPC channel. Main validates the query and an allowlisted type
+filter, passes values as `--flag=value`, and returns a fixed projection.
+Private memory is included only when the owner ticks the checkbox for that
+search; otherwise main also drops any non-shared item or relation.
+
 ## Live sidebar
 
 While recording, the Electron main process spawns `meeting-wiki live` for the

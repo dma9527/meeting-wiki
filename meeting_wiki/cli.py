@@ -13,6 +13,7 @@ from .config import DEFAULT_CONFIG_PATH, load_config
 from .corrections import apply_correction, build_inbox, plan_correction
 from .diagnostics import decode_diagnostic, safe_identifier
 from .jobs import JobQueue
+from .memory import NODE_TYPES
 from .models import JobState, MeetingInput
 from .providers.registry import build_providers
 from .worker import Worker, enqueue_meeting
@@ -157,6 +158,37 @@ def live_command(config, mic_audio: Path, private: bool) -> int:
     )
 
 
+def reindex_memory_command(config) -> int:
+    """Rebuild memory from local artifacts. S3 shared artifacts are not local, so refuse."""
+    from .memory_reindex import reindex_memory
+
+    if config.providers.storage != "local":
+        print(json.dumps({"error": "reindex_requires_local_storage"}))
+        return 1
+    print(json.dumps(reindex_memory(config.data_dir).to_dict(), indent=2))
+    return 0
+
+
+def memory_search_command(config, args) -> int:
+    from .memory import MemoryStore
+
+    if not 2 <= len(args.query) <= 300 or not 1 <= args.limit <= 30:
+        print(json.dumps({"error": "invalid_memory_query", "items": []}))
+        return 1
+    try:
+        items = MemoryStore(config.data_dir / "memory.db").search(
+            args.query,
+            node_types=args.node_types,
+            limit=args.limit,
+            include_private=args.include_private,
+        )
+    except ValueError:
+        print(json.dumps({"error": "invalid_memory_query", "items": []}))
+        return 1
+    print(json.dumps({"count": len(items), "items": items}, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -211,6 +243,24 @@ def main(argv: list[str] | None = None) -> int:
     brief = sub.add_parser("brief", help="Generate pre-meeting briefs for upcoming calendar events")
     brief.add_argument(
         "--within", type=int, default=120, help="Look-ahead window in minutes (default 120)"
+    )
+
+    sub.add_parser(
+        "reindex-memory",
+        help="Rebuild local memory.db from stored shared and private meeting artifacts",
+    )
+    memory_search = sub.add_parser(
+        "memory-search", help="Search local canonical memory (shared only by default)"
+    )
+    memory_search.add_argument("--query", required=True)
+    memory_search.add_argument(
+        "--type", action="append", choices=sorted(NODE_TYPES), dest="node_types"
+    )
+    memory_search.add_argument("--limit", type=int, default=12)
+    memory_search.add_argument(
+        "--include-private",
+        action="store_true",
+        help="Also return private local memory; never used by MCP",
     )
 
     sub.add_parser("correct-inbox", help="List shared meetings with ambiguous speaker labels")
@@ -269,6 +319,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(summary, indent=2))
         return 0
+    if args.command == "reindex-memory":
+        return reindex_memory_command(config)
+    if args.command == "memory-search":
+        return memory_search_command(config, args)
     if args.command == "correct-inbox":
         print(json.dumps(build_inbox(_build_storage(config)), indent=2))
         return 0

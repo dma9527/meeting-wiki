@@ -39,6 +39,7 @@
       "wiki-window.js",
       "wiki-store.js",
       "corrections-client.js",
+      "memory-client.js",
       "preload.js",
       "setup-window.js",
       "setup-preload.js",

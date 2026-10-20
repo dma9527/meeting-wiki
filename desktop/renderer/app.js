@@ -169,6 +169,84 @@ async function runSearch() {
   }
 }
 
+const MEMORY_TYPE_LABELS = {
+  meeting: "Meeting",
+  person: "Person",
+  topic: "Topic",
+  decision: "Decision",
+  action_item: "Action item",
+  transcript_segment: "Transcript line",
+};
+
+function memoryTypeLabel(type) {
+  return MEMORY_TYPE_LABELS[type] || "Record";
+}
+
+function updateMemoryScope() {
+  const includePrivate = document.getElementById("memory-include-private").checked;
+  const banner = document.getElementById("memory-scope");
+  banner.textContent = includePrivate
+    ? "Including private memory stored on this Mac. Private results stay in this window."
+    : "Showing shared memory only.";
+  banner.classList.toggle("is-private", includePrivate);
+}
+
+function sourceLine(source) {
+  if (!source) return null;
+  const when = source.occurredAt ? ` · ${source.occurredAt.slice(0, 10)}` : "";
+  return `From ${source.title}${when}${source.privacy === "shared" ? "" : " (private)"}`;
+}
+
+function renderMemoryCard(item) {
+  const title = el("h3", { class: "card-title", text: item.label || memoryTypeLabel(item.nodeType) });
+  if (item.privacy !== "shared") title.appendChild(el("span", { class: "privacy-chip", text: "private" }));
+  const card = el("article", { class: "card" }, [
+    title,
+    el("p", { class: "card-meta", text: memoryTypeLabel(item.nodeType) }),
+  ]);
+  if (item.content && item.content !== item.label) card.appendChild(el("p", { class: "snippet", text: item.content }));
+  const origin = sourceLine(item.source);
+  if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
+  if (item.relations.length > 0) {
+    const relations = el("ul", { class: "relation-list", "aria-label": "Related records" });
+    for (const relation of item.relations) {
+      const incoming = relation.direction === "in" ? " (incoming)" : "";
+      const via = relation.source ? `, source: ${relation.source.title}` : "";
+      relations.appendChild(
+        el("li", {
+          text: `${relation.relation.replace(/_/g, " ")}${incoming}: ${memoryTypeLabel(relation.nodeType)} “${relation.label}”${via}`,
+        }),
+      );
+    }
+    card.appendChild(relations);
+  }
+  if (item.source && item.source.meetingKey) {
+    card.appendChild(openPageButton(item.source.meetingKey, "Open source meeting"));
+  }
+  return card;
+}
+
+async function runMemorySearch() {
+  const query = document.getElementById("memory-input").value.trim();
+  const list = document.getElementById("memory-results");
+  clear(list);
+  if (query.length < 2) {
+    list.appendChild(emptyNote("Type at least two characters."));
+    return;
+  }
+  const types = Array.from(document.querySelectorAll('input[name="memory-type"]:checked')).map(
+    (input) => input.value,
+  );
+  const includePrivate = document.getElementById("memory-include-private").checked === true;
+  const result = await api.memory.search(query, { types, limit: 20, includePrivate });
+  if (failed(result)) return;
+  if (result.items.length === 0) {
+    list.appendChild(emptyNote(`No memory matches “${query}”.`));
+    return;
+  }
+  for (const item of result.items) list.appendChild(renderMemoryCard(item));
+}
+
 function parseActionRow(row) {
   const columns = row
     .split("|")
@@ -480,6 +558,17 @@ function init() {
   document.getElementById("search-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runSearch();
   });
+  document.getElementById("memory-button").addEventListener("click", runMemorySearch);
+  document.getElementById("memory-input").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runMemorySearch();
+  });
+  const includePrivate = document.getElementById("memory-include-private");
+  includePrivate.checked = false;
+  includePrivate.addEventListener("change", () => {
+    updateMemoryScope();
+    clear(document.getElementById("memory-results"));
+  });
+  updateMemoryScope();
   document.getElementById("page-close").addEventListener("click", closePage);
   document.getElementById("recovery-retry-all").addEventListener("click", retryAllRecoveryJobs);
   document.addEventListener("keydown", (event) => {

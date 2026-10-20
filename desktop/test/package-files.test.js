@@ -18,6 +18,7 @@ test("build.files lists every runtime source file that must ship", () => {
     "wiki-window.js",
     "wiki-store.js",
     "corrections-client.js",
+    "memory-client.js",
     "preload.js",
     "secret-store.js",
     "setup-window.js",

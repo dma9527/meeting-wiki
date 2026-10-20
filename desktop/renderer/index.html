@@ -19,7 +19,7 @@
           <h1>Meeting Wiki</h1>
           <p class="tagline">Local knowledge workbench</p>
         </div>
-        <p id="scope-note" class="scope-note">Reads only your shared wiki. Private meetings never appear here.</p>
+        <p id="scope-note" class="scope-note">Reads your shared wiki. Private memory appears only when you turn it on in Memory search.</p>
       </header>
 
       <nav class="rail" aria-label="Sections">
@@ -28,6 +28,12 @@
         </button>
         <button type="button" class="rail-item" data-view="search">
           <span class="rail-label">Search</span>
+        </button>
+        <button type="button" class="rail-item" data-view="memory">
+          <span class="rail-label">Memory search</span>
+        </button>
+        <button type="button" class="rail-item" data-view="memory">
+          <span class="rail-label">Memory search</span>
         </button>
         <button type="button" class="rail-item" data-view="actions">
           <span class="rail-label">Open action items</span>
@@ -56,6 +62,62 @@
             <button id="search-button" type="button">Search</button>
           </div>
           <div id="search-results" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-memory" class="view" hidden aria-labelledby="memory-heading" tabindex="-1">
+          <h2 id="memory-heading">Memory search</h2>
+          <p class="explainer">
+            Searches canonical meeting memory: people, topics, decisions, action items, and transcript
+            lines. Each result lists its related records and the meeting it came from.
+          </p>
+          <div class="searchbar">
+            <label for="memory-input">Memory search terms</label>
+            <input id="memory-input" type="search" autocomplete="off" maxlength="300" placeholder="e.g. canary rollout" />
+            <button id="memory-button" type="button">Search memory</button>
+          </div>
+          <fieldset class="memory-filters">
+            <legend>Record types</legend>
+            <label><input type="checkbox" name="memory-type" value="meeting" /> Meetings</label>
+            <label><input type="checkbox" name="memory-type" value="person" /> People</label>
+            <label><input type="checkbox" name="memory-type" value="topic" /> Topics</label>
+            <label><input type="checkbox" name="memory-type" value="decision" /> Decisions</label>
+            <label><input type="checkbox" name="memory-type" value="action_item" /> Action items</label>
+            <label><input type="checkbox" name="memory-type" value="transcript_segment" /> Transcript lines</label>
+          </fieldset>
+          <label class="memory-private">
+            <input id="memory-include-private" type="checkbox" />
+            Include private memory on this Mac
+          </label>
+          <p id="memory-scope" class="scope-banner" role="status">Showing shared memory only.</p>
+          <div id="memory-results" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-memory" class="view" hidden aria-labelledby="memory-heading" tabindex="-1">
+          <h2 id="memory-heading">Memory search</h2>
+          <p class="explainer">
+            Searches canonical meeting memory: people, topics, decisions, action items, and transcript
+            lines. Each result lists its related records and the meeting it came from.
+          </p>
+          <div class="searchbar">
+            <label for="memory-input">Memory search terms</label>
+            <input id="memory-input" type="search" autocomplete="off" maxlength="300" placeholder="e.g. canary rollout" />
+            <button id="memory-button" type="button">Search memory</button>
+          </div>
+          <fieldset class="memory-filters">
+            <legend>Record types</legend>
+            <label><input type="checkbox" name="memory-type" value="meeting" /> Meetings</label>
+            <label><input type="checkbox" name="memory-type" value="person" /> People</label>
+            <label><input type="checkbox" name="memory-type" value="topic" /> Topics</label>
+            <label><input type="checkbox" name="memory-type" value="decision" /> Decisions</label>
+            <label><input type="checkbox" name="memory-type" value="action_item" /> Action items</label>
+            <label><input type="checkbox" name="memory-type" value="transcript_segment" /> Transcript lines</label>
+          </fieldset>
+          <label class="memory-private">
+            <input id="memory-include-private" type="checkbox" />
+            Include private memory on this Mac
+          </label>
+          <p id="memory-scope" class="scope-banner" role="status">Showing shared memory only.</p>
+          <div id="memory-results" class="list" aria-live="polite"></div>
         </section>
 
         <section id="view-actions" class="view" hidden aria-labelledby="actions-heading" tabindex="-1">
