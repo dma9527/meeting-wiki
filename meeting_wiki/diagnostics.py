@@ -88,26 +88,32 @@ def decode_diagnostic(value: str | None) -> dict[str, object] | None:
         return None
     if not isinstance(parsed, dict) or parsed.get("version") != 1:
         return None
-    expected = safe_job_diagnostic(
-        RuntimeError(),
-        stage=parsed.get("stage", "unknown"),
-        attempt=parsed.get("attempt", 0),
-        max_attempts=parsed.get("max_attempts", 0),
-        provider=parsed.get("provider") if isinstance(parsed.get("provider"), str) else None,
-    )
-    allowed_keys = set(expected) | {"operation", "sdk_error_type", "http_status", "provider_status"}
-    if set(parsed) - allowed_keys:
+    required = {"version", "stage", "attempt", "max_attempts", "category", "error_type"}
+    provider_keys = {"provider", "operation", "sdk_error_type", "http_status", "provider_status"}
+    if not required.issubset(parsed) or set(parsed) - required - provider_keys:
         return None
-    if not isinstance(parsed.get("attempt"), int) or not isinstance(
-        parsed.get("max_attempts"), int
+    if parsed.get("category") not in {"internal_error", "provider_request_failed"}:
+        return None
+    for key in ("stage", "error_type"):
+        if safe_identifier(parsed.get(key)) != parsed.get(key):
+            return None
+    if (
+        not isinstance(parsed.get("attempt"), int)
+        or isinstance(parsed["attempt"], bool)
+        or parsed["attempt"] < 0
+        or not isinstance(parsed.get("max_attempts"), int)
+        or isinstance(parsed["max_attempts"], bool)
+        or parsed["max_attempts"] < 0
     ):
         return None
-    if parsed.get("category") == "provider_request_failed":
+    if parsed["category"] == "provider_request_failed":
         for key in ("provider", "operation", "sdk_error_type"):
-            if not isinstance(parsed.get(key), str):
+            if safe_identifier(parsed.get(key)) != parsed.get(key):
                 return None
         if "http_status" in parsed and (
-            not isinstance(parsed["http_status"], int) or not 400 <= parsed["http_status"] <= 599
+            not isinstance(parsed["http_status"], int)
+            or isinstance(parsed["http_status"], bool)
+            or not 400 <= parsed["http_status"] <= 599
         ):
             return None
         if "provider_status" in parsed and (
@@ -115,4 +121,6 @@ def decode_diagnostic(value: str | None) -> dict[str, object] | None:
             or not _SAFE_PROVIDER_STATUS.fullmatch(parsed["provider_status"])
         ):
             return None
+    elif provider_keys.intersection(parsed):
+        return None
     return parsed
