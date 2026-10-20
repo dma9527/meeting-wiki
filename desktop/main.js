@@ -11,8 +11,9 @@ process.umask(0o077);
 const { AudioCapture } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
-const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-window");
+const { createSetupWindow, needsSetup, readSetupState, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
+const { buildRecordContext, closeRecordWindow, createRecordWindow } = require("./record-window");
 const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
@@ -64,8 +65,6 @@ let shuttingDown = false;
 let quitRequested = false;
 let quitPrepared = false;
 const QUIT_INGEST_TIMEOUT_MS = 60_000;
-let nextTitle = "";
-let nextPrivate = false;
 let queueSummary = { total: 0, active: 0, action_required: 0 };
 let queueStatusReady = false;
 let queueStatusError = false;
@@ -283,15 +282,6 @@ async function installSkillFromMenu() {
   }
 }
 
-function askTitle() {
-  return new Promise((resolve) => {
-    const script = 'text returned of (display dialog "Title for the next meeting:" default answer "" with title "Meeting Wiki")';
-    execFile("osascript", ["-e", script], (error, stdout) => {
-      resolve(error ? "" : stdout.trim());
-    });
-  });
-}
-
 function startWorker() {
   if (worker || shuttingDown) return;
   if (!pythonAvailable()) return;
@@ -358,14 +348,43 @@ function stopLiveSession() {
   liveSession.stop().catch(() => {});
 }
 
-async function startRecording() {
+function readConfigText() {
+  try {
+    return fs.readFileSync(CONFIG_PATH, "utf8");
+  } catch (_) {
+    return null;
+  }
+}
+
+// Codes and the configured host only; the panel renders its own fixed copy.
+function recordContext() {
+  const available = pythonAvailable();
+  return buildRecordContext({
+    setupState: readSetupState(fs, DATA_DIR),
+    configText: readConfigText(),
+    pythonAvailable: available,
+    keyAvailable: available && Boolean(processingEnv({ background: true })),
+    maxDurationMinutes: readMaxDurationMinutes(fs, DATA_DIR),
+    microphone: systemPreferences.getMediaAccessStatus("microphone"),
+    systemAudio: systemPreferences.getMediaAccessStatus("screen"),
+    recording: !recordingSession.idle,
+  });
+}
+
+// Every start goes through this explicit confirmation of title, privacy, capture, length, and live view.
+function openRecordPanel() {
+  if (!recordingSession.idle || quitRequested) return;
+  createRecordWindow(
+    { app, BrowserWindow, ipcMain },
+    { getContext: recordContext, onStart: (request) => { void startRecording(request); } },
+  );
+}
+
+async function startRecording({ title: requestedTitle = "", isPrivate = false } = {}) {
   if (capture.active || !recordingSession.idle || quitRequested) return;
   const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
-  const titleExplicit = Boolean(nextTitle);
-  const title = nextTitle || `Meeting ${new Date().toLocaleString()}`;
-  const isPrivate = nextPrivate;
-  nextTitle = "";
-  nextPrivate = false;
+  const titleExplicit = Boolean(requestedTitle);
+  const title = requestedTitle || `Meeting ${new Date().toLocaleString()}`;
   try {
     capture.start(timestamp());
   } catch (error) {
@@ -416,18 +435,32 @@ function discardRecording() {
   }).finally(updateMenu);
 }
 
+// Privacy is chosen per import; nothing carries over from an earlier action.
+function importConfirmation(count) {
+  return {
+    type: "question",
+    title: "Meeting Wiki",
+    message: `Import ${count} audio file${count === 1 ? "" : "s"}?`,
+    detail: "Each file is processed like a recording and named from what was discussed.",
+    checkboxLabel: "Keep private: notes stay only in the private folder on this Mac",
+    checkboxChecked: false,
+    buttons: ["Import", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+}
+
 async function importAudio() {
   const result = await dialog.showOpenDialog({
     title: "Import audio",
     properties: ["openFile", "multiSelections"],
     filters: [{ name: "Audio", extensions: ["wav", "mp3", "m4a", "flac", "ogg", "webm"] }],
   });
-  if (result.canceled) return;
-  const titleExplicit = Boolean(nextTitle);
-  const title = nextTitle || "Imported meeting";
-  for (const file of result.filePaths) enqueue(file, title, nextPrivate, titleExplicit);
-  nextTitle = "";
-  nextPrivate = false;
+  if (result.canceled || result.filePaths.length === 0) return;
+  const choice = await dialog.showMessageBox(importConfirmation(result.filePaths.length));
+  if (choice.response !== 0) return;
+  for (const file of result.filePaths) enqueue(file, "Imported meeting", choice.checkboxChecked === true, false);
   updateMenu();
 }
 
@@ -446,9 +479,7 @@ function updateMenu() {
   } else {
     if (recordingSession.lastStopReason === "limit") items.push({ label: LIMIT_REACHED_LABEL, enabled: false });
     items.push(
-      { label: "Start recording", accelerator: "CommandOrControl+Shift+0", click: startRecording },
-      { label: `${nextPrivate ? "✓" : ""} Mark next recording private`, click: () => { nextPrivate = !nextPrivate; updateMenu(); } },
-      { label: `Set next title${nextTitle ? `: ${nextTitle}` : "..."}`, click: async () => { nextTitle = await askTitle(); updateMenu(); } },
+      { label: "Start recording...", accelerator: "CommandOrControl+Shift+0", click: openRecordPanel },
       { label: "Import audio...", click: importAudio },
     );
   }
@@ -497,7 +528,7 @@ app.whenReady().then(async () => {
   tray.on("click", () => tray.popUpContextMenu());
   globalShortcut.register("CommandOrControl+Shift+0", () => {
     if (recordingSession.recording) void stopRecording("user");
-    else if (recordingSession.idle) void startRecording();
+    else if (recordingSession.idle) openRecordPanel();
   });
   startWorker();
   if (RUNTIME.packaged && !pythonAvailable()) notifyMissingPython();
@@ -534,6 +565,7 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   shuttingDown = true;
   globalShortcut.unregisterAll();
+  closeRecordWindow();
   if (worker) worker.kill("SIGTERM");
   stopLiveSession();
   // Recordings are never discarded on quit; before-quit already saved and queued them.

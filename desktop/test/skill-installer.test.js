@@ -121,7 +121,7 @@ test("the installer uses fs only and main wires a discoverable menu item to a re
   const skillAt = menu.indexOf("label: INSTALL_SKILL_LABEL");
   const quitAt = menu.indexOf('label: "Quit"');
   assert.ok(wikiAt > 0 && skillAt > wikiAt && skillAt < menu.indexOf('label: "Settings..."') && skillAt < quitAt);
-  const body = main.slice(main.indexOf("function installSkillFromMenu") - 40, main.indexOf("function askTitle"));
+  const body = main.slice(main.indexOf("function installSkillFromMenu") - 40, main.indexOf("function startWorker"));
   assert.match(body, /presentSkillInstall\(\{/);
   assert.match(body, /install: installClaudeSkill/);
   assert.match(body, /showDialog: \(options\) => dialog\.showMessageBox\(options\)/);

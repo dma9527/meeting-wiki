@@ -1,0 +1,55 @@
+/* Recording confirmation reuses setup.css tokens and components; only the layout is new. */
+
+.record-shell {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--gap);
+}
+
+.record-privacy {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+
+.record-privacy legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.record-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  cursor: pointer;
+}
+
+.record-choice:has(input:checked) {
+  border-color: var(--cable);
+  box-shadow: inset 3px 0 0 var(--cable);
+}
+
+.record-choice input {
+  margin: 3px 0 0;
+}
+
+.record-choice-title {
+  display: block;
+  font-weight: 600;
+}
+
+.record-consent {
+  margin-top: 12px;
+}
+
+[data-tone="attention"] {
+  color: var(--tally);
+  font-weight: 600;
+}

@@ -202,7 +202,12 @@ and a later reappearance reopens it. Open items live in
 
 ## Private meetings
 
-Use `--private` or mark the next desktop recording private. Private meetings:
+Use `--private` on the CLI. In the desktop app, **Start recording...** (or
+Cmd+Shift+0) opens a confirmation panel where you choose Shared wiki or
+Private, set an optional title, and review capture permissions, where audio
+is processed, the length limit, and live caption readiness before anything is
+recorded. **Import audio...** asks the same privacy question for each import.
+Private meetings:
 
 - write only to `private/`;
 - do not update shared people, topics, decisions, actions, indexes, or logs;

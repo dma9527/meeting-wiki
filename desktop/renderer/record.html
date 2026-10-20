@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Start a recording</title>
+    <link rel="stylesheet" href="setup.css" />
+    <link rel="stylesheet" href="record.css" />
+  </head>
+  <body>
+    <main class="record-shell" id="record-main">
+      <div id="bridge-missing" class="notice notice-error" role="alert" hidden>
+        The recording window cannot reach the app. Close it and use the menu bar again.
+      </div>
+
+      <form id="record-form" class="panel" aria-labelledby="record-heading" novalidate>
+        <h1 id="record-heading" class="display">Start a recording</h1>
+        <p class="lede">Check these details, then start. Nothing is recorded until you press Start recording.</p>
+
+        <div class="field">
+          <label for="record-title">Meeting title (optional)</label>
+          <input id="record-title" name="title" type="text" autocomplete="off" spellcheck="false" maxlength="200" aria-describedby="record-title-hint record-title-error" />
+          <p id="record-title-hint" class="hint">Leave blank to name the meeting from what was discussed.</p>
+          <p id="record-title-error" class="field-error" hidden></p>
+        </div>
+
+        <fieldset class="record-privacy">
+          <legend>Where the notes go</legend>
+          <label class="record-choice" for="record-shared">
+            <input type="radio" id="record-shared" name="privacy" value="shared" checked aria-describedby="record-shared-desc" />
+            <span>
+              <span class="record-choice-title">Shared wiki</span>
+              <span id="record-shared-desc" class="hint">Notes, people, topics, decisions, and action items update your shared wiki on this Mac.</span>
+            </span>
+          </label>
+          <label class="record-choice" for="record-private">
+            <input type="radio" id="record-private" name="privacy" value="private" aria-describedby="record-private-desc" />
+            <span>
+              <span class="record-choice-title">Private</span>
+              <span id="record-private-desc" class="hint">Notes are saved only in the private folder on this Mac. They never update the shared wiki and are never returned by MCP, mirrored to S3, or sent to task providers.</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <h2 class="subhead" id="record-details-heading">Before you start</h2>
+        <dl id="record-details" class="summary" aria-labelledby="record-details-heading" aria-busy="true">
+          <dt>Capture</dt>
+          <dd id="record-capture">Checking.</dd>
+          <dt>Processing</dt>
+          <dd id="record-processing">Checking.</dd>
+          <dt>Length limit</dt>
+          <dd id="record-duration">Checking.</dd>
+          <dt>Live captions</dt>
+          <dd id="record-live">Checking.</dd>
+        </dl>
+        <p class="hint record-consent">Tell everyone in the meeting that you are recording.</p>
+
+        <p id="record-status" class="status" role="status" aria-live="polite"></p>
+
+        <div class="actions">
+          <button type="button" class="button button-quiet" id="record-cancel">Cancel</button>
+          <button type="submit" class="button button-primary" id="record-start">Start recording</button>
+        </div>
+      </form>
+    </main>
+    <script src="record.js" defer></script>
+  </body>
+</html>

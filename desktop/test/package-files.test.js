@@ -24,6 +24,8 @@ test("build.files lists every runtime source file that must ship", () => {
     "skill-installer.js",
     "self-check.js",
     "setting-metadata.js",
+    "record-window.js",
+    "record-preload.js",
     "skills/meeting-wiki-memory/SKILL.md",
     "managed-config.js",
     "setup-window.js",
@@ -51,7 +53,7 @@ test("every packaged path exists on disk", () => {
       assert.ok(fs.existsSync(path.join(ROOT, entry)), `missing file ${entry}`);
     }
   }
-  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css", "renderer/live-sidebar.html", "renderer/live-sidebar.js", "renderer/live-sidebar.css"]) {
+  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css", "renderer/live-sidebar.html", "renderer/live-sidebar.js", "renderer/live-sidebar.css", "renderer/record.html", "renderer/record.js", "renderer/record.css"]) {
     assert.ok(fs.existsSync(path.join(ROOT, asset)), `missing renderer asset ${asset}`);
   }
 });
