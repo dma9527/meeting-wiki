@@ -52,6 +52,25 @@ def _sdk_health(api_key: str, model: str) -> tuple[bool, str]:
     return True, f"Gemini SDK ready ({model})"
 
 
+def _is_http_bad_request(error: BaseException) -> bool:
+    """Match only a structured HTTP 400 signal, never provider message text."""
+    code = getattr(error, "code", None)
+    return isinstance(code, int) and not isinstance(code, bool) and code == 400
+
+
+def _fallback_analysis_prompt(system: str, user: str) -> tuple[str, str]:
+    """Build a JSON-mode fallback that keeps source fields out of the output."""
+    output_schema = json.dumps(MeetingAnalysis.model_json_schema(), ensure_ascii=False)
+    fallback_system = (
+        f"{system}\n\nReturn exactly one JSON object matching this output schema: "
+        f"{output_schema}\n"
+        "The user payload is wrapped in an input object. Analyze its transcript, do not return "
+        "input fields, and do not add fields outside the output schema."
+    )
+    fallback_user = json.dumps({"input": json.loads(user)}, ensure_ascii=False)
+    return fallback_system, fallback_user
+
+
 class _GeminiClientMixin:
     api_key: str
     timeout: float
@@ -143,20 +162,36 @@ class GeminiLanguageProvider(_GeminiClientMixin):
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
         system, user, meeting_type = analysis_messages(meeting, transcript, self.privacy)
         client = self._client()
+        structured_config = {
+            "system_instruction": system,
+            "temperature": 0,
+            "response_mime_type": "application/json",
+            "response_schema": openai_strict_schema(MeetingAnalysis.model_json_schema()),
+        }
         try:
             response = client.models.generate_content(
                 model=self.model,
                 contents=user,
-                config={
-                    "system_instruction": system,
-                    "temperature": 0,
-                    "response_mime_type": "application/json",
-                    "response_schema": openai_strict_schema(MeetingAnalysis.model_json_schema()),
-                },
+                config=structured_config,
             )
             content = response.text
-        except Exception as error:
-            raise SafeProviderError("gemini", "analysis", error) from None
+        except Exception as structured_error:
+            if not _is_http_bad_request(structured_error):
+                raise SafeProviderError("gemini", "analysis", structured_error) from None
+            fallback_system, fallback_user = _fallback_analysis_prompt(system, user)
+            try:
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=fallback_user,
+                    config={
+                        "system_instruction": fallback_system,
+                        "temperature": 0,
+                        "response_mime_type": "application/json",
+                    },
+                )
+                content = response.text
+            except Exception as fallback_error:
+                raise SafeProviderError("gemini", "analysis", fallback_error) from None
         try:
             data = json.loads(content or "")
         except json.JSONDecodeError:
