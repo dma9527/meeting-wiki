@@ -24,6 +24,9 @@ test("build.files lists every runtime source file that must ship", () => {
     "setup-preload.js",
     "settings-window.js",
     "settings-preload.js",
+    "live-session.js",
+    "live-sidebar-window.js",
+    "live-sidebar-preload.js",
     "renderer/**",
   ];
   for (const entry of required) {
@@ -40,7 +43,7 @@ test("every packaged path exists on disk", () => {
       assert.ok(fs.existsSync(path.join(ROOT, entry)), `missing file ${entry}`);
     }
   }
-  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css"]) {
+  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css", "renderer/live-sidebar.html", "renderer/live-sidebar.js", "renderer/live-sidebar.css"]) {
     assert.ok(fs.existsSync(path.join(ROOT, asset)), `missing renderer asset ${asset}`);
   }
 });

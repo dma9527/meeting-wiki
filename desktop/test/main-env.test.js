@@ -105,3 +105,26 @@ test("Settings never receives the secret store, restarts processing on save, and
   assert.match(restart, /if \(worker\) worker\.kill\("SIGTERM"\); else startWorker\(\);/);
   assert.match(restart, /void refreshQueueStatus\(\);/);
 });
+
+test("live view starts after capture succeeds and cannot break recording", () => {
+  const start = functionBody("startRecording");
+  const captureAt = start.indexOf("capture.start(timestamp())");
+  const liveAt = start.indexOf("startLiveSession(capture.active.micPath, isPrivate)");
+  assert.ok(captureAt >= 0 && liveAt > captureAt, "live view must start only after capture starts");
+  const live = functionBody("startLiveSession");
+  assert.match(live, /if \(!pythonAvailable\(\) \|\| !micPath\) return;/);
+  assert.match(live, /try \{[\s\S]*liveSession\.start\(\{ micPath, isPrivate \}\);[\s\S]*\} catch \(_\) \{\}/);
+  assert.match(functionBody("stopLiveSession"), /liveSession\.stop\(\)\.catch\(\(\) => \{\}\)/);
+});
+
+test("stop, discard, and quit end the live session while batch ingest still runs", () => {
+  const stop = functionBody("stopRecording");
+  const liveStopAt = stop.indexOf("stopLiveSession();");
+  const enqueueAt = stop.indexOf("enqueue(");
+  assert.ok(liveStopAt >= 0 && enqueueAt > liveStopAt, "batch ingest must follow live shutdown");
+  assert.doesNotMatch(stop, /await\s+liveSession|await\s+stopLiveSession/);
+  assert.match(source, /label: "Stop and discard", click: async \(\) => \{ stopLiveSession\(\); await capture\.discard\(\);/);
+  const quit = source.slice(source.indexOf('app.on("will-quit"'));
+  assert.match(quit, /stopLiveSession\(\);/);
+  assert.match(source, /buildEnv: \(\) => processingEnv\(\{ background: true \}\)/);
+});

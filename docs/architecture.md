@@ -63,3 +63,18 @@ replaceable.
 The SQLite queue runs in WAL mode with synchronous FULL. Jobs have unique dedupe
 keys, exponential backoff, max attempts, and visibility-timeout recovery.
 Rendering is idempotent, so at-least-once processing is safe.
+
+## Live sidebar
+
+While recording, the Electron main process spawns `meeting-wiki live` for the
+growing microphone WAV. The child binds a WebSocket to `127.0.0.1` on an
+ephemeral port, prints only that port, and admits exactly one client that
+presents the per-session token passed through its environment. Main is that
+client. It re-validates every event and forwards only state, final transcript
+lines, translations, and summary points to a sandboxed sidebar whose preload
+exposes `subscribe` and `unsubscribe`. Tokens, ports, paths, and keys stay in
+main. Errors cross the boundary only as fixed issue codes.
+
+Live output is display-only and never persisted. Stopping, discarding, quitting,
+or closing the sidebar ends the live child. Any live failure leaves capture and
+the durable batch ingest unchanged.

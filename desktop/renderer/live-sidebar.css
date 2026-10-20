@@ -1,0 +1,96 @@
+/* Live sidebar reuses styles.css tokens; only the narrow single-column layout is new. */
+
+.live-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100vh;
+  margin: 0;
+  padding: 14px;
+  box-sizing: border-box;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.live-head p {
+  margin: 0 0 6px;
+}
+
+.live-status {
+  font-weight: 600;
+}
+
+.live-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.live-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.live-badge-private,
+.live-badge-external {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.live-issue {
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.live-section h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.live-section-grow {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.live-summary {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.live-transcript {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-line {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.live-line p {
+  margin: 0;
+}
+
+.live-translation {
+  margin-top: 4px;
+  color: var(--accent);
+}
+
+.live-empty,
+.live-foot {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.live-foot p {
+  margin: 0;
+}

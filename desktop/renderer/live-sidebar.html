@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meeting Wiki Live</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="live-sidebar.css" />
+  </head>
+  <body>
+    <div class="live-shell">
+      <header class="live-head">
+        <p id="live-status" class="live-status" role="status" aria-live="polite">Starting live view.</p>
+        <p class="live-badges">
+          <span id="live-private" class="live-badge live-badge-private" hidden>Private session</span>
+          <span id="live-scope" class="live-badge" hidden></span>
+        </p>
+        <p id="live-issue" class="live-issue" role="alert" hidden></p>
+      </header>
+
+      <section class="live-section" aria-labelledby="live-summary-heading">
+        <h2 id="live-summary-heading">Summary</h2>
+        <ul id="live-summary" class="live-summary"></ul>
+        <p id="live-summary-empty" class="live-empty">A summary appears after the first few sentences.</p>
+      </section>
+
+      <section class="live-section live-section-grow" aria-labelledby="live-transcript-heading">
+        <h2 id="live-transcript-heading">Transcript and translation</h2>
+        <ol id="live-transcript" class="live-transcript" aria-live="polite"></ol>
+        <p id="live-transcript-empty" class="live-empty">Final transcript lines appear here.</p>
+      </section>
+
+      <footer class="live-foot">
+        <p>Live text is display only. The saved meeting is processed after recording stops.</p>
+      </footer>
+    </div>
+    <script src="live-sidebar.js" defer></script>
+  </body>
+</html>

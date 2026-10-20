@@ -65,9 +65,13 @@ node --check desktop/setup-window.js
 node --check desktop/setup-preload.js
 node --check desktop/settings-window.js
 node --check desktop/settings-preload.js
+node --check desktop/live-session.js
+node --check desktop/live-sidebar-window.js
+node --check desktop/live-sidebar-preload.js
 node --check desktop/renderer/app.js
 node --check desktop/renderer/setup.js
 node --check desktop/renderer/settings.js
+node --check desktop/renderer/live-sidebar.js
 (cd desktop && npm test)
 
 echo "== Dependency audits =="

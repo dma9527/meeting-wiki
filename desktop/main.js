@@ -13,6 +13,8 @@ const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
 const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
+const { LiveSessionManager } = require("./live-session");
+const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const {
   formatQueueLabel,
@@ -64,6 +66,13 @@ const capture = new AudioCapture({
     "System audio was not captured",
     "Your microphone recording will continue, but Zoom or Google Meet participants were silent. Check Screen & System Audio Recording permission before the next meeting.",
   ),
+});
+const liveSession = new LiveSessionManager({
+  spawn,
+  python: PYTHON,
+  configPath: CONFIG_PATH,
+  buildEnv: () => processingEnv({ background: true }),
+  onEvent: publishLiveEvent,
 });
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
 
@@ -280,6 +289,19 @@ function enqueue(
   });
 }
 
+// Live view is display-only: any failure here leaves capture and batch ingest untouched.
+function startLiveSession(micPath, isPrivate) {
+  if (!pythonAvailable() || !micPath) return;
+  try {
+    createLiveSidebarWindow({ BrowserWindow }, { onClosed: () => { void liveSession.stop(); } });
+    liveSession.start({ micPath, isPrivate });
+  } catch (_) {}
+}
+
+function stopLiveSession() {
+  liveSession.stop().catch(() => {});
+}
+
 async function startRecording() {
   if (capture.active) return;
   const titleExplicit = Boolean(nextTitle);
@@ -299,6 +321,7 @@ async function startRecording() {
   capture.active.title = title;
   capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
+  startLiveSession(capture.active.micPath, isPrivate);
 }
 
 async function stopRecording() {
@@ -306,6 +329,7 @@ async function stopRecording() {
   const title = capture.active.title;
   const titleExplicit = capture.active.titleExplicit;
   const isPrivate = capture.active.private;
+  stopLiveSession();
   try {
     const files = await capture.stop();
     enqueue(
@@ -347,7 +371,7 @@ function updateMenu() {
     items.push(
       { label: `Recording ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`, enabled: false },
       { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: stopRecording },
-      { label: "Stop and discard", click: async () => { await capture.discard(); recordingStartedAt = null; updateMenu(); } },
+      { label: "Stop and discard", click: async () => { stopLiveSession(); await capture.discard(); recordingStartedAt = null; updateMenu(); } },
     );
   } else {
     items.push(
@@ -415,6 +439,7 @@ app.on("will-quit", () => {
   shuttingDown = true;
   globalShortcut.unregisterAll();
   if (worker) worker.kill("SIGTERM");
+  stopLiveSession();
   if (capture.active) void capture.discard();
 });
 
