@@ -136,6 +136,27 @@ def redacted_job_record(job) -> dict[str, object]:
     return record
 
 
+def live_command(config, mic_audio: Path, private: bool) -> int:
+    """Run one live session. The token arrives via environment, never argv."""
+    import asyncio
+
+    from .live import TOKEN_ENV, run_live_session
+
+    token = os.environ.pop(TOKEN_ENV, "")
+    if len(token) < 32:
+        print(json.dumps({"type": "error", "error": "live_token_required"}))
+        return 2
+    return asyncio.run(
+        run_live_session(
+            config,
+            mic_audio.expanduser(),
+            private,
+            token,
+            lambda line: print(line, flush=True),
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -180,6 +201,12 @@ def main(argv: list[str] | None = None) -> int:
     cleanup.add_argument("--older-than-days", type=float, required=True)
     sub.add_parser("doctor", help="Validate configured providers")
     sub.add_parser("mcp", help="Run read-only MCP server over stdio")
+    live = sub.add_parser(
+        "live",
+        help="Run a display-only live session for the desktop app (token via environment)",
+    )
+    live.add_argument("--mic-audio", required=True, help="Growing 16 kHz mono microphone WAV")
+    live.add_argument("--private", action="store_true")
 
     brief = sub.add_parser("brief", help="Generate pre-meeting briefs for upcoming calendar events")
     brief.add_argument(
@@ -208,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     config = load_config(args.config)
+    if args.command == "live":
+        return live_command(config, Path(args.mic_audio), args.private)
     if args.command == "doctor":
         return doctor(args.config)
     if args.command == "ingest":
