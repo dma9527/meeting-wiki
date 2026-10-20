@@ -13,6 +13,7 @@ from typing import Any
 from ..config import PrivacyConfig
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
+    EmptyTranscriptError,
     LiveTranscriptEvent,
     LiveTranscriptKind,
     TranscriptionCapabilities,
@@ -109,7 +110,7 @@ class GeminiTranscriber(_GeminiClientMixin):
                 f"Gemini transcription request failed ({type(error).__name__})"
             ) from None
         if not text:
-            raise RuntimeError("Gemini produced an empty transcript")
+            raise EmptyTranscriptError("Gemini produced an empty transcript")
         return TranscriptResult(
             text=text,
             segments=[TranscriptSegment(text=text)],

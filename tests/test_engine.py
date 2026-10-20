@@ -401,3 +401,106 @@ def test_private_audio_is_not_moved_before_analysis_succeeds(
     assert audio.exists()
     assert len(providers.transcription.calls) == 1
     assert len(list((tmp_path / "private" / "transcript-data").glob("*.json"))) == 1
+
+
+def write_pcm_wav(path, samples: list[int]) -> None:
+    import array
+    import wave
+
+    payload = array.array("h", samples).tobytes()
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(16000)
+        output.writeframes(payload)
+
+
+def test_dual_stream_skips_provably_silent_system_audio(tmp_path, meeting, analysis):
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    mic = audio_dir / "meeting_mic.wav"
+    system = audio_dir / "meeting_system.wav"
+    mic.write_bytes(b"mic audio")
+    write_pcm_wav(system, [0] * 160)
+    mic_result = TranscriptResult(
+        text="I will own it.",
+        segments=[TranscriptSegment(text="I will own it.")],
+        provider="fake",
+        model="fake",
+    )
+    providers, _, _ = bundle(tmp_path, mic_result, analysis)
+    providers.transcription = SplitTranscriber({mic.name: mic_result})
+    meeting = meeting.model_copy(
+        update={"mic_audio_path": mic, "system_audio_path": system, "attendees": ["Alex"]}
+    )
+
+    config = AppConfig(data_dir=tmp_path, user_name="Local User")
+    result = MeetingEngine(config, providers).ingest(meeting)
+
+    assert [call[0] for call in providers.transcription.calls] == [mic]
+    assert result.transcript.text == "Local User: I will own it."
+
+
+def test_dual_stream_keeps_mic_when_system_returns_empty_transcript(tmp_path, meeting, analysis):
+    from meeting_wiki.providers.base import EmptyTranscriptError
+
+    mic = tmp_path / "mic.wav"
+    system = tmp_path / "system.wav"
+    mic.write_bytes(b"mic audio")
+    system.write_bytes(b"non-silent unsupported format")
+    mic_result = TranscriptResult(
+        text="Mic speech.",
+        segments=[TranscriptSegment(text="Mic speech.")],
+        provider="fake",
+        model="fake",
+    )
+
+    class EmptySystemTranscriber(FakeTranscriber):
+        def transcribe(self, audio_path, language=None, context=None):
+            self.calls.append((audio_path, language, context))
+            if audio_path == system:
+                raise EmptyTranscriptError("empty")
+            return mic_result
+
+    providers, _, _ = bundle(tmp_path, mic_result, analysis)
+    providers.transcription = EmptySystemTranscriber(mic_result)
+    meeting = meeting.model_copy(update={"mic_audio_path": mic, "system_audio_path": system})
+
+    result = MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)
+
+    assert result.transcript.text == "User: Mic speech."
+    assert [call[0] for call in providers.transcription.calls] == [mic, system]
+
+
+def test_dual_stream_propagates_real_system_provider_error(tmp_path, meeting, analysis):
+    mic = tmp_path / "mic.wav"
+    system = tmp_path / "system.wav"
+    mic.write_bytes(b"mic audio")
+    system.write_bytes(b"non-silent unsupported format")
+    mic_result = TranscriptResult(text="Mic speech.", provider="fake", model="fake")
+
+    class FailingSystemTranscriber(FakeTranscriber):
+        def transcribe(self, audio_path, language=None, context=None):
+            if audio_path == system:
+                raise ConnectionError("provider unavailable")
+            return mic_result
+
+    providers, _, _ = bundle(tmp_path, mic_result, analysis)
+    providers.transcription = FailingSystemTranscriber(mic_result)
+    meeting = meeting.model_copy(update={"mic_audio_path": mic, "system_audio_path": system})
+
+    with pytest.raises(ConnectionError, match="provider unavailable"):
+        MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)
+
+
+def test_dual_stream_rejects_when_every_stream_is_silent_or_empty(tmp_path, meeting, analysis):
+    mic = tmp_path / "mic.wav"
+    system = tmp_path / "system.wav"
+    write_pcm_wav(mic, [0] * 160)
+    write_pcm_wav(system, [0] * 160)
+    unused = TranscriptResult(text="unused", provider="fake", model="fake")
+    providers, _, _ = bundle(tmp_path, unused, analysis)
+    meeting = meeting.model_copy(update={"mic_audio_path": mic, "system_audio_path": system})
+
+    with pytest.raises(ValueError, match="No non-empty audio streams"):
+        MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)

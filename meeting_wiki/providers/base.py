@@ -38,6 +38,10 @@ class LiveTranscriptRequest:
     language: str | None = None
 
 
+class EmptyTranscriptError(RuntimeError):
+    """A provider completed successfully but found no speech in an audio stream."""
+
+
 @runtime_checkable
 class TranscriptionProvider(Protocol):
     name: str

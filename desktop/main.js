@@ -60,6 +60,10 @@ const capture = new AudioCapture({
   soxBin: RUNTIME.sox,
   packaged: RUNTIME.packaged,
   onError: (error) => notify("Audio capture error", error.message),
+  onSystemAudioUnavailable: () => notify(
+    "System audio was not captured",
+    "Your microphone recording will continue, but Zoom or Google Meet participants were silent. Check Screen & System Audio Recording permission before the next meeting.",
+  ),
 });
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
 

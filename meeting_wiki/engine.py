@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import wave
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,7 @@ from .models import (
     TranscriptSegment,
 )
 from .privacy import classify
-from .providers.base import TranscriptionContext
+from .providers.base import EmptyTranscriptError, TranscriptionContext
 from .providers.registry import ProviderBundle
 from .providers.transcription import TextImportTranscriber
 from .wiki import RenderResult, WikiRenderer, stable_id
@@ -213,17 +214,21 @@ class MeetingEngine:
             streams.append((meeting.system_audio_path, remote_speaker, system_context))
 
         if streams:
-            results = [
-                (
-                    self.providers.transcription.transcribe(
+            results: list[tuple[TranscriptResult, str]] = []
+            for path, speaker, context in streams:
+                if self._is_provably_silent_wav(path):
+                    continue
+                try:
+                    result = self.providers.transcription.transcribe(
                         path,
                         self.config.language,
                         context,
-                    ),
-                    speaker,
-                )
-                for path, speaker, context in streams
-            ]
+                    )
+                except EmptyTranscriptError:
+                    continue
+                results.append((result, speaker))
+            if not results:
+                raise ValueError("No non-empty audio streams available for transcription")
             result = self._merge_stream_transcripts(results)
             return self._apply_speaker_corrections(result, meeting.speaker_corrections)
 
@@ -235,6 +240,20 @@ class MeetingEngine:
             shared_context,
         )
         return self._apply_speaker_corrections(result, meeting.speaker_corrections)
+
+    @staticmethod
+    def _is_provably_silent_wav(path: Path) -> bool:
+        """Return true only for readable 16-bit PCM WAV files containing all-zero samples."""
+        try:
+            with wave.open(str(path), "rb") as source:
+                if source.getcomptype() != "NONE" or source.getsampwidth() != 2:
+                    return False
+                while frames := source.readframes(65_536):
+                    if any(frames):
+                        return False
+                return True
+        except (EOFError, OSError, wave.Error):
+            return False
 
     def _transcription_context(
         self,

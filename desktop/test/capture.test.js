@@ -92,3 +92,21 @@ test("capture process errors are surfaced through callback", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test("silent PCM detection distinguishes all-zero system audio from audio samples", () => {
+  const { isSilentPcmFile } = require("../capture");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meeting-wiki-capture-"));
+  const silent = path.join(dir, "silent.raw");
+  const audible = path.join(dir, "audible.raw");
+  fs.writeFileSync(silent, Buffer.alloc(3200));
+  fs.writeFileSync(audible, Buffer.from([0, 0, 1, 0]));
+
+  try {
+    assert.equal(isSilentPcmFile(silent), true);
+    assert.equal(isSilentPcmFile(audible), false);
+    assert.equal(isSilentPcmFile(path.join(dir, "missing.raw")), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

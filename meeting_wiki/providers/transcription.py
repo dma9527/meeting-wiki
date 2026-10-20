@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 
 from ..models import TranscriptResult, TranscriptSegment
-from .base import TranscriptionCapabilities, TranscriptionContext
+from .base import EmptyTranscriptError, TranscriptionCapabilities, TranscriptionContext
 
 
 class TextImportTranscriber:
@@ -23,7 +23,7 @@ class TextImportTranscriber:
     ) -> TranscriptResult:
         text = audio_path.read_text(encoding="utf-8").strip()
         if not text:
-            raise ValueError(f"Transcript file is empty: {audio_path}")
+            raise EmptyTranscriptError(f"Transcript file is empty: {audio_path}")
         return TranscriptResult(
             text=text,
             segments=[TranscriptSegment(text=text)],
@@ -65,7 +65,7 @@ class MLXWhisperTranscriber:
         result = mlx_whisper.transcribe(str(audio_path), **kwargs)
         text = str(result.get("text", "")).strip()
         if not text:
-            raise RuntimeError("MLX Whisper produced an empty transcript")
+            raise EmptyTranscriptError("MLX Whisper produced an empty transcript")
         segments = [
             TranscriptSegment(
                 start_seconds=float(segment.get("start", 0)),
@@ -128,7 +128,7 @@ class OpenAITranscriber:
         result = response.json()
         text = str(result.get("text", "")).strip()
         if not text:
-            raise RuntimeError("Transcription endpoint produced an empty transcript")
+            raise EmptyTranscriptError("Transcription endpoint produced an empty transcript")
         segments = [
             TranscriptSegment(
                 start_seconds=float(segment.get("start", 0)),

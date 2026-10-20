@@ -20,6 +20,25 @@ function rawToWavArgs(rawPath, wavPath) {
   ];
 }
 
+function isSilentPcmFile(filePath) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, "r");
+    const chunk = Buffer.alloc(65_536);
+    while (true) {
+      const bytes = fs.readSync(descriptor, chunk, 0, chunk.length, null);
+      if (bytes === 0) return true;
+      for (let index = 0; index < bytes; index += 1) {
+        if (chunk[index] !== 0) return false;
+      }
+    }
+  } catch (_) {
+    return false;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function waitForExit(child, signal, timeoutMs = 10_000) {
   return new Promise((resolve) => {
     let settled = false;
@@ -56,6 +75,7 @@ class AudioCapture {
     this.soxBin = "soxBin" in options ? options.soxBin : resolveAudioBinary("sox", devDeps);
     this.spawn = options.spawn || spawn;
     this.onError = options.onError || (() => {});
+    this.onSystemAudioUnavailable = options.onSystemAudioUnavailable || (() => {});
     this.active = null;
   }
 
@@ -102,7 +122,9 @@ class AudioCapture {
       await new Promise((resolve) => state.systemStream.end(resolve));
     }
     let systemWav = null;
-    if (fs.existsSync(state.rawPath) && fs.statSync(state.rawPath).size > 0) {
+    const hasSystemRaw = fs.existsSync(state.rawPath) && fs.statSync(state.rawPath).size > 0;
+    const systemAudioSilent = hasSystemRaw && isSilentPcmFile(state.rawPath);
+    if (hasSystemRaw && !systemAudioSilent) {
       if (!this.soxBin) throw missingBinaryError("sox", this.packaged);
       systemWav = state.rawPath.replace(".raw", ".wav");
       await run(this.soxBin, rawToWavArgs(state.rawPath, systemWav));
@@ -111,6 +133,7 @@ class AudioCapture {
     } else {
       fs.copyFileSync(state.micPath, state.outputPath);
       try { fs.unlinkSync(state.rawPath); } catch (_) {}
+      if (systemAudioSilent) this.onSystemAudioUnavailable();
     }
     for (const file of [state.outputPath, state.micPath, systemWav].filter(Boolean)) {
       fs.chmodSync(file, 0o600);
@@ -138,4 +161,4 @@ class AudioCapture {
   }
 }
 
-module.exports = { AudioCapture, rawToWavArgs, recArgs };
+module.exports = { AudioCapture, isSilentPcmFile, rawToWavArgs, recArgs };
