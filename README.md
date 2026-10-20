@@ -264,12 +264,15 @@ target shared meetings over https.
 
 ### Claude skill
 
-The menubar item "Install Claude skill..." copies a bundled, data-free
+The menubar item "Install Claude skill for meeting memory..." (next to "Open
+Wiki & Corrections") copies a bundled, data-free
 `SKILL.md` template to `~/.claude/skills/meeting-wiki-memory/SKILL.md`. It
 teaches agents to query memory through the MCP tools or CLI, reindex safely,
 keep private memory opt-in, and never write memory files directly. The installer
 creates missing folders as 0700 and the file as 0600, refuses to overwrite a
-file with different content, and reports the result in a notification. The
+file with different content, and shows the result (installed, already
+installed, conflict, unsafe path, or error) in an in-app dialog with a fixed
+message. It falls back to a notification only if the dialog cannot open. The
 template lives at `desktop/skills/meeting-wiki-memory/SKILL.md`.
 
 ## Desktop wiki and correction inbox

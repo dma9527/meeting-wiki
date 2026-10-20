@@ -109,9 +109,62 @@ function installClaudeSkill({ fsImpl = fs, homeDir = os.homedir(), templatePath 
   }
 }
 
-function skillInstallMessage(result) {
-  const status = result && Object.prototype.hasOwnProperty.call(MESSAGES, result.status) ? result.status : "error";
-  return MESSAGES[status];
+const DIALOG_TYPES = Object.freeze({
+  installed: "info",
+  already_installed: "info",
+  conflict: "warning",
+  unsafe_path: "warning",
+  error: "error",
+});
+
+function knownStatus(result) {
+  return result && Object.prototype.hasOwnProperty.call(MESSAGES, result.status) ? result.status : "error";
 }
 
-module.exports = { DISPLAY_PATH, SKILL_NAME, TEMPLATE_PATH, installClaudeSkill, readTemplate, skillInstallMessage };
+function skillInstallMessage(result) {
+  return MESSAGES[knownStatus(result)];
+}
+
+function skillInstallDialogOptions(result) {
+  const status = knownStatus(result);
+  const { title, body } = MESSAGES[status];
+  return {
+    type: DIALOG_TYPES[status],
+    title: "Meeting Wiki",
+    message: title,
+    detail: body,
+    buttons: ["OK"],
+    defaultId: 0,
+    noLink: true,
+  };
+}
+
+// Runs the install, then shows the fixed result in a dialog; notifies only if the dialog fails.
+async function presentSkillInstall({ install = installClaudeSkill, showDialog, focus, notify }) {
+  let result;
+  try {
+    result = install();
+  } catch (_) {
+    result = { status: "error" };
+  }
+  const options = skillInstallDialogOptions(result);
+  try {
+    if (focus) focus();
+    await showDialog(options);
+    return "dialog";
+  } catch (_) {
+    if (notify) notify(options.message, options.detail);
+    return "notification";
+  }
+}
+
+module.exports = {
+  DISPLAY_PATH,
+  SKILL_NAME,
+  TEMPLATE_PATH,
+  installClaudeSkill,
+  presentSkillInstall,
+  readTemplate,
+  skillInstallDialogOptions,
+  skillInstallMessage,
+};

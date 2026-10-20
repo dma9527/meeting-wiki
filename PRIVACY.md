@@ -16,7 +16,7 @@ or usage data.
 6. URL resources you attach to meetings are stored locally in `memory.db` with
    the title and summary you type. Meeting Wiki never opens, fetches, or sends
    those URLs, and a resource on a private meeting stays private.
-7. "Install Claude skill..." writes only a bundled instruction template with no
+7. "Install Claude skill for meeting memory..." writes only a bundled instruction template with no
    meeting data to `~/.claude/skills/meeting-wiki-memory/SKILL.md`.
 
 With MLX Whisper and Ollama, audio and text stay on your Mac. Selecting an

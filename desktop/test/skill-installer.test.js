@@ -10,7 +10,9 @@ const {
   DISPLAY_PATH,
   TEMPLATE_PATH,
   installClaudeSkill,
+  presentSkillInstall,
   readTemplate,
+  skillInstallDialogOptions,
   skillInstallMessage,
 } = require("../skill-installer");
 
@@ -108,15 +110,101 @@ test("the template is portable SKILL.md with no user data or direct-write guidan
   assert.match(text, /Never open, edit, copy, or delete files/);
 });
 
-test("the installer uses fs only and main wires the menu item to it", () => {
+test("the installer uses fs only and main wires a discoverable menu item to a result dialog", () => {
   const code = fs.readFileSync(path.join(DESKTOP, "skill-installer.js"), "utf8").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(code, /child_process|execFile|spawn\(|\bshell\b|require\("electron"\)/);
   const main = fs.readFileSync(path.join(DESKTOP, "main.js"), "utf8");
-  assert.match(main, /\{ label: "Install Claude skill\.\.\.", click: installSkillFromMenu \}/);
-  const body = main.slice(main.indexOf("function installSkillFromMenu"), main.indexOf("function askTitle"));
-  assert.match(body, /skillInstallMessage\(installClaudeSkill\(\)\)/);
-  assert.match(body, /notify\(message\.title, message\.body\)/);
+  assert.match(main, /const INSTALL_SKILL_LABEL = "Install Claude skill for meeting memory\.\.\.";/);
+  assert.match(main, /\{ label: INSTALL_SKILL_LABEL, toolTip: INSTALL_SKILL_TOOLTIP, click: \(\) => \{ void installSkillFromMenu\(\); \} \}/);
+  const menu = main.slice(main.indexOf("function updateMenu"));
+  const wikiAt = menu.indexOf('label: "Open Wiki & Corrections"');
+  const skillAt = menu.indexOf("label: INSTALL_SKILL_LABEL");
+  const quitAt = menu.indexOf('label: "Quit"');
+  assert.ok(wikiAt > 0 && skillAt > wikiAt && skillAt < menu.indexOf('label: "Settings..."') && skillAt < quitAt);
+  const body = main.slice(main.indexOf("function installSkillFromMenu") - 40, main.indexOf("function askTitle"));
+  assert.match(body, /presentSkillInstall\(\{/);
+  assert.match(body, /install: installClaudeSkill/);
+  assert.match(body, /showDialog: \(options\) => dialog\.showMessageBox\(options\)/);
+  assert.match(body, /app\.focus\(\{ steal: true \}\)/);
   assert.doesNotMatch(body, /exec|spawn|shell/);
+});
+
+const STATUSES = ["installed", "already_installed", "conflict", "unsafe_path", "error"];
+
+test("dialog options are fixed per status with an appropriate type and no user data", () => {
+  const types = { installed: "info", already_installed: "info", conflict: "warning", unsafe_path: "warning", error: "error" };
+  const titles = new Set();
+  for (const status of STATUSES) {
+    const options = skillInstallDialogOptions({ status, path: os.homedir(), detail: "secret" });
+    const message = skillInstallMessage({ status });
+    assert.deepEqual(options, {
+      type: types[status],
+      title: "Meeting Wiki",
+      message: message.title,
+      detail: message.body,
+      buttons: ["OK"],
+      defaultId: 0,
+      noLink: true,
+    });
+    assert.doesNotMatch(JSON.stringify(options), /secret|\/Users\/|\/home\//);
+    titles.add(`${message.title}|${message.body}`);
+  }
+  assert.equal(titles.size, STATUSES.length, "each status has a distinct message");
+  assert.deepEqual(skillInstallDialogOptions({ status: "constructor" }), skillInstallDialogOptions({ status: "error" }));
+});
+
+test("presentSkillInstall shows a dialog for every status without notifying", async () => {
+  for (const status of STATUSES) {
+    const shown = [];
+    const notified = [];
+    let focused = 0;
+    const via = await presentSkillInstall({
+      install: () => ({ status }),
+      focus: () => { focused += 1; },
+      showDialog: async (options) => { shown.push(options); return { response: 0 }; },
+      notify: (...args) => notified.push(args),
+    });
+    assert.equal(via, "dialog");
+    assert.equal(focused, 1);
+    assert.deepEqual(shown, [skillInstallDialogOptions({ status })]);
+    assert.deepEqual(notified, []);
+  }
+});
+
+test("presentSkillInstall reports a throwing installer as an error dialog", async () => {
+  const shown = [];
+  await presentSkillInstall({
+    install: () => { throw new Error(`boom ${os.homedir()}`); },
+    showDialog: async (options) => { shown.push(options); },
+  });
+  assert.deepEqual(shown, [skillInstallDialogOptions({ status: "error" })]);
+});
+
+test("presentSkillInstall falls back to a fixed notification only if the dialog fails", async () => {
+  const notified = [];
+  const via = await presentSkillInstall({
+    install: () => ({ status: "conflict" }),
+    focus: () => { throw new Error("no focus"); },
+    showDialog: async () => { throw new Error("no dialog"); },
+    notify: (...args) => notified.push(args),
+  });
+  const message = skillInstallMessage({ status: "conflict" });
+  assert.equal(via, "notification");
+  assert.deepEqual(notified, [[message.title, message.body]]);
+});
+
+test("presentSkillInstall never overwrites an existing user file", async () => {
+  const homeDir = home();
+  const file = target(homeDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "mine\n");
+  const shown = [];
+  await presentSkillInstall({
+    install: () => installClaudeSkill({ homeDir }),
+    showDialog: async (options) => { shown.push(options); },
+  });
+  assert.equal(fs.readFileSync(file, "utf8"), "mine\n");
+  assert.equal(shown[0].message, skillInstallMessage({ status: "conflict" }).title);
 });
 
 test("electron-builder ships the installer and only the skill template", () => {

@@ -16,7 +16,7 @@ const { createSettingsWindow } = require("./settings-window");
 const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
-const { installClaudeSkill, skillInstallMessage } = require("./skill-installer");
+const { installClaudeSkill, presentSkillInstall } = require("./skill-installer");
 const { readMaxDurationMinutes } = require("./recording-settings");
 const {
   IngestTracker,
@@ -53,6 +53,8 @@ const TRAY_ICON_PATHS = Object.freeze({
   processing: path.join(__dirname, "assets", "tray-processing@2x.png"),
   attention: path.join(__dirname, "assets", "tray-attention@2x.png"),
 });
+const INSTALL_SKILL_LABEL = "Install Claude skill for meeting memory...";
+const INSTALL_SKILL_TOOLTIP = "Adds a data-free skill so Claude can search your meeting memory. Never overwrites files.";
 
 let tray;
 let worker;
@@ -251,10 +253,21 @@ async function retryFailedJobs() {
   await refreshQueueStatus();
 }
 
-// Writes only the bundled template; the outcome message never includes user data.
-function installSkillFromMenu() {
-  const message = skillInstallMessage(installClaudeSkill());
-  notify(message.title, message.body);
+// Writes only the bundled template; the result dialog never includes user data.
+let skillInstallRunning = false;
+async function installSkillFromMenu() {
+  if (skillInstallRunning) return;
+  skillInstallRunning = true;
+  try {
+    await presentSkillInstall({
+      install: installClaudeSkill,
+      focus: () => app.focus({ steal: true }),
+      showDialog: (options) => dialog.showMessageBox(options),
+      notify,
+    });
+  } finally {
+    skillInstallRunning = false;
+  }
 }
 
 function askTitle() {
@@ -443,12 +456,13 @@ function updateMenu() {
     { label: "Open logs", click: () => shell.openPath(path.join(DATA_DIR, "logs")) },
     { type: "separator" },
     { label: "Open Wiki & Corrections", click: openWikiWindow },
+    { label: INSTALL_SKILL_LABEL, toolTip: INSTALL_SKILL_TOOLTIP, click: () => { void installSkillFromMenu(); } },
     { label: "Open wiki", click: () => shell.openPath(path.join(DATA_DIR, "wiki")) },
     { label: "Open private meetings", click: () => shell.openPath(path.join(DATA_DIR, "private", "meetings")) },
+    { type: "separator" },
     { label: "Settings...", click: openSettingsWindow },
     { label: "Run setup...", click: openSetupWindow },
     { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
-    { label: "Install Claude skill...", click: installSkillFromMenu },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   );
