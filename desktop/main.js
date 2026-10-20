@@ -68,6 +68,7 @@ let queueStatusReady = false;
 let queueStatusError = false;
 let queueStatusRefreshing = false;
 let currentTrayIconState = null;
+let liveIssue = null;
 
 const capture = new AudioCapture({
   recordingsDir: RECORDINGS_DIR,
@@ -86,7 +87,13 @@ const liveSession = new LiveSessionManager({
   python: PYTHON,
   configPath: CONFIG_PATH,
   buildEnv: () => processingEnv({ background: true }),
-  onEvent: publishLiveEvent,
+  onEvent: (event) => {
+    if (event.type === "state") {
+      liveIssue = event.phase === "unavailable" ? event.issue || "unavailable" : null;
+      if (tray) updateMenu();
+    }
+    publishLiveEvent(event);
+  },
 });
 const recordingSession = new RecordingSession({ onLimit: () => { void stopRecording("limit"); } });
 const ingests = new IngestTracker();
@@ -404,6 +411,7 @@ function updateMenu() {
   if (recordingSession.recording) {
     items.push(
       { label: recordingLabel(recordingSession), enabled: false },
+      ...(liveIssue ? [{ label: "Live captions unavailable. Recording continues.", enabled: false }] : []),
       { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: () => { void stopRecording("user"); } },
       { label: "Stop and discard", click: () => { void discardRecording(); } },
     );
