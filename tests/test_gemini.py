@@ -833,3 +833,18 @@ def test_doctor_checks_gemini_batch_and_llm_without_printing_the_key(tmp_path, m
     assert f"OK transcription: Gemini SDK ready ({BATCH_MODEL})" in output
     assert f"OK llm: Gemini SDK ready ({LANGUAGE_MODEL})" in output
     assert TEST_KEY not in output
+
+
+def test_language_provider_supplies_strict_meeting_analysis_schema(meeting, transcript):
+    models = FakeModels(json.dumps(analysis_payload()))
+    client = fake_client(models=models)
+    provider = GeminiLanguageProvider(
+        LANGUAGE_MODEL, TEST_KEY, 600, PrivacyConfig(), client_factory=lambda: client
+    )
+
+    provider.analyze(meeting, transcript)
+
+    schema = models.calls[0]["config"]["response_schema"]
+    assert schema["required"] == list(schema["properties"])
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["summary"]["type"] == "array"

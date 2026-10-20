@@ -34,6 +34,12 @@ const RUNTIME = resolveRuntimePaths({
 });
 const PYTHON = RUNTIME.python;
 const AUDIO_TEE = path.join(__dirname, "node_modules", "audiotee", "bin", "audiotee").replace("app.asar", "app.asar.unpacked");
+const TRAY_ICON_PATHS = Object.freeze({
+  idle: path.join(__dirname, "assets", "tray-idle@2x.png"),
+  recording: path.join(__dirname, "assets", "tray-recording@2x.png"),
+  processing: path.join(__dirname, "assets", "tray-processing@2x.png"),
+  attention: path.join(__dirname, "assets", "tray-attention@2x.png"),
+});
 
 let tray;
 let worker;
@@ -73,14 +79,10 @@ function processingEnv({ background = false } = {}) {
 }
 
 function icon(state) {
-  const paths = {
-    idle: '<rect x="6" y="2" width="6" height="10" rx="3"/><path d="M4 8a5 5 0 0010 0M9 13v3M6 16h6" fill="none" stroke="black" stroke-width="1.5"/>',
-    recording: '<circle cx="9" cy="9" r="6"/><circle cx="9" cy="9" r="2" fill="white"/>',
-    processing: '<path d="M14 6a6 6 0 10.4 6.5" fill="none" stroke="black" stroke-width="2"/><path d="M14 2v5H9" fill="none" stroke="black" stroke-width="2"/>',
-    attention: '<path d="M9 2 17 16H1L9 2Z"/><path d="M9 6v5" stroke="white" stroke-width="1.5"/><circle cx="9" cy="13" r="1" fill="white"/>',
-  };
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="black">${paths[state] || paths.idle}</svg>`;
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+  const image = nativeImage.createFromPath(TRAY_ICON_PATHS[state] || TRAY_ICON_PATHS.idle);
+  if (image.isEmpty()) {
+    throw new Error(`Tray icon asset is unavailable for state: ${state}`);
+  }
   image.setTemplateImage(true);
   return image;
 }

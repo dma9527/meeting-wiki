@@ -18,7 +18,7 @@ from .base import (
     TranscriptionCapabilities,
     TranscriptionContext,
 )
-from .llm import _validate, analysis_messages
+from .llm import _validate, analysis_messages, openai_strict_schema
 
 _INSTALL_HINT = "install meeting-wiki[gemini]"
 _INSTALL_ERROR = "Gemini SDK is not installed. Run: pip install 'meeting-wiki[gemini]'"
@@ -151,6 +151,7 @@ class GeminiLanguageProvider(_GeminiClientMixin):
                     "system_instruction": system,
                     "temperature": 0,
                     "response_mime_type": "application/json",
+                    "response_schema": openai_strict_schema(MeetingAnalysis.model_json_schema()),
                 },
             )
             content = response.text
