@@ -53,6 +53,7 @@
       "recording-settings.js",
       "secret-store.js",
       "skill-installer.js",
+      "self-check.js",
       "skills/meeting-wiki-memory/SKILL.md",
       "assets/tray-idle@2x.png",
       "assets/tray-recording@2x.png",

@@ -16,7 +16,8 @@ const { createSettingsWindow } = require("./settings-window");
 const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
-const { installClaudeSkill, presentSkillInstall } = require("./skill-installer");
+const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("./skill-installer");
+const { formatSelfCheck, runSelfCheck } = require("./self-check");
 const { readMaxDurationMinutes } = require("./recording-settings");
 const {
   IngestTracker,
@@ -30,7 +31,6 @@ const {
 const {
   formatQueueLabel,
   trayIconState,
-  readDoctorStatus,
   readQueueStatus,
   retryDeadJobs,
 } = require("./status");
@@ -227,20 +227,30 @@ function openSettingsWindow() {
   );
 }
 
-async function showSystemHealth() {
-  if (!pythonAvailable()) {
-    notifyMissingPython();
-    return;
+// Fixed-text capability report; see self-check.js for the allowlisted codes.
+let selfCheckRunning = false;
+async function showSelfCheck() {
+  if (selfCheckRunning) return;
+  selfCheckRunning = true;
+  try {
+    const available = pythonAvailable();
+    const env = available ? processingEnv() : null;
+    const report = await runSelfCheck({
+      python: PYTHON,
+      configPath: CONFIG_PATH,
+      pythonAvailable: available,
+      env,
+      mediaAccess: (type) => systemPreferences.getMediaAccessStatus(type),
+      skillStatus: () => claudeSkillStatus(),
+      execFileFn: execFile,
+    });
+    app.focus({ steal: true });
+    await dialog.showMessageBox(formatSelfCheck(report));
+  } catch (_) {
+    notify("Self-check did not finish", "Open logs or try again.");
+  } finally {
+    selfCheckRunning = false;
   }
-  const env = processingEnv();
-  if (!env) return;
-  const health = await readDoctorStatus(PYTHON, CONFIG_PATH, execFile, env);
-  await dialog.showMessageBox({
-    type: health.ok ? "info" : "warning",
-    title: "Meeting Wiki health",
-    message: health.ok ? "All configured providers are ready." : "Setup needs attention.",
-    detail: health.text,
-  });
 }
 
 async function retryFailedJobs() {
@@ -454,7 +464,7 @@ function updateMenu() {
     items.push({ label: "Retry failed processing", click: retryFailedJobs });
   }
   items.push(
-    { label: "Check system health...", click: showSystemHealth },
+    { label: "Run self-check...", click: () => { void showSelfCheck(); } },
     { label: "Open logs", click: () => shell.openPath(path.join(DATA_DIR, "logs")) },
     { type: "separator" },
     { label: "Open Wiki & Corrections", click: openWikiWindow },

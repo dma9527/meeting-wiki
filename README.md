@@ -322,7 +322,12 @@ Without `--reprocess`, `correct` prints the plan and enqueues nothing.
 ## Processing status and recovery
 
 The menubar shows whether meetings are processing or need attention. It also
-provides system health checks, local logs, and a one-click retry for dead jobs.
+provides a capability self-check, local logs, and a one-click retry for dead
+jobs. **Run self-check...** reports microphone and system audio permission,
+batch transcription and analysis, live captions, storage, the memory index, and
+the Claude skill. Every line is fixed text chosen from a status code; provider
+error text, paths, and keys are never shown. The engine side is available as
+`meeting-wiki self-check`, which prints only status codes.
 The same privacy-safe controls are available from the CLI:
 
 ```bash

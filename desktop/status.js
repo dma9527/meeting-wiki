@@ -180,14 +180,6 @@ async function retryDeadJobs(python, configPath, execFileFn = execFile, env = un
   return retried;
 }
 
-async function readDoctorStatus(python, configPath, execFileFn = execFile, env = undefined) {
-  const result = await executeCli(python, configPath, ["doctor"], execFileFn, env);
-  return {
-    ok: result.ok,
-    text: result.stdout || result.stderr || "No health details available.",
-  };
-}
-
 function trayIconState({ isRecording, queueStatusError, queueSummary }) {
   if (isRecording) return "recording";
   if (queueStatusError || queueSummary.action_required > 0) return "attention";
@@ -198,7 +190,6 @@ function trayIconState({ isRecording, queueStatusError, queueSummary }) {
 module.exports = {
   formatQueueLabel,
   trayIconState,
-  readDoctorStatus,
   readQueueStatus,
   listDeadJobs,
   listDismissedJobs,

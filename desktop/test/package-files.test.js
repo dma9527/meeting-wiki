@@ -22,6 +22,7 @@ test("build.files lists every runtime source file that must ship", () => {
     "preload.js",
     "secret-store.js",
     "skill-installer.js",
+    "self-check.js",
     "skills/meeting-wiki-memory/SKILL.md",
     "managed-config.js",
     "setup-window.js",

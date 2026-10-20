@@ -43,7 +43,6 @@ for (const name of ["startWorker", "enqueue"]) {
 
 for (const [name, call] of [
   ["refreshQueueStatus", "readQueueStatus("],
-  ["showSystemHealth", "readDoctorStatus("],
   ["retryFailedJobs", "retryDeadJobs("],
 ]) {
   test(`${name} passes processingEnv to ${call.slice(0, -1)} and stops when the key is unavailable`, () => {
@@ -61,7 +60,7 @@ test("background status polling notifies once per key outage", () => {
   const body = functionBody("processingEnv");
   assert.match(body, /if \(!background \|\| !keyUnavailableNotified\) notify\(/);
   assert.match(functionBody("refreshQueueStatus"), /processingEnv\(\{ background: true \}\)/);
-  for (const name of ["startWorker", "enqueue", "showSystemHealth", "retryFailedJobs"]) {
+  for (const name of ["startWorker", "enqueue", "showSelfCheck", "retryFailedJobs"]) {
     assert.doesNotMatch(functionBody(name), /background: true/);
   }
 });
@@ -166,4 +165,14 @@ test("quit saves and queues an active recording instead of discarding it", () =>
 
 test("the recording settings save does not restart processing", () => {
   assert.doesNotMatch(functionBody("openSettingsWindow"), /onRecordingSaved|maxDuration/);
+});
+
+test("the tray self-check shows only formatted fixed text and never doctor output", () => {
+  assert.doesNotMatch(source, /readDoctorStatus|showSystemHealth|Check system health/);
+  assert.match(source, /\{ label: "Run self-check\.\.\.", click: \(\) => \{ void showSelfCheck\(\); \} \}/);
+  const body = functionBody("showSelfCheck");
+  assert.match(body, /const env = available \? processingEnv\(\) : null;/);
+  assert.match(body, /await dialog\.showMessageBox\(formatSelfCheck\(report\)\);/);
+  assert.match(body, /skillStatus: \(\) => claudeSkillStatus\(\)/);
+  assert.doesNotMatch(body, /error\.message|stdout|detail:/);
 });

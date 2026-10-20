@@ -109,6 +109,34 @@ function installClaudeSkill({ fsImpl = fs, homeDir = os.homedir(), templatePath 
   }
 }
 
+// Read-only probe for the self-check. Never creates folders or files.
+function claudeSkillStatus({ fsImpl = fs, homeDir = os.homedir(), templatePath = TEMPLATE_PATH } = {}) {
+  try {
+    const template = readTemplate(fsImpl, templatePath);
+    const skillDir = path.join(homeDir, ".claude", "skills", SKILL_NAME);
+    let dirStat;
+    try {
+      dirStat = fsImpl.lstatSync(skillDir);
+    } catch (error) {
+      if (error.code === "ENOENT") return "missing";
+      throw error;
+    }
+    if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) return "unsafe_path";
+    let fileStat;
+    try {
+      fileStat = fsImpl.lstatSync(path.join(skillDir, "SKILL.md"));
+    } catch (error) {
+      if (error.code === "ENOENT") return "missing";
+      throw error;
+    }
+    if (!fileStat.isFile()) return "unsafe_path";
+    const current = fsImpl.readFileSync(path.join(skillDir, "SKILL.md"));
+    return Buffer.compare(current, template) === 0 ? "installed" : "conflict";
+  } catch (_) {
+    return "error";
+  }
+}
+
 const DIALOG_TYPES = Object.freeze({
   installed: "info",
   already_installed: "info",
@@ -162,6 +190,7 @@ module.exports = {
   DISPLAY_PATH,
   SKILL_NAME,
   TEMPLATE_PATH,
+  claudeSkillStatus,
   installClaudeSkill,
   presentSkillInstall,
   readTemplate,
