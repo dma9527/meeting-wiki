@@ -36,6 +36,10 @@
           <span class="rail-label">Correction inbox</span>
           <span id="corrections-count" class="badge" hidden>0</span>
         </button>
+        <button type="button" class="rail-item" data-view="recovery">
+          <span class="rail-label">Processing recovery</span>
+          <span id="recovery-count" class="badge" hidden>0</span>
+        </button>
       </nav>
 
       <main id="main" class="stage" tabindex="-1">
@@ -67,6 +71,25 @@
             plan, then reprocess.
           </p>
           <div id="corrections-list" class="list" aria-live="polite"></div>
+        </section>
+
+        <section id="view-recovery" class="view" hidden aria-labelledby="recovery-heading" tabindex="-1">
+          <div class="view-head">
+            <div>
+              <h2 id="recovery-heading">Processing recovery</h2>
+              <p class="explainer">
+                Retry only the jobs you choose. Dismissal hides a failed job without removing its
+                recording, transcript, wiki pages, or local diagnostic record.
+              </p>
+            </div>
+            <button id="recovery-retry-all" class="primary" type="button" data-recovery-action>Retry all</button>
+          </div>
+          <div id="recovery-list" class="list" aria-live="polite"></div>
+          <section class="dismissed-section" aria-labelledby="dismissed-heading">
+            <h3 id="dismissed-heading">Dismissed jobs</h3>
+            <p class="explainer">Restore a job when you want to return it to the recovery list.</p>
+            <div id="dismissed-list" class="list" aria-live="polite"></div>
+          </section>
         </section>
       </main>
 

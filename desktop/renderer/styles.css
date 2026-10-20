@@ -178,6 +178,41 @@ body {
   margin: 0 0 14px;
 }
 
+.view-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.view-head .explainer {
+  margin-top: 0;
+}
+
+.dismissed-section {
+  margin-top: 34px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.dismissed-section h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.recovery-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.recovery-diagnostic {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .explainer,
 .list-empty {
   color: var(--muted);

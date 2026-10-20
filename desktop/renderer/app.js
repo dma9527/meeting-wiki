@@ -5,8 +5,9 @@
 // as markup.
 
 const api = window.meetingWiki;
-const loaded = { recent: false, actions: false, corrections: false };
+const loaded = { recent: false, actions: false, corrections: false, recovery: false };
 let lastFocused = null;
+let recoveryBusy = false;
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -61,6 +62,7 @@ function switchView(view) {
   if (view === "recent" && !loaded.recent) loadRecent();
   if (view === "actions" && !loaded.actions) loadActions();
   if (view === "corrections" && !loaded.corrections) loadCorrections();
+  if (view === "recovery" && !loaded.recovery) loadRecovery();
 }
 
 function openPageButton(pagePath, label) {
@@ -331,6 +333,132 @@ async function loadCorrections() {
   for (const entry of entries) list.appendChild(renderCorrectionCard(entry));
 }
 
+function diagnosticText(job) {
+  const diagnostic = job.diagnostic;
+  if (!diagnostic) return `The job stopped during ${job.stage}.`;
+  if (diagnostic.category !== "provider_request_failed") {
+    return `The app stopped during ${diagnostic.stage}.`;
+  }
+  const details = [diagnostic.sdk_error_type];
+  if (diagnostic.http_status) details.push(`HTTP ${diagnostic.http_status}`);
+  if (diagnostic.provider_status) details.push(diagnostic.provider_status);
+  return `${diagnostic.provider} ${diagnostic.operation} failed (${details.join(", ")}).`;
+}
+
+function setRecoveryBusy(busy) {
+  recoveryBusy = busy;
+  for (const button of document.querySelectorAll("[data-recovery-action]")) {
+    button.disabled = busy;
+  }
+}
+
+function recoveryMeta(job) {
+  return `Job #${job.id} · ${job.stage} · attempt ${job.attempts} of ${job.max_attempts}`;
+}
+
+function recoveryCard(job, actions) {
+  const card = el("article", { class: "card recovery-card" }, [
+    el("h3", { class: "card-title", text: `Job #${job.id}` }),
+    el("p", { class: "card-meta", text: recoveryMeta(job) }),
+    el("p", { class: "recovery-diagnostic", text: diagnosticText(job) }),
+  ]);
+  const buttons = actions.map((action) => {
+    const button = el("button", {
+      class: action.primary ? "primary" : "",
+      type: "button",
+      text: action.label,
+      "data-recovery-action": "",
+    });
+    button.addEventListener("click", async () => {
+      if (recoveryBusy) return;
+      if (action.confirm && !window.confirm(action.confirm)) return;
+      setRecoveryBusy(true);
+      const result = await action.run();
+      setRecoveryBusy(false);
+      if (failed(result)) return;
+      toast(action.success(job.id));
+      await loadRecovery(true);
+    });
+    return button;
+  });
+  card.appendChild(el("div", { class: "correction-actions" }, buttons));
+  return card;
+}
+
+function renderRecovery(deadJobs, dismissedJobs) {
+  const activeList = document.getElementById("recovery-list");
+  const dismissedList = document.getElementById("dismissed-list");
+  const retryAll = document.getElementById("recovery-retry-all");
+  clear(activeList);
+  clear(dismissedList);
+  retryAll.disabled = recoveryBusy || deadJobs.length === 0;
+  if (deadJobs.length === 0) {
+    activeList.appendChild(emptyNote("No processing jobs need action."));
+  }
+  for (const job of deadJobs) {
+    activeList.appendChild(recoveryCard(job, [
+      {
+        label: "Retry job",
+        primary: true,
+        run: () => api.jobs.retry(job.id),
+        success: (jobId) => `Job #${jobId} queued for retry.`,
+      },
+      {
+        label: "Dismiss",
+        confirm: "Dismiss this job? Its recording, transcript, wiki pages, and local diagnostic record will be kept.",
+        run: () => api.jobs.dismiss(job.id),
+        success: (jobId) => `Job #${jobId} dismissed. Its meeting data was kept.`,
+      },
+    ]));
+  }
+  if (dismissedJobs.length === 0) {
+    dismissedList.appendChild(emptyNote("No dismissed jobs."));
+  }
+  for (const job of dismissedJobs) {
+    dismissedList.appendChild(recoveryCard(job, [{
+      label: "Restore to recovery",
+      run: () => api.jobs.restore(job.id),
+      success: (jobId) => `Job #${jobId} restored to the recovery list.`,
+    }]));
+  }
+}
+
+async function loadRecovery(force = false) {
+  if (!force && loaded.recovery) return;
+  if (!api.jobs) {
+    toast("Processing recovery is unavailable. Reopen the window.");
+    return;
+  }
+  const [deadJobs, dismissedJobs] = await Promise.all([api.jobs.listDead(), api.jobs.listDismissed()]);
+  if (failed(deadJobs) || failed(dismissedJobs)) return;
+  loaded.recovery = true;
+  renderRecovery(deadJobs, dismissedJobs);
+  const badge = document.getElementById("recovery-count");
+  badge.hidden = deadJobs.length === 0;
+  badge.textContent = String(deadJobs.length);
+}
+
+async function retryAllRecoveryJobs() {
+  if (recoveryBusy) return;
+  const retryAll = document.getElementById("recovery-retry-all");
+  if (retryAll.disabled) return;
+  setRecoveryBusy(true);
+  const result = await api.jobs.retryAllDead();
+  setRecoveryBusy(false);
+  if (failed(result)) return;
+  toast(`${result} job${result === 1 ? "" : "s"} queued for retry.`);
+  await loadRecovery(true);
+}
+
+async function refreshRecoveryBadge() {
+  if (!api.jobs) return;
+  const jobs = await api.jobs.listDead();
+  if (failed(jobs)) return;
+  const badge = document.getElementById("recovery-count");
+  badge.hidden = jobs.length === 0;
+  badge.textContent = String(jobs.length);
+}
+
 async function refreshBadge() {
   const result = await api.corrections.inbox();
   if (failed(result)) return;
@@ -353,12 +481,14 @@ function init() {
     if (event.key === "Enter") runSearch();
   });
   document.getElementById("page-close").addEventListener("click", closePage);
+  document.getElementById("recovery-retry-all").addEventListener("click", retryAllRecoveryJobs);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !document.getElementById("page-viewer").hidden) closePage();
   });
   document.addEventListener("keydown", trapDialogFocus);
   loadRecent();
   refreshBadge();
+  refreshRecoveryBadge();
 }
 
 document.addEventListener("DOMContentLoaded", init);
