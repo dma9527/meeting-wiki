@@ -199,14 +199,14 @@ class MeetingEngine:
         if meeting.mic_audio_path:
             mic_context = self._transcription_context(
                 meeting,
-                (self.config.user_name,),
+                (self.config.primary_profile_name,),
             )
-            streams.append((meeting.mic_audio_path, self.config.user_name, mic_context))
+            streams.append((meeting.mic_audio_path, self.config.primary_profile_name, mic_context))
         if meeting.system_audio_path:
             other_attendees = [
                 attendee
                 for attendee in meeting.attendees
-                if attendee.casefold() != self.config.user_name.casefold()
+                if not self.config.is_primary_profile_alias(attendee)
             ]
             remote_speaker = (
                 other_attendees[0] if len(other_attendees) == 1 else "Remote participant"
@@ -264,7 +264,7 @@ class MeetingEngine:
         meeting: MeetingInput,
         expected_speakers: tuple[str, ...],
     ) -> TranscriptionContext:
-        candidates = [meeting.title, self.config.user_name, *meeting.attendees]
+        candidates = [meeting.title, *self.config.primary_profile_aliases, *meeting.attendees]
         hotwords: list[str] = []
         seen: set[str] = set()
         for candidate in candidates:

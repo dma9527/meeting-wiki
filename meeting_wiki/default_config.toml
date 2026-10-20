@@ -1,6 +1,11 @@
 user_name = "Your Name"
 language = "en"
 
+[identity]
+# The local microphone channel is always attributed to this profile.
+primary_profile_name = ""
+aliases = []
+
 [providers]
 transcription = "mlx_whisper"  # mlx_whisper | openai_compatible | gemini | text
 llm = "ollama"                 # ollama | openai_compatible | gemini

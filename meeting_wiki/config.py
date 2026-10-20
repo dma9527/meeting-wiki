@@ -152,10 +152,43 @@ def is_loopback_url(value: str) -> bool:
         return False
 
 
+class IdentityConfig(BaseModel):
+    """The profile that owns this device's microphone channel."""
+
+    model_config = ConfigDict(extra="forbid")
+    primary_profile_name: str = ""
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("primary_profile_name")
+    @classmethod
+    def validate_primary_profile_name(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) > 200:
+            raise ValueError("identity.primary_profile_name must be at most 200 characters")
+        return cleaned
+
+    @field_validator("aliases")
+    @classmethod
+    def validate_aliases(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            alias = " ".join(value.split())
+            key = alias.casefold()
+            if not alias or len(alias) > 200 or key in seen:
+                raise ValueError(
+                    "identity.aliases must be unique nonempty names up to 200 characters"
+                )
+            seen.add(key)
+            cleaned.append(alias)
+        return cleaned
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data_dir: Path = DEFAULT_DATA_DIR
     user_name: str = "User"
+    identity: IdentityConfig = Field(default_factory=IdentityConfig)
     language: str | None = None
     providers: ProviderSelection = Field(default_factory=ProviderSelection)
     mlx_whisper: MLXWhisperConfig = Field(default_factory=MLXWhisperConfig)
@@ -206,6 +239,25 @@ class AppConfig(BaseModel):
                     f"providers.{capability} = gemini requires a nonempty gemini.{model_field}"
                 )
         return self
+
+    @property
+    def primary_profile_name(self) -> str:
+        return self.identity.primary_profile_name or self.user_name
+
+    @property
+    def primary_profile_aliases(self) -> tuple[str, ...]:
+        aliases = [self.primary_profile_name, *self.identity.aliases]
+        unique: list[str] = []
+        seen: set[str] = set()
+        for alias in aliases:
+            key = alias.casefold()
+            if key not in seen:
+                seen.add(key)
+                unique.append(alias)
+        return tuple(unique)
+
+    def is_primary_profile_alias(self, name: str) -> bool:
+        return name.casefold() in {alias.casefold() for alias in self.primary_profile_aliases}
 
     def secret(self, env_name: str) -> str:
         if not env_name:
