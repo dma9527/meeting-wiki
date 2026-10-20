@@ -85,3 +85,23 @@ test("missing Python marks the tray status as attention before returning", () =>
 test("startWorker runs Python unbuffered so worker.log receives job events", () => {
   assert.match(functionBody("startWorker"), /spawn\(PYTHON, \["-u", "-m", "meeting_wiki\.cli", "--config", CONFIG_PATH, "worker"\]/);
 });
+
+test("the tray menu opens the sandboxed Settings window next to setup", () => {
+  const body = functionBody("updateMenu");
+  const settingsAt = body.indexOf('{ label: "Settings...", click: openSettingsWindow }');
+  assert.ok(settingsAt >= 0, "tray menu is missing Settings...");
+  assert.ok(body.indexOf('{ label: "Run setup...", click: openSetupWindow }') > settingsAt);
+  assert.match(source, /const \{ createSettingsWindow \} = require\("\.\/settings-window"\);/);
+});
+
+test("Settings never receives the secret store, restarts processing on save, and can reopen setup", () => {
+  const body = functionBody("openSettingsWindow");
+  assert.match(body, /createSettingsWindow\(/);
+  assert.doesNotMatch(body, /secretStore|python|spawn/);
+  assert.match(body, /onSaved: restartProcessing/);
+  assert.match(body, /onRerunSetup: openSetupWindow/);
+  assert.match(functionBody("openSetupWindow"), /onComplete: restartProcessing/);
+  const restart = functionBody("restartProcessing");
+  assert.match(restart, /if \(worker\) worker\.kill\("SIGTERM"\); else startWorker\(\);/);
+  assert.match(restart, /void refreshQueueStatus\(\);/);
+});

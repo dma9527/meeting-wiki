@@ -142,7 +142,16 @@ function renderOnlineConfig(settings) {
   ].join("\n");
 }
 
-function renderGeminiConfig() {
+// Settings may override the models and add the two live keys; setup passes nothing.
+function renderGeminiConfig(settings = {}) {
+  const models = { ...GEMINI_MODELS, ...pickDefined(settings, ["batchAudioModel", "liveModel", "languageModel"]) };
+  const liveLines = [];
+  if (settings.translationTargetLanguage !== undefined) {
+    liveLines.push(`translation_target_language = ${tomlString(settings.translationTargetLanguage)}`);
+  }
+  if (settings.summaryContextCharacters !== undefined) {
+    liveLines.push(`summary_context_characters = ${Number(settings.summaryContextCharacters)}`);
+  }
   return [
     MANAGED_HEADER,
     "# Secrets are not stored here. The Gemini API key lives in the macOS Keychain and",
@@ -157,14 +166,21 @@ function renderGeminiConfig() {
     "[live]",
     "# The user acknowledged sending meeting data to Google Gemini during setup.",
     "allow_external_providers = true",
+    ...liveLines,
     "",
     "[gemini]",
     `api_key_env = ${tomlString(GEMINI_API_KEY_ENV)}`,
-    `batch_audio_model = ${tomlString(GEMINI_MODELS.batchAudioModel)}`,
-    `live_model = ${tomlString(GEMINI_MODELS.liveModel)}`,
-    `language_model = ${tomlString(GEMINI_MODELS.languageModel)}`,
+    `batch_audio_model = ${tomlString(models.batchAudioModel)}`,
+    `live_model = ${tomlString(models.liveModel)}`,
+    `language_model = ${tomlString(models.languageModel)}`,
     "",
   ].join("\n");
+}
+
+function pickDefined(source, keys) {
+  const picked = {};
+  for (const key of keys) if (source[key] !== undefined) picked[key] = source[key];
+  return picked;
 }
 
 function ensurePrivateDir(fs, dir) {
@@ -537,10 +553,12 @@ module.exports = {
   GEMINI_API_KEY_ENV,
   GEMINI_KEY_UNAVAILABLE,
   GEMINI_MODELS,
+  GEMINI_PROVIDER,
   GEMINI_SECRET_ID,
   KEY_UNAVAILABLE,
   LOCAL_UNAVAILABLE,
   MANAGED_HEADER,
+  MODEL_PATTERN,
   SECRET_ID,
   SetupError,
   atomicWriteFile,
@@ -548,7 +566,9 @@ module.exports = {
   createSetupWindow,
   failureDetail,
   guard,
+  isManagedConfig,
   needsSetup,
+  readSetupState,
   registerSetupHandlers,
   renderGeminiConfig,
   renderOnlineConfig,

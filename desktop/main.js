@@ -12,6 +12,7 @@ const { AudioCapture } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
 const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-window");
+const { createSettingsWindow } = require("./settings-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const {
   formatQueueLabel,
@@ -160,11 +161,26 @@ function openSetupWindow() {
       configPath: CONFIG_PATH,
       python: PYTHON,
       spawnFn: spawn,
-      onComplete: () => {
-        // Pick up the new provider config on the next worker start.
-        if (worker) worker.kill("SIGTERM"); else startWorker();
-        void refreshQueueStatus();
-      },
+      onComplete: restartProcessing,
+    },
+  );
+}
+
+// Provider config is read at worker start, so a config change restarts the worker.
+function restartProcessing() {
+  if (worker) worker.kill("SIGTERM"); else startWorker();
+  void refreshQueueStatus();
+}
+
+function openSettingsWindow() {
+  createSettingsWindow(
+    { app, BrowserWindow, ipcMain },
+    {
+      fs,
+      dataDir: DATA_DIR,
+      configPath: CONFIG_PATH,
+      onSaved: restartProcessing,
+      onRerunSetup: openSetupWindow,
     },
   );
 }
@@ -354,6 +370,7 @@ function updateMenu() {
     { label: "Open Wiki & Corrections", click: openWikiWindow },
     { label: "Open wiki", click: () => shell.openPath(path.join(DATA_DIR, "wiki")) },
     { label: "Open private meetings", click: () => shell.openPath(path.join(DATA_DIR, "private", "meetings")) },
+    { label: "Settings...", click: openSettingsWindow },
     { label: "Run setup...", click: openSetupWindow },
     { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
     { type: "separator" },

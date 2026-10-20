@@ -1,0 +1,19 @@
+/* Settings reuses setup.css tokens and components; only the single-column shell is new. */
+
+.settings-shell {
+  display: grid;
+  gap: var(--gap);
+  max-width: 720px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: var(--gap);
+  align-content: start;
+}
+
+.settings-main {
+  min-width: 0;
+}
+
+.settings-main:focus {
+  outline: none;
+}

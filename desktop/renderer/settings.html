@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meeting Wiki Settings</title>
+    <link rel="stylesheet" href="setup.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <div class="settings-shell">
+      <header class="setup-head">
+        <p class="wordmark">Meeting Wiki <span class="wordmark-sub">settings</span></p>
+      </header>
+
+      <main id="settings-main" class="settings-main" tabindex="-1">
+        <div id="bridge-missing" class="notice notice-error" role="alert" hidden>
+          Settings cannot reach the app. Close this window and reopen Meeting Wiki.
+        </div>
+
+        <p id="settings-loading" class="status" role="status" aria-live="polite">Loading settings.</p>
+
+        <section id="panel-unsupported" class="panel" aria-labelledby="unsupported-heading" tabindex="-1" hidden>
+          <h1 id="unsupported-heading" class="display">Settings are not available</h1>
+          <p id="unsupported-reason" class="lede"></p>
+          <div class="actions">
+            <button type="button" class="button button-primary" id="unsupported-rerun">Run setup again</button>
+          </div>
+        </section>
+
+        <section id="panel-gemini-settings" class="panel" aria-labelledby="gemini-settings-heading" tabindex="-1" hidden>
+          <h1 id="gemini-settings-heading" class="display">Gemini features</h1>
+          <p class="lede">
+            Choose the Gemini models and live options. The API key stays in the macOS Keychain and is not shown or
+            changed here.
+          </p>
+
+          <form id="gemini-settings-form" novalidate>
+            <h2 class="subhead">Models</h2>
+            <div class="field">
+              <label for="batch-audio-model">Recording transcription model</label>
+              <input id="batch-audio-model" name="batchAudioModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="batch-audio-model-error" />
+              <p id="batch-audio-model-error" class="field-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="live-model">Live transcription model</label>
+              <input id="live-model" name="liveModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="live-model-error" />
+              <p id="live-model-error" class="field-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="language-model">Summary and translation model</label>
+              <input id="language-model" name="languageModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="language-model-error" />
+              <p id="language-model-error" class="field-error" hidden></p>
+            </div>
+
+            <h2 class="subhead">Live</h2>
+            <div class="field-row">
+              <div class="field">
+                <label for="translation-target-language">Translation language</label>
+                <input id="translation-target-language" name="translationTargetLanguage" type="text" autocomplete="off" spellcheck="false" required aria-describedby="translation-target-language-hint translation-target-language-error" />
+                <p id="translation-target-language-hint" class="hint">A code such as zh or a name such as Japanese.</p>
+                <p id="translation-target-language-error" class="field-error" hidden></p>
+              </div>
+              <div class="field">
+                <label for="summary-context-characters">Summary context characters</label>
+                <input id="summary-context-characters" name="summaryContextCharacters" type="number" inputmode="numeric" step="1" required aria-describedby="summary-context-characters-hint summary-context-characters-error" />
+                <p id="summary-context-characters-hint" class="hint"></p>
+                <p id="summary-context-characters-error" class="field-error" hidden></p>
+              </div>
+            </div>
+
+            <p id="settings-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="button" class="button button-quiet" id="settings-rerun">Run setup again</button>
+              <button type="submit" class="button button-primary" id="settings-save">Save</button>
+            </div>
+            <p class="hint">Run setup again to change the API key or switch to another provider.</p>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script src="settings.js" defer></script>
+  </body>
+</html>

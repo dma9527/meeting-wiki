@@ -42,6 +42,8 @@
       "preload.js",
       "setup-window.js",
       "setup-preload.js",
+      "settings-window.js",
+      "settings-preload.js",
       "secret-store.js",
       "renderer/**"
     ],
