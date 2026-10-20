@@ -142,6 +142,24 @@ def test_memory_probe_reports_empty_ready_and_failed(tmp_path, monkeypatch):
     assert run_self_check(config_path)["capabilities"]["memory"] == "failed"
 
 
+def test_memory_probe_fails_on_corrupt_file_with_stale_wal(tmp_path, monkeypatch):
+    data_dir = use_data_dir(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+    config_path = write_config(tmp_path, GEMINI_CONFIG)
+    store = MemoryStore(data_dir / "memory.db")
+    held = store._connect()
+    held.execute(
+        "INSERT INTO memory_nodes (node_id, node_type, label, content, source_id,"
+        " occurred_at, privacy, metadata) VALUES ('topic:test', 'topic', 'Test', 'Test',"
+        " 'source:test', '2026-01-01', 'shared', '{}')"
+    )
+    try:
+        assert (data_dir / "memory.db-wal").exists()
+        (data_dir / "memory.db").write_bytes(b"not a database")
+        assert run_self_check(config_path)["capabilities"]["memory"] == "failed"
+    finally:
+        held.close()
+
 def test_cli_prints_json_and_exit_code_reflects_readiness(tmp_path, monkeypatch, capsys):
     use_data_dir(tmp_path, monkeypatch)
     monkeypatch.delenv("MEETING_WIKI_GEMINI_API_KEY", raising=False)

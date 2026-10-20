@@ -16,6 +16,7 @@ from .diagnostics import safe_identifier
 SELF_CHECK_VERSION = 1
 CAPABILITIES = ("transcription", "analysis", "live", "storage", "memory")
 _PROVIDER_FIELDS = ("transcription", "llm", "live_transcription", "live_language", "storage")
+_SQLITE_HEADER = b"SQLite format 3\x00"
 
 
 def _health(provider) -> str:
@@ -46,6 +47,13 @@ def _memory_status(path: Path) -> str:
     """Read-only probe; never creates or migrates memory.db."""
     if not path.is_file():
         return "missing"
+    # A stale -wal sidecar can make a non-SQLite main file look readable.
+    try:
+        with path.open("rb") as handle:
+            if handle.read(len(_SQLITE_HEADER)) != _SQLITE_HEADER:
+                return "failed"
+    except OSError:
+        return "failed"
     try:
         connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=5)
         try:
