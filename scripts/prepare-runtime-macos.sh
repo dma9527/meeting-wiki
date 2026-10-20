@@ -115,9 +115,17 @@ find "$STAGE" -exec touch -h -d "$EPOCH_STAMP" {} +
   --python-version "$PYTHON_VERSION" --lock "$LOCK"
 touch -h -d "$EPOCH_STAMP" "$STAGE/manifest.json"
 
-rm -rf "$OUT" "$BLOCKED_REPORT"
+RUNTIME_OLD="${OUT}.previous.$$"
+rm -rf "$RUNTIME_OLD"
 mkdir -p "$(dirname "$OUT")"
+if [ -e "$OUT" ]; then
+  mv "$OUT" "$RUNTIME_OLD"
+fi
 mv "$STAGE" "$OUT"
+# Finder may recreate .DS_Store inside the old directory. It is no longer
+# publish-critical after the atomic swap, so cleanup cannot block the build.
+rm -rf "$RUNTIME_OLD" || true
+rm -f "$BLOCKED_REPORT"
 
 for tool in python rec sox; do
   [ -x "$OUT/bin/$tool" ] || fail "runtime/bin/$tool missing after staging"
