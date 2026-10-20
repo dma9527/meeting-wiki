@@ -162,6 +162,7 @@ class JobState(StrEnum):
     DONE = "done"
     FAILED = "failed"
     DEAD = "dead"
+    DISMISSED = "dismissed"
 
 
 class JobRecord(BaseModel):

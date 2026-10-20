@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .config import DEFAULT_CONFIG_PATH, load_config
 from .corrections import apply_correction, build_inbox, plan_correction
+from .diagnostics import decode_diagnostic, safe_identifier
 from .jobs import JobQueue
 from .models import JobState, MeetingInput
 from .providers.registry import build_providers
@@ -112,6 +113,29 @@ def doctor(config_path: Path) -> int:
     return 1 if failed else 0
 
 
+def redacted_job_record(job) -> dict[str, object]:
+    """Return a UI-safe job record without payloads or raw provider error text."""
+    diagnostic = decode_diagnostic(job.last_error)
+    error_type = None
+    if diagnostic:
+        value = diagnostic.get("error_type")
+        error_type = value if isinstance(value, str) else None
+    elif job.last_error:
+        error_type = safe_identifier(job.last_error.split(":", 1)[0])
+    record: dict[str, object] = {
+        "id": job.id,
+        "job_type": job.job_type.value,
+        "state": job.state.value,
+        "stage": job.stage.value,
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+        "error_type": error_type,
+    }
+    if diagnostic:
+        record["diagnostic"] = diagnostic
+    return record
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -145,6 +169,15 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--summary", action="store_true", help="Return privacy-safe state counts")
     retry = sub.add_parser("retry", help="Retry a failed or dead job")
     retry.add_argument("job_id", type=int)
+    dismiss = sub.add_parser("dismiss", help="Dismiss a dead job without deleting meeting data")
+    dismiss.add_argument("job_id", type=int)
+    restore = sub.add_parser("restore", help="Return a dismissed job to the dead-letter list")
+    restore.add_argument("job_id", type=int)
+    cleanup = sub.add_parser(
+        "cleanup-dismissed",
+        help="Delete only dismissed queue history older than the retention period",
+    )
+    cleanup.add_argument("--older-than-days", type=float, required=True)
     sub.add_parser("doctor", help="Validate configured providers")
     sub.add_parser("mcp", help="Run read-only MCP server over stdio")
 
@@ -238,16 +271,38 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result, indent=2))
         return 0 if "job_id" in result else 1
-    if args.command in {"status", "retry"}:
+    if args.command in {"status", "retry", "dismiss", "restore", "cleanup-dismissed"}:
         queue = JobQueue(
             config.data_dir / "jobs.db",
             max_attempts=config.jobs.max_attempts,
             backoff_base_seconds=config.jobs.backoff_base_seconds,
             visibility_timeout_seconds=config.jobs.visibility_timeout_seconds,
         )
-        if args.command == "retry":
+        if args.command == "cleanup-dismissed":
             try:
-                job = queue.retry(args.job_id)
+                deleted = queue.cleanup_dismissed(args.older_than_days * 24 * 60 * 60)
+            except ValueError as error:
+                print(json.dumps({"error": "invalid_retention", "message": str(error)}))
+                return 1
+            print(
+                json.dumps(
+                    {
+                        "dismissed_rows_deleted": deleted,
+                        "older_than_days": args.older_than_days,
+                        "meeting_artifacts_deleted": False,
+                    }
+                )
+            )
+            return 0
+        if args.command in {"retry", "dismiss", "restore"}:
+            action = args.command
+            action_error = {
+                "retry": "job_not_retryable",
+                "dismiss": "job_not_dismissible",
+                "restore": "job_not_restorable",
+            }[action]
+            try:
+                job = getattr(queue, action)(args.job_id)
             except KeyError:
                 print(json.dumps({"error": "job_not_found", "job_id": args.job_id}))
                 return 1
@@ -255,35 +310,38 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     json.dumps(
                         {
-                            "error": "job_not_retryable",
+                            "error": action_error,
                             "job_id": args.job_id,
                             "message": str(error),
                         }
                     )
                 )
                 return 1
-            print(json.dumps({"job_id": job.id, "state": job.state.value, "retried": True}))
+            action_result = {
+                "retry": "retried",
+                "dismiss": "dismissed",
+                "restore": "restored",
+            }[action]
+            print(
+                json.dumps(
+                    {
+                        "job_id": job.id,
+                        "state": job.state.value,
+                        action_result: True,
+                    }
+                )
+            )
             return 0
         if args.summary:
             print(json.dumps(queue.summary(), indent=2))
             return 0
         state = JobState(args.state) if args.state else None
         jobs = queue.list(state)
-        if args.verbose:
-            output = [job.model_dump(mode="json") for job in jobs]
-        else:
-            output = [
-                {
-                    "id": job.id,
-                    "job_type": job.job_type.value,
-                    "state": job.state.value,
-                    "stage": job.stage.value,
-                    "attempts": job.attempts,
-                    "max_attempts": job.max_attempts,
-                    "error_type": job.last_error.split(":", 1)[0] if job.last_error else None,
-                }
-                for job in jobs
-            ]
+        output = (
+            [job.model_dump(mode="json") for job in jobs]
+            if args.verbose
+            else [redacted_job_record(job) for job in jobs]
+        )
         print(json.dumps(output, indent=2))
         return 0
     return 2

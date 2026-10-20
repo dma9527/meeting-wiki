@@ -250,6 +250,57 @@ class JobQueue:
         counts["action_required"] = counts[JobState.DEAD.value]
         return {**counts, "stages": stage_counts}
 
+    def dismiss(self, job_id: int) -> JobRecord:
+        """Hide a dead job from active recovery without deleting meeting data."""
+        now = time.time()
+        with self._connect() as connection:
+            row = connection.execute("SELECT state FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            state = JobState(str(row["state"]))
+            if state is not JobState.DEAD:
+                raise ValueError(f"Job {job_id} is {state.value}; only dead jobs can dismiss")
+            connection.execute(
+                """UPDATE jobs SET state='dismissed', claimed_at=NULL,
+                   lease_expires_at=NULL, updated_at=? WHERE id=?""",
+                (now, job_id),
+            )
+        dismissed = self.get(job_id)
+        if dismissed is None:
+            raise KeyError(job_id)
+        return dismissed
+
+    def restore(self, job_id: int) -> JobRecord:
+        """Return a dismissed job to the dead-letter list without discarding diagnostics."""
+        now = time.time()
+        with self._connect() as connection:
+            row = connection.execute("SELECT state FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            state = JobState(str(row["state"]))
+            if state is not JobState.DISMISSED:
+                raise ValueError(f"Job {job_id} is {state.value}; only dismissed jobs can restore")
+            connection.execute(
+                """UPDATE jobs SET state='dead', claimed_at=NULL,
+                   lease_expires_at=NULL, updated_at=? WHERE id=?""",
+                (now, job_id),
+            )
+        restored = self.get(job_id)
+        if restored is None:
+            raise KeyError(job_id)
+        return restored
+
+    def cleanup_dismissed(self, older_than_seconds: float) -> int:
+        """Delete only aged, dismissed queue rows. Meeting artifacts remain untouched."""
+        if older_than_seconds < 0:
+            raise ValueError("Dismissed job retention must not be negative")
+        cutoff = time.time() - older_than_seconds
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM jobs WHERE state='dismissed' AND updated_at < ?", (cutoff,)
+            )
+            return cursor.rowcount
+
     def retry(self, job_id: int) -> JobRecord:
         now = time.time()
         with self._connect() as connection:

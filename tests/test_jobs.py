@@ -101,6 +101,7 @@ def test_summary_counts_all_job_states(tmp_path, monkeypatch):
         "running": 1,
         "failed": 0,
         "dead": 1,
+        "dismissed": 0,
         "done": 1,
         "action_required": 1,
         "active": 1,
