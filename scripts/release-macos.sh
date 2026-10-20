@@ -80,6 +80,10 @@ npm ci
 npm test
 CSC_NAME="$IDENTITY" npx electron-builder --mac dir
 [ -d "$APP" ] || fail "electron-builder did not create $APP"
+
+# extraResources are copied after Electron Builder assembles the bundle, so
+# sign the final resource tree before verification and notarization.
+codesign --force --deep --sign "$IDENTITY" "$APP"
 bash "$ROOT/scripts/assert-packaged-runtime.sh" "$APP"
 
 codesign --verify --deep --strict --verbose=2 "$APP"

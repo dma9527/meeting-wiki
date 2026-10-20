@@ -9,7 +9,12 @@ cd "$ROOT/desktop"
 npm ci
 npm test
 npm run build
-bash "$ROOT/scripts/assert-packaged-runtime.sh" "dist/mac-$(uname -m)/Meeting Wiki.app"
+
+APP="dist/mac-$(uname -m)/Meeting Wiki.app"
+[ -d "$APP" ] || { echo "Build failed: app bundle is missing" >&2; exit 1; }
+codesign --force --deep --sign - "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
+bash "$ROOT/scripts/assert-packaged-runtime.sh" "$APP"
 
 # This path is for local development artifacts. electron-builder may apply an
 # ad-hoc signature when no Developer ID identity is available. Never publish

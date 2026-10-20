@@ -73,3 +73,17 @@ def test_prepare_runtime_never_reads_user_data_or_models():
     assert "--require-hashes" in script
     assert "--extra gemini" in script
     assert "exit 3" in script
+
+
+def test_build_scripts_resign_the_app_after_electron_builder():
+    root = Path(__file__).parents[1]
+    build_script = (root / "scripts" / "build-macos.sh").read_text()
+    release_script = (root / "scripts" / "release-macos.sh").read_text()
+
+    build_after_builder = build_script.index("npm run build")
+    build_resign = build_script.index('codesign --force --deep --sign - "$APP"')
+    assert build_after_builder < build_resign
+
+    release_after_builder = release_script.index("npx electron-builder --mac dir")
+    release_resign = release_script.index('codesign --force --deep --sign "$IDENTITY" "$APP"')
+    assert release_after_builder < release_resign
