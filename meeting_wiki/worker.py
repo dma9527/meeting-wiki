@@ -7,6 +7,7 @@ import threading
 import time
 
 from .config import AppConfig
+from .diagnostics import encode_diagnostic, safe_job_diagnostic
 from .engine import MeetingEngine
 from .jobs import JobQueue
 from .models import JobStage, JobType, MeetingInput
@@ -57,12 +58,15 @@ class Worker:
         )
         heartbeat = _LeaseHeartbeat(self.queue, job.id, heartbeat_interval)
         heartbeat.start()
+        current_stage = job.stage
         try:
             if job.job_type is not JobType.INGEST:
                 raise ValueError(f"Unsupported job type: {job.job_type}")
             meeting = MeetingInput.model_validate(job.payload)
 
             def progress(stage: JobStage) -> None:
+                nonlocal current_stage
+                current_stage = stage
                 self.queue.set_stage(job.id, stage)
                 self.queue.heartbeat(job.id)
 
@@ -80,15 +84,22 @@ class Worker:
             print(json.dumps(output))
         except Exception as error:
             heartbeat.stop()
-            state = self.queue.fail(job.id, f"{type(error).__name__}: {error}")
-            # Detailed error remains in the mode-0600 SQLite job row. Stdout is
-            # redirected to a general worker log and must not contain private
-            # titles, paths, transcript fragments, or provider response text.
-            print(
-                json.dumps(
-                    {"job_id": job.id, "state": state.value, "error_type": type(error).__name__}
-                )
+            provider = None
+            if current_stage is JobStage.TRANSCRIBING:
+                provider = self.providers.transcription.name
+            elif current_stage is JobStage.ANALYZING:
+                provider = self.providers.llm.name
+            diagnostic = safe_job_diagnostic(
+                error,
+                stage=current_stage.value,
+                attempt=job.attempts,
+                max_attempts=job.max_attempts,
+                provider=provider,
             )
+            state = self.queue.fail(job.id, encode_diagnostic(diagnostic))
+            # Worker output is redirected to a general log. Emit only the
+            # allowlisted diagnostic record, never exception text or a traceback.
+            print(json.dumps({"job_id": job.id, "state": state.value, "diagnostic": diagnostic}))
         return True
 
     def run_forever(self, idle_seconds: float = 1.0) -> None:

@@ -11,6 +11,7 @@ from types import ModuleType
 from typing import Any
 
 from ..config import PrivacyConfig
+from ..diagnostics import SafeProviderError
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
     EmptyTranscriptError,
@@ -105,10 +106,8 @@ class GeminiTranscriber(_GeminiClientMixin):
             )
             text = str(interaction.output_text or "").strip()
         except Exception as error:
-            # Redacted: SDK messages can echo keys, paths, or transcript text.
-            raise RuntimeError(
-                f"Gemini transcription request failed ({type(error).__name__})"
-            ) from None
+            # SDK messages can echo keys, paths, or transcript text.
+            raise SafeProviderError("gemini", "transcription", error) from None
         if not text:
             raise EmptyTranscriptError("Gemini produced an empty transcript")
         return TranscriptResult(
@@ -157,7 +156,7 @@ class GeminiLanguageProvider(_GeminiClientMixin):
             )
             content = response.text
         except Exception as error:
-            raise RuntimeError(f"Gemini analysis request failed ({type(error).__name__})") from None
+            raise SafeProviderError("gemini", "analysis", error) from None
         try:
             data = json.loads(content or "")
         except json.JSONDecodeError:
