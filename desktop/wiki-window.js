@@ -7,7 +7,7 @@
 const path = require("path");
 const { WikiStore } = require("./wiki-store");
 const { applyCorrection, fetchInbox, planCorrection } = require("./corrections-client");
-const { searchMemory } = require("./memory-client");
+const { addResource, searchMemory } = require("./memory-client");
 const { dismissJob, listDeadJobs, listDismissedJobs, restoreJob, retryDeadJobs, retryJob } = require("./status");
 
 let wikiWindow = null;
@@ -57,6 +57,9 @@ function registerHandlers(ipcMain, context) {
   );
   ipcMain.handle("memory:search", (_event, query, options) =>
     guard(() => searchMemory(context.python, context.configPath, query, options)),
+  );
+  ipcMain.handle("memory:addResource", (_event, input) =>
+    guard(() => addResource(context.python, context.configPath, input)),
   );
   ipcMain.handle("corrections:inbox", () =>
     guard(() => fetchInbox(context.python, context.configPath)),

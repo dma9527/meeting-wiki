@@ -16,6 +16,7 @@ const { createSettingsWindow } = require("./settings-window");
 const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
+const { installClaudeSkill, skillInstallMessage } = require("./skill-installer");
 const {
   formatQueueLabel,
   trayIconState,
@@ -228,6 +229,12 @@ async function retryFailedJobs() {
   await refreshQueueStatus();
 }
 
+// Writes only the bundled template; the outcome message never includes user data.
+function installSkillFromMenu() {
+  const message = skillInstallMessage(installClaudeSkill());
+  notify(message.title, message.body);
+}
+
 function askTitle() {
   return new Promise((resolve) => {
     const script = 'text returned of (display dialog "Title for the next meeting:" default answer "" with title "Meeting Wiki")';
@@ -403,6 +410,7 @@ function updateMenu() {
     { label: "Settings...", click: openSettingsWindow },
     { label: "Run setup...", click: openSetupWindow },
     { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
+    { label: "Install Claude skill...", click: installSkillFromMenu },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   );

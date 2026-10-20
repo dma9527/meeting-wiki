@@ -16,6 +16,7 @@ from .jobs import JobQueue
 from .memory import NODE_TYPES
 from .models import JobState, MeetingInput
 from .providers.registry import build_providers
+from .resources import RESOURCE_RELATIONS
 from .worker import Worker, enqueue_meeting
 
 # Config, transcripts, SQLite journals and logs may contain meeting data.
@@ -189,6 +190,57 @@ def memory_search_command(config, args) -> int:
     return 0
 
 
+def memory_add_resource_command(config, args) -> int:
+    """Store a user-described URL on a meeting. The URL is validated, never fetched."""
+    from .memory import MemoryStore, ResourceError
+    from .resources import (
+        MAX_SUMMARY_LENGTH,
+        MAX_TITLE_LENGTH,
+        ResourceValidationError,
+        validate_relation,
+        validate_text,
+        validate_url,
+    )
+
+    try:
+        url = validate_url(args.url, allow_loopback=args.allow_loopback)
+        title = validate_text(args.title, field="title", maximum=MAX_TITLE_LENGTH, required=True)
+        summary = validate_text(
+            args.summary, field="summary", maximum=MAX_SUMMARY_LENGTH, required=False
+        )
+        relation = validate_relation(args.relation)
+        resource = MemoryStore(config.data_dir / "memory.db").add_resource(
+            meeting_node_id=args.meeting,
+            url=url,
+            title=title,
+            summary=summary,
+            relation=relation,
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            allow_private=args.allow_private,
+        )
+    except (ResourceValidationError, ResourceError) as error:
+        print(json.dumps({"error": str(error)}))
+        return 1
+    print(json.dumps({"added": True, "resource": resource}, ensure_ascii=False))
+    return 0
+
+
+def memory_resources_command(config, args) -> int:
+    from .memory import MemoryStore
+
+    try:
+        items = MemoryStore(config.data_dir / "memory.db").list_resources(
+            meeting_node_id=args.meeting,
+            include_private=args.include_private,
+            limit=args.limit,
+        )
+    except ValueError:
+        print(json.dumps({"error": "invalid_resource_query", "items": []}))
+        return 1
+    print(json.dumps({"count": len(items), "items": items}, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -262,6 +314,29 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also return private local memory; never used by MCP",
     )
+    add_resource = sub.add_parser(
+        "memory-add-resource",
+        help="Attach a URL with your own title/summary to a meeting (stored only, never fetched)",
+    )
+    add_resource.add_argument("--meeting", required=True, help="Meeting node id (meeting:<hex>)")
+    add_resource.add_argument("--url", required=True, help="https URL without credentials")
+    add_resource.add_argument("--title", required=True)
+    add_resource.add_argument("--summary", default="")
+    add_resource.add_argument(
+        "--relation", choices=sorted(RESOURCE_RELATIONS), default="reference"
+    )
+    add_resource.add_argument(
+        "--allow-private", action="store_true", help="Allow attaching to a private meeting"
+    )
+    add_resource.add_argument(
+        "--allow-loopback", action="store_true", help="Allow http(s) loopback URLs"
+    )
+    resources_list = sub.add_parser(
+        "memory-resources", help="List stored URL resources (shared only by default)"
+    )
+    resources_list.add_argument("--meeting", help="Only resources on this meeting node id")
+    resources_list.add_argument("--limit", type=int, default=50)
+    resources_list.add_argument("--include-private", action="store_true")
 
     sub.add_parser("correct-inbox", help="List shared meetings with ambiguous speaker labels")
     correct = sub.add_parser("correct", help="Plan or reprocess a speaker-label correction")
@@ -323,6 +398,10 @@ def main(argv: list[str] | None = None) -> int:
         return reindex_memory_command(config)
     if args.command == "memory-search":
         return memory_search_command(config, args)
+    if args.command == "memory-add-resource":
+        return memory_add_resource_command(config, args)
+    if args.command == "memory-resources":
+        return memory_resources_command(config, args)
     if args.command == "correct-inbox":
         print(json.dumps(build_inbox(_build_storage(config)), indent=2))
         return 0

@@ -176,7 +176,67 @@ const MEMORY_TYPE_LABELS = {
   decision: "Decision",
   action_item: "Action item",
   transcript_segment: "Transcript line",
+  resource: "Resource",
 };
+
+const RESOURCE_RELATION_LABELS = {
+  reference: "Reference",
+  design_doc: "Design doc",
+  ticket: "Ticket",
+  code_review: "Code review",
+  notes: "Notes",
+  follow_up: "Follow-up",
+};
+
+let resourceFormCount = 0;
+
+// Inline form for a shared meeting. The link is shown as text only; nothing opens or fetches it.
+function resourceForm(item) {
+  resourceFormCount += 1;
+  const prefix = `resource-${resourceFormCount}`;
+  const field = (id, label, control) =>
+    el("div", { class: "resource-field" }, [el("label", { for: id, text: label }), control]);
+  const url = el("input", { id: `${prefix}-url`, type: "url", autocomplete: "off", maxlength: "2048", placeholder: "https://" });
+  const title = el("input", { id: `${prefix}-title`, type: "text", autocomplete: "off", maxlength: "200" });
+  const summary = el("textarea", { id: `${prefix}-summary`, rows: "3", maxlength: "2000" });
+  const relation = el("select", { id: `${prefix}-relation` });
+  for (const [value, label] of Object.entries(RESOURCE_RELATION_LABELS)) {
+    relation.appendChild(el("option", { value, text: label }));
+  }
+  const save = el("button", { class: "primary", type: "button", text: "Save resource" });
+  const form = el("div", { class: "resource-form", hidden: true }, [
+    el("p", { class: "explainer", text: "Stored locally on this shared meeting. Meeting Wiki never opens or fetches the link." }),
+    field(url.id, "URL (https only)", url),
+    field(title.id, "Title", title),
+    field(summary.id, "Summary (optional)", summary),
+    field(relation.id, "Relation", relation),
+    save,
+  ]);
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    const result = await api.memory.addResource({
+      meetingNodeId: item.meetingNodeId,
+      url: url.value,
+      title: title.value,
+      summary: summary.value,
+      relation: relation.value,
+    });
+    save.disabled = false;
+    if (failed(result)) return;
+    toast(`Resource “${result.resource.title}” added to ${item.label}.`);
+    url.value = "";
+    title.value = "";
+    summary.value = "";
+    form.hidden = true;
+  });
+  const toggle = el("button", { type: "button", text: "Add resource", "aria-expanded": "false" });
+  toggle.addEventListener("click", () => {
+    form.hidden = !form.hidden;
+    toggle.setAttribute("aria-expanded", String(!form.hidden));
+    if (!form.hidden) url.focus();
+  });
+  return [toggle, form];
+}
 
 function memoryTypeLabel(type) {
   return MEMORY_TYPE_LABELS[type] || "Record";
@@ -204,7 +264,15 @@ function renderMemoryCard(item) {
     title,
     el("p", { class: "card-meta", text: memoryTypeLabel(item.nodeType) }),
   ]);
-  if (item.content && item.content !== item.label) card.appendChild(el("p", { class: "snippet", text: item.content }));
+  if (item.nodeType === "resource") {
+    const relation = RESOURCE_RELATION_LABELS[item.resourceRelation] || "Resource";
+    card.appendChild(el("p", { class: "card-meta", text: relation }));
+    if (item.url) card.appendChild(el("p", { class: "resource-url", text: item.url }));
+    const summary = item.content.endsWith(item.url) ? item.content.slice(0, -item.url.length).trim() : item.content;
+    if (summary) card.appendChild(el("p", { class: "snippet", text: summary }));
+  } else if (item.content && item.content !== item.label) {
+    card.appendChild(el("p", { class: "snippet", text: item.content }));
+  }
   const origin = sourceLine(item.source);
   if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
   if (item.relations.length > 0) {
@@ -222,6 +290,9 @@ function renderMemoryCard(item) {
   }
   if (item.source && item.source.meetingKey) {
     card.appendChild(openPageButton(item.source.meetingKey, "Open source meeting"));
+  }
+  if (item.nodeType === "meeting" && item.privacy === "shared" && item.meetingNodeId && api.memory.addResource) {
+    for (const node of resourceForm(item)) card.appendChild(node);
   }
   return card;
 }

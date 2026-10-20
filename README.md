@@ -237,6 +237,41 @@ never returns private memory. The desktop window has a Memory search view with
 type filters and an "Include private memory on this Mac" checkbox that starts
 unchecked.
 
+### URL resources
+
+You can attach a link to a meeting with your own title and summary. Meeting Wiki
+stores the URL, title, summary, and relation locally in `memory.db`; it never
+opens, fetches, or sends the URL anywhere.
+
+```bash
+meeting-wiki memory-add-resource --meeting=meeting:<id> --url=https://docs.example.com/spec \
+  --title="Rollout spec" --summary="Canary plan" --relation=design_doc
+meeting-wiki memory-resources
+meeting-wiki memory-resources --include-private
+```
+
+Take the meeting id from a `memory-search --type=meeting` result. URLs must be
+https to a public host name or address, with no user name or password, no
+secret-looking query parameters (such as `token` or `X-Amz-Signature`), and no
+`#fragment`. Private, link-local, reserved, and special-use hosts (`.local`,
+`.internal`, single-label names) are rejected; `--allow-loopback` permits
+`http://localhost` style URLs for local tools. A resource inherits its meeting's
+privacy: attaching to a private meeting needs `--allow-private`, and if a
+meeting later becomes private or is removed, its resources disappear from shared
+search and listings. Resources survive `reindex-memory`. In the desktop Memory
+search view, each shared meeting result has an "Add resource" form; it can only
+target shared meetings over https.
+
+### Claude skill
+
+The menubar item "Install Claude skill..." copies a bundled, data-free
+`SKILL.md` template to `~/.claude/skills/meeting-wiki-memory/SKILL.md`. It
+teaches agents to query memory through the MCP tools or CLI, reindex safely,
+keep private memory opt-in, and never write memory files directly. The installer
+creates missing folders as 0700 and the file as 0600, refuses to overwrite a
+file with different content, and reports the result in a notification. The
+template lives at `desktop/skills/meeting-wiki-memory/SKILL.md`.
+
 ## Desktop wiki and correction inbox
 
 The menubar item "Open Wiki & Corrections" opens a local window for browsing the

@@ -95,17 +95,20 @@ test("invalid queries and type filters are refused before spawning", () => {
   assert.throws(() => validateQuery("canary\u0000"), /invalid characters/);
   assert.throws(() => sanitizeOptions({ types: ["secret_table"] }), /unknown type/);
   assert.throws(() => sanitizeOptions({ types: ["--include-private"] }), /unknown type/);
-  assert.throws(() => sanitizeOptions({ types: Array(7).fill("topic") }), /too many/);
+  assert.throws(() => sanitizeOptions({ types: Array(8).fill("topic") }), /too many/);
   assert.deepEqual([...NODE_TYPES].sort(), [
-    "action_item", "decision", "meeting", "person", "topic", "transcript_segment",
+    "action_item", "decision", "meeting", "person", "resource", "topic", "transcript_segment",
   ]);
 });
 
 test("projectItem returns a fixed projection and only shared wiki meeting keys", () => {
   const projected = projectItem(cliItem({ secret: "x", metadata: { token: "t" } }));
   assert.deepEqual(Object.keys(projected).sort(), [
-    "content", "label", "nodeType", "occurredAt", "privacy", "relations", "source",
+    "content", "label", "meetingNodeId", "nodeType", "occurredAt", "privacy", "relations",
+    "resourceRelation", "source", "url",
   ]);
+  assert.equal(projected.meetingNodeId, "");
+  assert.equal(projected.url, "");
   assert.equal(projected.source.meetingKey, sharedSource.meeting_key);
   assert.equal(projected.relations[0].relation, "decided_in");
   const privateItem = projectItem(cliItem({ privacy: "private", source: privateSource }));
@@ -189,10 +192,12 @@ test("the wiki preload exposes memory.search on the named channel only", () => {
     Module._load = originalLoad;
   }
   assert.equal(exposed.name, "meetingWiki");
-  assert.deepEqual(Object.keys(exposed.api.memory), ["search"]);
+  assert.deepEqual(Object.keys(exposed.api.memory), ["search", "addResource"]);
   exposed.api.memory.search("canary", { types: ["topic"], includePrivate: false });
+  exposed.api.memory.addResource({ meetingNodeId: "meeting:0123456789abcdef" });
   assert.deepEqual(invocations, [
     { channel: "memory:search", args: ["canary", { types: ["topic"], includePrivate: false }] },
+    { channel: "memory:addResource", args: [{ meetingNodeId: "meeting:0123456789abcdef" }] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "preload.js"), "utf8");
   assert.doesNotMatch(source, /ipcRenderer\.(send|on)\(|invoke\(\s*channel/);

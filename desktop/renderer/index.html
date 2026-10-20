@@ -32,9 +32,6 @@
         <button type="button" class="rail-item" data-view="memory">
           <span class="rail-label">Memory search</span>
         </button>
-        <button type="button" class="rail-item" data-view="memory">
-          <span class="rail-label">Memory search</span>
-        </button>
         <button type="button" class="rail-item" data-view="actions">
           <span class="rail-label">Open action items</span>
         </button>
@@ -68,7 +65,9 @@
           <h2 id="memory-heading">Memory search</h2>
           <p class="explainer">
             Searches canonical meeting memory: people, topics, decisions, action items, and transcript
-            lines. Each result lists its related records and the meeting it came from.
+            lines. Each result lists its related records and the meeting it came from. Use
+            "Add resource" on a shared meeting to attach a link with your own title and summary.
+            Links are stored on this Mac only and are never opened or fetched.
           </p>
           <div class="searchbar">
             <label for="memory-input">Memory search terms</label>
@@ -83,34 +82,7 @@
             <label><input type="checkbox" name="memory-type" value="decision" /> Decisions</label>
             <label><input type="checkbox" name="memory-type" value="action_item" /> Action items</label>
             <label><input type="checkbox" name="memory-type" value="transcript_segment" /> Transcript lines</label>
-          </fieldset>
-          <label class="memory-private">
-            <input id="memory-include-private" type="checkbox" />
-            Include private memory on this Mac
-          </label>
-          <p id="memory-scope" class="scope-banner" role="status">Showing shared memory only.</p>
-          <div id="memory-results" class="list" aria-live="polite"></div>
-        </section>
-
-        <section id="view-memory" class="view" hidden aria-labelledby="memory-heading" tabindex="-1">
-          <h2 id="memory-heading">Memory search</h2>
-          <p class="explainer">
-            Searches canonical meeting memory: people, topics, decisions, action items, and transcript
-            lines. Each result lists its related records and the meeting it came from.
-          </p>
-          <div class="searchbar">
-            <label for="memory-input">Memory search terms</label>
-            <input id="memory-input" type="search" autocomplete="off" maxlength="300" placeholder="e.g. canary rollout" />
-            <button id="memory-button" type="button">Search memory</button>
-          </div>
-          <fieldset class="memory-filters">
-            <legend>Record types</legend>
-            <label><input type="checkbox" name="memory-type" value="meeting" /> Meetings</label>
-            <label><input type="checkbox" name="memory-type" value="person" /> People</label>
-            <label><input type="checkbox" name="memory-type" value="topic" /> Topics</label>
-            <label><input type="checkbox" name="memory-type" value="decision" /> Decisions</label>
-            <label><input type="checkbox" name="memory-type" value="action_item" /> Action items</label>
-            <label><input type="checkbox" name="memory-type" value="transcript_segment" /> Transcript lines</label>
+            <label><input type="checkbox" name="memory-type" value="resource" /> Resources</label>
           </fieldset>
           <label class="memory-private">
             <input id="memory-include-private" type="checkbox" />

@@ -21,6 +21,8 @@ test("build.files lists every runtime source file that must ship", () => {
     "memory-client.js",
     "preload.js",
     "secret-store.js",
+    "skill-installer.js",
+    "skills/meeting-wiki-memory/SKILL.md",
     "managed-config.js",
     "setup-window.js",
     "setup-preload.js",

@@ -40,12 +40,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
     content,
     tokenize='unicode61 remove_diacritics 2'
 );
+CREATE TABLE IF NOT EXISTS memory_resources (
+    resource_id TEXT PRIMARY KEY,
+    meeting_node_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_resources_meeting ON memory_resources(meeting_node_id);
 """
 
 NODE_TYPES = frozenset(
-    {"meeting", "person", "transcript_segment", "topic", "decision", "action_item"}
+    {"meeting", "person", "transcript_segment", "topic", "decision", "action_item", "resource"}
 )
 _RELATION_LIMIT = 12
+_MEETING_NODE_ID = re.compile(r"meeting:[0-9a-f]{16}")
+
+
+class ResourceError(ValueError):
+    """Fixed, input-free reason for a refused resource operation."""
 
 
 class MemoryStore:
@@ -295,6 +310,141 @@ class MemoryStore:
             if action.owner and action.owner != "Unassigned":
                 owner_id = self._entity_node_id("person", action.owner, privacy, source_id)
                 self._link(connection, action_id, owner_id, "assigned_to", source_id)
+        self._project_resources(connection, meeting_node_id)
+
+    def _project_resources(self, connection: sqlite3.Connection, meeting_node_id: str) -> None:
+        """Project user resources onto their meeting; they inherit its privacy and source."""
+        meeting = connection.execute(
+            "SELECT source_id, occurred_at, privacy FROM memory_nodes "
+            "WHERE node_id=? AND node_type='meeting'",
+            (meeting_node_id,),
+        ).fetchone()
+        if meeting is None:
+            return
+        rows = connection.execute(
+            "SELECT * FROM memory_resources WHERE meeting_node_id=? "
+            "ORDER BY created_at, resource_id",
+            (meeting_node_id,),
+        ).fetchall()
+        for row in rows:
+            self._upsert_node(
+                connection,
+                node_id=row["resource_id"],
+                node_type="resource",
+                label=row["title"],
+                content=f"{row['summary']}\n{row['url']}".strip(),
+                source_id=meeting["source_id"],
+                occurred_at=meeting["occurred_at"],
+                privacy=meeting["privacy"],
+                metadata=self._metadata(url=row["url"], relation=row["relation"]),
+            )
+            self._link(
+                connection, row["resource_id"], meeting_node_id, row["relation"],
+                meeting["source_id"],
+            )
+
+    def add_resource(
+        self,
+        *,
+        meeting_node_id: str,
+        url: str,
+        title: str,
+        summary: str,
+        relation: str,
+        created_at: str,
+        allow_private: bool = False,
+    ) -> dict[str, object]:
+        """Attach validated resource fields to a canonical meeting. Nothing is fetched."""
+        if not isinstance(meeting_node_id, str) or not _MEETING_NODE_ID.fullmatch(
+            meeting_node_id
+        ):
+            raise ResourceError("meeting_unavailable")
+        resource_id = self._node_id("resource", meeting_node_id, url)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                meeting = connection.execute(
+                    "SELECT privacy FROM memory_nodes WHERE node_id=? AND node_type='meeting'",
+                    (meeting_node_id,),
+                ).fetchone()
+                # Missing and private-without-opt-in look identical to the caller.
+                hidden = meeting is not None and meeting["privacy"] != "shared"
+                if meeting is None or (hidden and allow_private is not True):
+                    raise ResourceError("meeting_unavailable")
+                exists = connection.execute(
+                    "SELECT 1 FROM memory_resources WHERE resource_id=?", (resource_id,)
+                ).fetchone()
+                if exists:
+                    raise ResourceError("resource_exists")
+                connection.execute(
+                    """INSERT INTO memory_resources
+                       (resource_id, meeting_node_id, url, title, summary, relation, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (resource_id, meeting_node_id, url, title, summary, relation, created_at),
+                )
+                self._project_resources(connection, meeting_node_id)
+                privacy = meeting["privacy"]
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return {
+            "resource_id": resource_id,
+            "meeting_node_id": meeting_node_id,
+            "url": url,
+            "title": title,
+            "relation": relation,
+            "privacy": privacy,
+        }
+
+    def list_resources(
+        self,
+        *,
+        meeting_node_id: str | None = None,
+        include_private: bool = False,
+        limit: int = 50,
+    ) -> list[dict[str, object]]:
+        """List resources; a resource whose meeting is gone or private needs include_private."""
+        if not 1 <= limit <= 200:
+            raise ValueError("Resource limit must be from 1 to 200")
+        clauses: list[str] = []
+        params: list[object] = []
+        if meeting_node_id is not None:
+            if not _MEETING_NODE_ID.fullmatch(meeting_node_id):
+                raise ValueError("Invalid meeting node id")
+            clauses.append("resources.meeting_node_id=?")
+            params.append(meeting_node_id)
+        if include_private is not True:
+            clauses.append("meetings.privacy='shared'")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        statement = f"""
+            SELECT resources.*, meetings.label AS meeting_title, meetings.privacy AS privacy
+            FROM memory_resources AS resources
+            LEFT JOIN memory_nodes AS meetings
+              ON meetings.node_id=resources.meeting_node_id AND meetings.node_type='meeting'
+            {where}
+            ORDER BY resources.created_at DESC, resources.resource_id
+            LIMIT ?
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(statement, params).fetchall()
+        return [
+            {
+                "resource_id": row["resource_id"],
+                "meeting_node_id": row["meeting_node_id"],
+                "meeting_title": row["meeting_title"] or "",
+                "url": row["url"],
+                "title": row["title"],
+                "summary": row["summary"],
+                "relation": row["relation"],
+                "created_at": row["created_at"],
+                # Orphaned resources fail closed as private.
+                "privacy": "shared" if row["privacy"] == "shared" else "private",
+                "orphaned": row["privacy"] is None,
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _fts_query(query: str) -> str:

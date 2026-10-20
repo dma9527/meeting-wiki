@@ -668,3 +668,21 @@ button:disabled {
     scroll-behavior: auto;
   }
 }
+
+.resource-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  max-width: 36rem;
+}
+
+.resource-field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.resource-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}

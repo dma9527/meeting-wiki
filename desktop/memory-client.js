@@ -11,9 +11,19 @@ const NODE_TYPES = Object.freeze([
   "decision",
   "meeting",
   "person",
+  "resource",
   "topic",
   "transcript_segment",
 ]);
+const RESOURCE_RELATIONS = Object.freeze([
+  "code_review",
+  "design_doc",
+  "follow_up",
+  "notes",
+  "reference",
+  "ticket",
+]);
+const MEETING_NODE_ID = /^meeting:[0-9a-f]{16}$/;
 const MAX_LIMIT = 30;
 const MAX_RELATIONS = 12;
 
@@ -72,12 +82,24 @@ function projectSource(source) {
 
 function projectItem(item) {
   const relations = Array.isArray(item.relations) ? item.relations.slice(0, MAX_RELATIONS) : [];
+  const nodeType = NODE_TYPES.includes(item.node_type) ? item.node_type : "unknown";
+  const privacy = item.privacy === "shared" ? "shared" : "private";
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+  const url = nodeType === "resource" ? text(metadata.url, 2048) : "";
   return {
-    nodeType: NODE_TYPES.includes(item.node_type) ? item.node_type : "unknown",
+    nodeType,
+    // Only a shared meeting can be targeted by "Add resource".
+    meetingNodeId:
+      nodeType === "meeting" && privacy === "shared" && MEETING_NODE_ID.test(item.node_id || "")
+        ? item.node_id
+        : "",
+    url: /^https?:\/\//.test(url) ? url : "",
+    resourceRelation:
+      nodeType === "resource" && RESOURCE_RELATIONS.includes(metadata.relation) ? metadata.relation : "",
     label: text(item.label, 300),
     content: text(item.content, 800),
     occurredAt: text(item.occurred_at, 40),
-    privacy: item.privacy === "shared" ? "shared" : "private",
+    privacy,
     source: projectSource(item.source),
     relations: relations.map((relation) => ({
       relation: text(relation.relation, 40),
@@ -119,4 +141,113 @@ function searchMemory(python, configPath, query, options, execFileFn = execFile)
   });
 }
 
-module.exports = { NODE_TYPES, memorySearchArgs, projectItem, sanitizeOptions, searchMemory, validateQuery };
+// Fields come only from the user. The desktop never sends --allow-private or
+// --allow-loopback, so resources can only attach to shared meetings over https.
+const RESOURCE_ERRORS = Object.freeze({
+  credentials_not_allowed: "Remove credentials or secret tokens from the URL.",
+  fragment_not_allowed: "Remove the #fragment from the URL.",
+  https_required: "Use an https URL.",
+  invalid_host: "Use a public host name such as docs.example.com.",
+  invalid_relation: "Choose a relation from the list.",
+  invalid_summary: "The summary must be 2,000 characters or fewer.",
+  invalid_title: "Enter a one-line title of 200 characters or fewer.",
+  invalid_url: "Enter a valid https URL.",
+  meeting_unavailable: "That meeting is not available for shared resources.",
+  private_or_reserved_host: "Private, local, and reserved network addresses are not allowed.",
+  resource_exists: "This URL is already attached to that meeting.",
+  unsupported_scheme: "Use an https URL.",
+});
+
+function cleanText(value, max, { multiline }) {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new Error("invalid text");
+  const trimmed = value.replace(/\r\n/g, "\n").trim();
+  if (trimmed.length > max) throw new Error("text too long");
+  const control = multiline ? /[\u0000-\u0009\u000b-\u001f\u007f]/ : /[\u0000-\u001f\u007f]/;
+  if (control.test(trimmed)) throw new Error("invalid text");
+  return trimmed;
+}
+
+function validateResourceInput(input) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  if (typeof source.meetingNodeId !== "string" || !MEETING_NODE_ID.test(source.meetingNodeId)) {
+    return { error: "meeting_unavailable" };
+  }
+  const url = typeof source.url === "string" ? source.url.trim() : "";
+  if (!url || url.length > 2048 || !/^[\x21-\x7e]+$/.test(url)) return { error: "invalid_url" };
+  if (!/^https:\/\//i.test(url)) return { error: "https_required" };
+  if (url.includes("#")) return { error: "fragment_not_allowed" };
+  if (/^https:\/\/[^/?]*@/i.test(url)) return { error: "credentials_not_allowed" };
+  let title;
+  let summary;
+  try {
+    title = cleanText(source.title, 200, { multiline: false });
+  } catch (_) {
+    return { error: "invalid_title" };
+  }
+  if (!title) return { error: "invalid_title" };
+  try {
+    summary = cleanText(source.summary, 2000, { multiline: true });
+  } catch (_) {
+    return { error: "invalid_summary" };
+  }
+  const relation = source.relation === undefined ? "reference" : source.relation;
+  if (!RESOURCE_RELATIONS.includes(relation)) return { error: "invalid_relation" };
+  return { value: { meetingNodeId: source.meetingNodeId, url, title, summary, relation } };
+}
+
+function addResourceArgs(configPath, value) {
+  return [
+    "-m", "meeting_wiki.cli", "--config", configPath, "memory-add-resource",
+    `--meeting=${value.meetingNodeId}`, `--url=${value.url}`, `--title=${value.title}`,
+    `--summary=${value.summary}`, `--relation=${value.relation}`,
+  ];
+}
+
+const resourceError = (code) => ({
+  error: Object.prototype.hasOwnProperty.call(RESOURCE_ERRORS, code)
+    ? RESOURCE_ERRORS[code]
+    : "The resource could not be saved.",
+});
+
+function addResource(python, configPath, input, execFileFn = execFile) {
+  const checked = validateResourceInput(input);
+  if (checked.error) return Promise.resolve(resourceError(checked.error));
+  const args = addResourceArgs(configPath, checked.value);
+  return new Promise((resolve) => {
+    execFileFn(python, args, { encoding: "utf8", maxBuffer: 256 * 1024 }, (error, stdout) => {
+      let parsed;
+      try {
+        parsed = JSON.parse((stdout || "").trim());
+      } catch (_) {
+        resolve(resourceError(""));
+        return;
+      }
+      if (!error && parsed && parsed.added === true && parsed.resource) {
+        resolve({
+          added: true,
+          resource: {
+            title: text(parsed.resource.title, 200),
+            relation: RESOURCE_RELATIONS.includes(parsed.resource.relation) ? parsed.resource.relation : "",
+          },
+        });
+        return;
+      }
+      resolve(resourceError(parsed && typeof parsed.error === "string" ? parsed.error : ""));
+    });
+  });
+}
+
+module.exports = {
+  NODE_TYPES,
+  RESOURCE_ERRORS,
+  RESOURCE_RELATIONS,
+  addResource,
+  addResourceArgs,
+  memorySearchArgs,
+  projectItem,
+  sanitizeOptions,
+  searchMemory,
+  validateQuery,
+  validateResourceInput,
+};
