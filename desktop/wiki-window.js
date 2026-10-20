@@ -7,6 +7,7 @@
 const path = require("path");
 const { WikiStore } = require("./wiki-store");
 const { applyCorrection, fetchInbox, planCorrection } = require("./corrections-client");
+const { dismissJob, listDeadJobs, listDismissedJobs, restoreJob, retryDeadJobs, retryJob } = require("./status");
 
 let wikiWindow = null;
 let handlersRegistered = false;
@@ -24,12 +25,16 @@ function sanitizeActionOptions(options) {
   };
 }
 
+function safeJobId(value) {
+  if (!Number.isInteger(value) || value < 1) throw new Error("Invalid job selected");
+  return value;
+}
+
 async function guard(operation) {
   try {
     return await operation();
-  } catch (error) {
-    // Surface only the message, never a stack, payload, or file path.
-    return { error: error.message || "operation failed" };
+  } catch (_) {
+    return { error: "This action is unavailable." };
   }
 }
 
@@ -57,6 +62,24 @@ function registerHandlers(ipcMain, context) {
   );
   ipcMain.handle("corrections:apply", (_event, meetingKey, mapping) =>
     guard(() => applyCorrection(context.python, context.configPath, meetingKey, mapping || {})),
+  );
+  ipcMain.handle("jobs:listDead", () =>
+    guard(() => listDeadJobs(context.python, context.configPath)),
+  );
+  ipcMain.handle("jobs:listDismissed", () =>
+    guard(() => listDismissedJobs(context.python, context.configPath)),
+  );
+  ipcMain.handle("jobs:retry", (_event, jobId) =>
+    guard(() => retryJob(context.python, context.configPath, safeJobId(jobId))),
+  );
+  ipcMain.handle("jobs:retryAllDead", () =>
+    guard(() => retryDeadJobs(context.python, context.configPath)),
+  );
+  ipcMain.handle("jobs:dismiss", (_event, jobId) =>
+    guard(() => dismissJob(context.python, context.configPath, safeJobId(jobId))),
+  );
+  ipcMain.handle("jobs:restore", (_event, jobId) =>
+    guard(() => restoreJob(context.python, context.configPath, safeJobId(jobId))),
   );
 }
 

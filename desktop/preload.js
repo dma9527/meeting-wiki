@@ -16,4 +16,12 @@ contextBridge.exposeInMainWorld("meetingWiki", {
     plan: (meetingKey, mapping) => ipcRenderer.invoke("corrections:plan", meetingKey, mapping),
     apply: (meetingKey, mapping) => ipcRenderer.invoke("corrections:apply", meetingKey, mapping),
   },
+  jobs: {
+    listDead: () => ipcRenderer.invoke("jobs:listDead"),
+    listDismissed: () => ipcRenderer.invoke("jobs:listDismissed"),
+    retry: (jobId) => ipcRenderer.invoke("jobs:retry", jobId),
+    retryAllDead: () => ipcRenderer.invoke("jobs:retryAllDead"),
+    dismiss: (jobId) => ipcRenderer.invoke("jobs:dismiss", jobId),
+    restore: (jobId) => ipcRenderer.invoke("jobs:restore", jobId),
+  },
 });

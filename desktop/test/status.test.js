@@ -49,7 +49,10 @@ test("readQueueStatus invokes privacy-safe summary", async () => {
 test("retryDeadJobs fetches redacted rows and retries each id", async () => {
   const calls = [];
   const execFile = fakeExec([
-    { stdout: JSON.stringify([{ id: 4, state: "dead" }, { id: 9, state: "dead" }]) },
+    { stdout: JSON.stringify([
+      { id: 4, job_type: "ingest", state: "dead", stage: "analyzing", attempts: 5, max_attempts: 5, error_type: "RuntimeError" },
+      { id: 9, job_type: "ingest", state: "dead", stage: "rendering", attempts: 5, max_attempts: 5, error_type: "RuntimeError" },
+    ]) },
     { stdout: JSON.stringify({ job_id: 4, state: "pending", retried: true }) },
     { stdout: JSON.stringify({ job_id: 9, state: "pending", retried: true }) },
   ], calls);
@@ -76,7 +79,7 @@ test("status helpers pass an optional per-child env to every CLI call", async ()
   const execFile = fakeExec([
     { stdout: JSON.stringify({ total: 0, active: 0, action_required: 0 }) },
     { stdout: "OK storage: local\n" },
-    { stdout: JSON.stringify([{ id: 4, state: "dead" }]) },
+    { stdout: JSON.stringify([{ id: 4, job_type: "ingest", state: "dead", stage: "analyzing", attempts: 5, max_attempts: 5, error_type: "RuntimeError" }]) },
     { stdout: JSON.stringify({ job_id: 4, state: "pending", retried: true }) },
   ], calls);
 
