@@ -91,8 +91,16 @@ async function readDoctorStatus(python, configPath, execFileFn = execFile, env =
   };
 }
 
+function trayIconState({ isRecording, queueStatusError, queueSummary }) {
+  if (isRecording) return "recording";
+  if (queueStatusError || queueSummary.action_required > 0) return "attention";
+  if (queueSummary.active > 0) return "processing";
+  return "idle";
+}
+
 module.exports = {
   formatQueueLabel,
+  trayIconState,
   readDoctorStatus,
   readQueueStatus,
   retryDeadJobs,

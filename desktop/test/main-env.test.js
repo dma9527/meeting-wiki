@@ -65,3 +65,19 @@ test("background status polling notifies once per key outage", () => {
     assert.doesNotMatch(functionBody(name), /background: true/);
   }
 });
+
+
+test("updateMenu updates the tray image from derived status state", () => {
+  assert.match(source, /trayIconState/);
+  const body = functionBody("updateMenu");
+  assert.match(body, /updateTrayIcon\(\);/);
+  assert.match(functionBody("updateTrayIcon"), /tray\.setImage\(icon\(state\)\)/);
+});
+
+test("missing Python marks the tray status as attention before returning", () => {
+  const body = functionBody("refreshQueueStatus");
+  const unavailable = body.indexOf("!pythonAvailable()");
+  const statusError = body.indexOf("queueStatusError = true", unavailable);
+  const menuUpdate = body.indexOf("updateMenu()", statusError);
+  assert.ok(unavailable >= 0 && statusError > unavailable && menuUpdate > statusError);
+});

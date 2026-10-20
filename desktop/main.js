@@ -15,6 +15,7 @@ const { createSetupWindow, needsSetup, resolveProcessEnv } = require("./setup-wi
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const {
   formatQueueLabel,
+  trayIconState,
   readDoctorStatus,
   readQueueStatus,
   retryDeadJobs,
@@ -43,6 +44,7 @@ let queueSummary = { total: 0, active: 0, action_required: 0 };
 let queueStatusReady = false;
 let queueStatusError = false;
 let queueStatusRefreshing = false;
+let currentTrayIconState = null;
 
 const capture = new AudioCapture({
   recordingsDir: RECORDINGS_DIR,
@@ -69,11 +71,29 @@ function processingEnv({ background = false } = {}) {
   return result.env;
 }
 
-function icon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><rect x="6" y="2" width="6" height="10" rx="3" fill="black"/><path d="M4 8a5 5 0 0010 0M9 13v3M6 16h6" fill="none" stroke="black" stroke-width="1.5"/></svg>`;
+function icon(state) {
+  const paths = {
+    idle: '<rect x="6" y="2" width="6" height="10" rx="3"/><path d="M4 8a5 5 0 0010 0M9 13v3M6 16h6" fill="none" stroke="black" stroke-width="1.5"/>',
+    recording: '<circle cx="9" cy="9" r="6"/><circle cx="9" cy="9" r="2" fill="white"/>',
+    processing: '<path d="M14 6a6 6 0 10.4 6.5" fill="none" stroke="black" stroke-width="2"/><path d="M14 2v5H9" fill="none" stroke="black" stroke-width="2"/>',
+    attention: '<path d="M9 2 17 16H1L9 2Z"/><path d="M9 6v5" stroke="white" stroke-width="1.5"/><circle cx="9" cy="13" r="1" fill="white"/>',
+  };
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="black">${paths[state] || paths.idle}</svg>`;
   const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
   image.setTemplateImage(true);
   return image;
+}
+
+function updateTrayIcon() {
+  if (!tray) return;
+  const state = trayIconState({
+    isRecording: Boolean(capture.active),
+    queueStatusError,
+    queueSummary,
+  });
+  if (state === currentTrayIconState) return;
+  tray.setImage(icon(state));
+  currentTrayIconState = state;
 }
 
 function timestamp() {
@@ -96,7 +116,13 @@ function notifyMissingPython() {
 }
 
 async function refreshQueueStatus() {
-  if (queueStatusRefreshing || !pythonAvailable()) return;
+  if (queueStatusRefreshing) return;
+  if (!pythonAvailable()) {
+    queueStatusError = true;
+    queueStatusReady = true;
+    if (tray) updateMenu();
+    return;
+  }
   const env = processingEnv({ background: true });
   if (!env) {
     queueStatusError = true;
@@ -291,6 +317,7 @@ async function importAudio() {
 }
 
 function updateMenu() {
+  updateTrayIcon();
   const items = [];
   if (capture.active) {
     const seconds = Math.floor((Date.now() - recordingStartedAt) / 1000);
@@ -345,7 +372,7 @@ app.whenReady().then(async () => {
     await systemPreferences.askForMediaAccess("microphone");
   }
   app.dock.hide();
-  tray = new Tray(icon());
+  tray = new Tray(icon("idle"));
   tray.on("click", () => tray.popUpContextMenu());
   globalShortcut.register("CommandOrControl+Shift+0", () => {
     if (capture.active) void stopRecording(); else void startRecording();

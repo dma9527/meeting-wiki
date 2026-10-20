@@ -102,3 +102,29 @@ test("status helpers inherit the parent env when none is given", async () => {
 
   for (const { options } of calls) assert.equal("env" in options, false);
 });
+
+
+test("tray icon state reflects recording, attention, processing, and idle priority", () => {
+  const { trayIconState } = require("../status");
+
+  assert.equal(
+    trayIconState({ isRecording: true, queueStatusError: true, queueSummary: { active: 1, action_required: 1 } }),
+    "recording",
+  );
+  assert.equal(
+    trayIconState({ isRecording: false, queueStatusError: true, queueSummary: { active: 1, action_required: 0 } }),
+    "attention",
+  );
+  assert.equal(
+    trayIconState({ isRecording: false, queueStatusError: false, queueSummary: { active: 0, action_required: 1 } }),
+    "attention",
+  );
+  assert.equal(
+    trayIconState({ isRecording: false, queueStatusError: false, queueSummary: { active: 1, action_required: 0 } }),
+    "processing",
+  );
+  assert.equal(
+    trayIconState({ isRecording: false, queueStatusError: false, queueSummary: { active: 0, action_required: 0 } }),
+    "idle",
+  );
+});
