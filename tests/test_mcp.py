@@ -57,6 +57,7 @@ Option B was selected.
             tools = await session.list_tools()
             assert {tool.name for tool in tools.tools} == {
                 "meeting_wiki_search",
+                "meeting_wiki_memory_search",
                 "meeting_wiki_read_page",
                 "meeting_wiki_list_recent",
                 "meeting_wiki_action_items",
@@ -119,6 +120,6 @@ profile = "profile-that-does-not-exist"
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert len(tools.tools) == 4
+            assert len(tools.tools) == 5
 
     asyncio.run(run())

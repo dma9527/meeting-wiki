@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AppConfig
+from .memory import MemoryStore
 from .models import (
     JobStage,
     MeetingAnalysis,
@@ -101,6 +102,9 @@ class MeetingEngine:
         report(JobStage.RENDERING)
         renderer = WikiRenderer(storage)
         render = renderer.apply(meeting, analysis, transcript_key)
+        MemoryStore(self.config.data_dir / "memory.db").index_meeting(
+            meeting, analysis, transcript, render.meeting_key
+        )
 
         report(JobStage.INTEGRATING)
         task_urls: list[str] = []

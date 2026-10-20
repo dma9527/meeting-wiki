@@ -13,6 +13,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from .config import load_config
+from .memory import MemoryStore
 from .providers.local_storage import LocalFileStorage
 from .providers.s3_storage import S3Storage
 
@@ -22,6 +23,7 @@ READ_ONLY = ToolAnnotations(
 
 config = load_config(Path(os.environ.get("MEETING_WIKI_CONFIG", "~/.meeting-wiki/config.toml")))
 _storage_instance = None
+_memory_instance = None
 
 
 def get_storage():
@@ -39,6 +41,14 @@ def get_storage():
             )
         )
     return _storage_instance
+
+
+def get_memory_store() -> MemoryStore:
+    """Construct the owner-only local canonical memory store lazily."""
+    global _memory_instance
+    if _memory_instance is None:
+        _memory_instance = MemoryStore(config.data_dir / "memory.db")
+    return _memory_instance
 
 
 server = MCPServer(
@@ -129,6 +139,20 @@ def search(
         )
     results.sort(key=lambda item: (-item["score"], item["path"]))
     return _page(results, offset, limit)
+
+
+@server.tool(name="meeting_wiki_memory_search", annotations=READ_ONLY, structured_output=True)
+def memory_search(
+    query: Annotated[str, Field(min_length=2, max_length=300)],
+    node_type: Annotated[str | None, Field(max_length=40)] = None,
+    limit: Annotated[int, Field(ge=1, le=30)] = 12,
+) -> dict[str, object]:
+    """Search canonical meeting memory with source-backed hierarchy relations."""
+    try:
+        items = get_memory_store().search(query, node_type=node_type, limit=limit)
+    except ValueError as error:
+        return {"error": str(error), "items": []}
+    return {"count": len(items), "items": items}
 
 
 @server.tool(name="meeting_wiki_read_page", annotations=READ_ONLY, structured_output=True)
