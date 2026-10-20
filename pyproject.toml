@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meeting-wiki"
-version = "0.1.4"
+version = "0.1.5"
 description = "Local-first meeting memory that compiles conversations into an evolving Markdown wiki"
 readme = "README.md"
 requires-python = ">=3.11"
