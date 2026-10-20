@@ -32,6 +32,36 @@
           </div>
         </section>
 
+        <section id="panel-identity-settings" class="panel" aria-labelledby="identity-settings-heading" tabindex="-1" hidden>
+          <h1 id="identity-settings-heading" class="display">Your name in meetings</h1>
+          <p class="lede">
+            Your microphone is always attributed to this name. Aliases are other names people or transcripts use for
+            you, so notes and action items land on your profile.
+          </p>
+
+          <form id="identity-settings-form" novalidate>
+            <div class="field">
+              <label for="primary-profile-name">Primary name</label>
+              <input id="primary-profile-name" name="primaryProfileName" type="text" autocomplete="off" spellcheck="false" required aria-describedby="primary-profile-name-hint primary-profile-name-error" />
+              <p id="primary-profile-name-hint" class="hint"></p>
+              <p id="primary-profile-name-error" class="field-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="profile-aliases">Aliases</label>
+              <textarea id="profile-aliases" name="aliases" rows="4" autocomplete="off" spellcheck="false" aria-describedby="profile-aliases-hint profile-aliases-error"></textarea>
+              <p id="profile-aliases-hint" class="hint"></p>
+              <p id="profile-aliases-error" class="field-error" hidden></p>
+            </div>
+
+            <p id="identity-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="submit" class="button button-primary" id="identity-save">Save name</button>
+            </div>
+          </form>
+          <p id="gemini-unavailable" class="hint" hidden></p>
+        </section>
+
         <section id="panel-gemini-settings" class="panel" aria-labelledby="gemini-settings-heading" tabindex="-1" hidden>
           <h1 id="gemini-settings-heading" class="display">Gemini features</h1>
           <p class="lede">

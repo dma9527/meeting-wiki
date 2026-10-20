@@ -1,7 +1,7 @@
 "use strict";
 
-// Gemini settings window. Same lockdown as setup-window.js. It edits only the five
-// Gemini feature values in a setup-managed config and never touches the secret store.
+// Settings window. Same lockdown as setup-window.js. It edits the [identity] section and
+// the five Gemini feature values in a setup-managed config and never touches the secret store.
 
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -12,12 +12,21 @@ const {
   GEMINI_PROVIDER,
   MODEL_PATTERN,
   atomicWriteFile,
-  isManagedConfig,
   readSetupState,
   renderGeminiConfig,
 } = require("./setup-window");
+const {
+  IDENTITY_LIMITS,
+  IdentityError,
+  identityFromTables,
+  parseManagedConfig,
+  replaceIdentitySection,
+  validateIdentity,
+} = require("./managed-config");
 
 const CHANNELS = Object.freeze({
+  getIdentitySettings: "settings:getIdentitySettings",
+  saveIdentitySettings: "settings:saveIdentitySettings",
   getGeminiSettings: "settings:getGeminiSettings",
   saveGeminiSettings: "settings:saveGeminiSettings",
   rerunSetup: "settings:rerunSetup",
@@ -32,50 +41,21 @@ const LANGUAGE_PATTERN = /^[A-Za-z][A-Za-z0-9 -]{0,39}$/;
 const NOT_GEMINI = "These settings cover Gemini only. Run setup again to configure another provider.";
 const NOT_MANAGED =
   "Your configuration was not created by setup or was edited by hand. Run setup again to manage it here.";
+const NOT_ONLINE = "Finish setup first. Your name and aliases can be edited here once setup is complete.";
+const SAVE_FAILED = "The settings could not be saved.";
 
-// Exactly the keys renderGeminiConfig can emit. Anything else counts as a manual edit.
-const MANAGED_SCHEMA = Object.freeze({
-  providers: { transcription: "string", llm: "string", live_transcription: "string", live_language: "string" },
-  live: { allow_external_providers: "boolean", translation_target_language: "string", summary_context_characters: "integer" },
-  gemini: { api_key_env: "string", batch_audio_model: "string", live_model: "string", language_model: "string" },
-});
+// Tables a Gemini config may contain. Anything else counts as a manual edit.
+const GEMINI_TABLES = new Set(["", "identity", "providers", "live", "gemini"]);
 
 class SettingsError extends Error {}
 
-function parseValue(raw) {
-  if (raw === "true") return { type: "boolean", value: true };
-  if (raw === "false") return { type: "boolean", value: false };
-  if (/^\d{1,9}$/.test(raw)) return { type: "integer", value: Number(raw) };
-  if (/^"(?:[^"\\\u0000-\u001f]|\\["\\]|\\u[0-9a-fA-F]{4})*"$/.test(raw)) {
-    return { type: "string", value: JSON.parse(raw) };
-  }
-  return null;
-}
-
-// Strict reader for the TOML that setup generates. Returns null for anything else.
+// Reads the Gemini feature values from a setup-managed Gemini config, or returns null.
 function parseManagedGeminiConfig(text) {
-  if (!isManagedConfig(text)) return null;
-  const tables = {};
-  let section = null;
-  for (const line of text.split("\n")) {
-    if (line === "" || line.startsWith("#")) continue;
-    const header = /^\[([a-z_]+)\]$/.exec(line);
-    if (header) {
-      section = header[1];
-      if (!MANAGED_SCHEMA[section] || tables[section]) return null;
-      tables[section] = {};
-      continue;
-    }
-    const pair = /^([a-z_]+) = (.+)$/.exec(line);
-    if (!pair || !section) return null;
-    const [, key, raw] = pair;
-    const expected = MANAGED_SCHEMA[section][key];
-    const parsed = parseValue(raw);
-    if (!expected || !parsed || parsed.type !== expected || key in tables[section]) return null;
-    tables[section][key] = parsed.value;
-  }
+  const tables = parseManagedConfig(text);
+  if (!tables || !Object.keys(tables).every((name) => GEMINI_TABLES.has(name))) return null;
   const { providers = {}, live = {}, gemini = {} } = tables;
-  const allGemini = Object.keys(MANAGED_SCHEMA.providers).every((key) => providers[key] === GEMINI_PROVIDER);
+  const capabilities = ["transcription", "llm", "live_transcription", "live_language"];
+  const allGemini = capabilities.every((key) => providers[key] === GEMINI_PROVIDER);
   if (!allGemini || live.allow_external_providers !== true || gemini.api_key_env !== GEMINI_API_KEY_ENV) return null;
   return {
     batchAudioModel: gemini.batch_audio_model ?? GEMINI_MODELS.batchAudioModel,
@@ -122,17 +102,79 @@ function readText(fs, filePath) {
   }
 }
 
+// Everything but the identity keys, for checking that an identity save changed nothing else.
+function withoutIdentity(tables) {
+  const { identity: _identity, "": topLevel, ...rest } = tables;
+  const { user_name: _userName, ...otherTopLevel } = topLevel;
+  return JSON.stringify({ topLevel: otherTopLevel, ...rest });
+}
+
 function createSettingsController({ fs, dataDir, configPath, onSaved = () => {}, onRerunSetup = () => {} }) {
   // Re-read on every call so a save never trusts state rendered earlier.
+  function identityReadiness() {
+    const state = readSetupState(fs, dataDir);
+    if (!state || state.mode !== "online") return { ready: false, reason: NOT_ONLINE };
+    const text = readText(fs, configPath);
+    const tables = parseManagedConfig(text);
+    if (!tables) return { ready: false, reason: NOT_MANAGED };
+    return { ready: true, text, tables, identity: identityFromTables(tables) };
+  }
+
   function readiness() {
     const state = readSetupState(fs, dataDir);
     if (!state || state.mode !== "online" || state.provider !== GEMINI_PROVIDER) return { ready: false, reason: NOT_GEMINI };
-    const values = parseManagedGeminiConfig(readText(fs, configPath));
+    const text = readText(fs, configPath);
+    const values = parseManagedGeminiConfig(text);
     if (!values) return { ready: false, reason: NOT_MANAGED };
-    return { ready: true, values };
+    return { ready: true, values, identity: identityFromTables(parseManagedConfig(text)) };
+  }
+
+  function write(config) {
+    try {
+      atomicWriteFile(fs, configPath, config);
+    } catch (_) {
+      throw new SettingsError(SAVE_FAILED);
+    }
+    onSaved();
   }
 
   return {
+    getIdentitySettings() {
+      const current = identityReadiness();
+      if (!current.ready) return current;
+      const { primaryProfileName, aliases, legacyUserName } = current.identity;
+      return {
+        ready: true,
+        values: { primaryProfileName, aliases },
+        legacyUserName,
+        limits: { ...IDENTITY_LIMITS },
+      };
+    },
+
+    saveIdentitySettings(raw) {
+      const current = identityReadiness();
+      if (!current.ready) throw new SettingsError(current.reason);
+      let values;
+      try {
+        values = validateIdentity(raw);
+      } catch (error) {
+        throw error instanceof IdentityError ? new SettingsError(error.message) : error;
+      }
+      // user_name stays for older readers; primary_profile_name now takes precedence.
+      const identity = { ...values, legacyUserName: current.identity.legacyUserName };
+      const config = replaceIdentitySection(current.text, identity);
+      const readBack = parseManagedConfig(config);
+      if (
+        !readBack ||
+        withoutIdentity(readBack) !== withoutIdentity(current.tables) ||
+        JSON.stringify(identityFromTables(readBack)) !== JSON.stringify(identity)
+      ) {
+        throw new SettingsError(SAVE_FAILED);
+      }
+      write(config);
+      return { ok: true, values };
+    },
+
     getGeminiSettings() {
       const current = readiness();
       if (!current.ready) return current;
@@ -143,17 +185,15 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       const current = readiness();
       if (!current.ready) throw new SettingsError(current.reason);
       const values = validateGeminiFeatureSettings(raw);
-      const config = renderGeminiConfig(values);
-      // The regenerated file must read back as the same managed Gemini config.
-      if (JSON.stringify(parseManagedGeminiConfig(config)) !== JSON.stringify(values)) {
-        throw new SettingsError("The settings could not be saved.");
+      const config = renderGeminiConfig(values, current.identity);
+      // The regenerated file must read back as the same Gemini values and identity.
+      if (
+        JSON.stringify(parseManagedGeminiConfig(config)) !== JSON.stringify(values) ||
+        JSON.stringify(identityFromTables(parseManagedConfig(config))) !== JSON.stringify(current.identity)
+      ) {
+        throw new SettingsError(SAVE_FAILED);
       }
-      try {
-        atomicWriteFile(fs, configPath, config);
-      } catch (_) {
-        throw new SettingsError("The settings could not be saved.");
-      }
-      onSaved();
+      write(config);
       return { ok: true, values };
     },
 
@@ -181,6 +221,8 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
         return run(getController(), ...args);
       }),
     );
+  handle(CHANNELS.getIdentitySettings, (controller) => controller.getIdentitySettings());
+  handle(CHANNELS.saveIdentitySettings, (controller, settings) => controller.saveIdentitySettings(settings));
   handle(CHANNELS.getGeminiSettings, (controller) => controller.getGeminiSettings());
   handle(CHANNELS.saveGeminiSettings, (controller, settings) => controller.saveGeminiSettings(settings));
   handle(CHANNELS.rerunSetup, (controller) => controller.rerunSetup());
@@ -257,6 +299,7 @@ module.exports = {
   LIVE_DEFAULTS,
   NOT_GEMINI,
   NOT_MANAGED,
+  NOT_ONLINE,
   SUMMARY_CONTEXT_BOUNDS,
   SettingsError,
   createSettingsController,

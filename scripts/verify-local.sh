@@ -62,6 +62,7 @@ node --check desktop/wiki-store.js
 node --check desktop/corrections-client.js
 node --check desktop/memory-client.js
 node --check desktop/preload.js
+node --check desktop/managed-config.js
 node --check desktop/setup-window.js
 node --check desktop/setup-preload.js
 node --check desktop/settings-window.js

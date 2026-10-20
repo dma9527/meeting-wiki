@@ -41,6 +41,7 @@
       "corrections-client.js",
       "memory-client.js",
       "preload.js",
+      "managed-config.js",
       "setup-window.js",
       "setup-preload.js",
       "settings-window.js",

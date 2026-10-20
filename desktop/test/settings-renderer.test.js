@@ -47,6 +47,33 @@ test("the Gemini form edits exactly the five feature values and no key or chunk 
   assert.match(panel, /id="settings-rerun"/);
 });
 
+test("the identity form edits only the primary name and aliases, with labels and errors", () => {
+  const html = read("settings.html");
+  const panel = section(html, "panel-identity-settings");
+  const names = [...panel.matchAll(/<(?:input|textarea)\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(names, ["primaryProfileName", "aliases"]);
+  assert.doesNotMatch(panel, /type="password"|api[_-]?key|model/i);
+  for (const id of ["primary-profile-name", "profile-aliases"]) {
+    assert.match(panel, new RegExp(`<label for="${id}">`));
+    assert.match(panel, new RegExp(`id="${id}-error" class="field-error"`));
+  }
+  assert.match(panel, /id="identity-status"[^>]*role="status"/);
+  assert.ok(html.indexOf("panel-identity-settings") < html.indexOf("panel-gemini-settings"));
+  // Names come from the user's config, never from the markup.
+  assert.match(panel, /<input id="primary-profile-name"(?![^>]*\bvalue=)[^>]*>/);
+  assert.match(panel, /<textarea id="profile-aliases"[^>]*><\/textarea>/);
+});
+
+test("settings.js loads and saves identity through the bridge and mirrors the name rule", () => {
+  const js = read("settings.js");
+  assert.match(js, /call\("getIdentitySettings"\)/);
+  assert.match(js, /call\("saveIdentitySettings", next\)/);
+  const managed = require("../managed-config");
+  const rendererPattern = /const NAME_PATTERN = (\/.+\/u);/.exec(js);
+  assert.ok(rendererPattern, "settings.js is missing NAME_PATTERN");
+  assert.equal(rendererPattern[1], String(managed.NAME_PATTERN));
+});
+
 test("the unsupported panel explains the reason and offers to rerun setup", () => {
   const panel = section(read("settings.html"), "panel-unsupported");
   assert.match(panel, /id="unsupported-reason"/);

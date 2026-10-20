@@ -128,3 +128,48 @@ def test_gemini_all_capability_selection_requires_models_and_live_egress_opt_in(
     missing_live_opt_in = {**valid, "live": {"allow_external_providers": False}}
     with pytest.raises(ValueError, match="allow_external_providers"):
         AppConfig.model_validate(missing_live_opt_in)
+
+
+def test_identity_falls_back_to_legacy_user_name(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'user_name = "Legacy Person"\n[identity]\nprimary_profile_name = ""\naliases = []\n'
+    )
+    config = load_config(path)
+    assert config.primary_profile_name == "Legacy Person"
+    assert config.primary_profile_aliases == ("Legacy Person",)
+
+    path.write_text(
+        'user_name = "Legacy Person"\n[identity]\nprimary_profile_name = " Avery  Test "\n'
+        'aliases = ["Ave", "avery test", "Legacy Person"]\n'
+    )
+    config = load_config(path)
+    assert config.primary_profile_name == "Avery Test"
+    assert config.primary_profile_aliases == ("Avery Test", "Ave", "Legacy Person")
+    assert config.is_primary_profile_alias("AVE")
+    assert not config.is_primary_profile_alias("Someone Else")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Avery\x00", "Avery\u202eTest", "Avery\u200bTest", "Avery\u2066Test", "...", "x" * 201],
+)
+def test_identity_rejects_unsafe_names(name):
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"identity": {"primary_profile_name": name}})
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"identity": {"aliases": [name]}})
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"user_name": name})
+
+
+def test_identity_normalizes_names_and_rejects_duplicate_aliases():
+    config = AppConfig.model_validate(
+        {"user_name": "  ", "identity": {"primary_profile_name": "Jose\u0301", "aliases": ["李明"]}}
+    )
+    assert config.user_name == "User"
+    assert config.identity.primary_profile_name == "Jos\u00e9"
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"identity": {"aliases": ["Ave", "AVE"]}})
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"identity": {"aliases": [" "]}})

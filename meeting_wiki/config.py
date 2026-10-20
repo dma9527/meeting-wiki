@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import tomllib
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -152,6 +153,21 @@ def is_loopback_url(value: str) -> bool:
         return False
 
 
+PROFILE_NAME_MAX_LENGTH = 200
+
+
+def clean_profile_name(value: str, field: str) -> str:
+    """Normalize a speaker name and reject control, format, and unassigned characters."""
+    cleaned = " ".join(unicodedata.normalize("NFC", value).split())
+    if len(cleaned) > PROFILE_NAME_MAX_LENGTH:
+        raise ValueError(f"{field} must be at most {PROFILE_NAME_MAX_LENGTH} characters")
+    if any(unicodedata.category(char).startswith("C") for char in cleaned):
+        raise ValueError(f"{field} must not contain control or invisible characters")
+    if cleaned and not any(char.isalnum() for char in cleaned):
+        raise ValueError(f"{field} must contain a letter or number")
+    return cleaned
+
+
 class IdentityConfig(BaseModel):
     """The profile that owns this device's microphone channel."""
 
@@ -162,10 +178,7 @@ class IdentityConfig(BaseModel):
     @field_validator("primary_profile_name")
     @classmethod
     def validate_primary_profile_name(cls, value: str) -> str:
-        cleaned = " ".join(value.split())
-        if len(cleaned) > 200:
-            raise ValueError("identity.primary_profile_name must be at most 200 characters")
-        return cleaned
+        return clean_profile_name(value, "identity.primary_profile_name")
 
     @field_validator("aliases")
     @classmethod
@@ -173,12 +186,10 @@ class IdentityConfig(BaseModel):
         cleaned: list[str] = []
         seen: set[str] = set()
         for value in values:
-            alias = " ".join(value.split())
+            alias = clean_profile_name(value, "identity.aliases")
             key = alias.casefold()
-            if not alias or len(alias) > 200 or key in seen:
-                raise ValueError(
-                    "identity.aliases must be unique nonempty names up to 200 characters"
-                )
+            if not alias or key in seen:
+                raise ValueError("identity.aliases must be unique nonempty names")
             seen.add(key)
             cleaned.append(alias)
         return cleaned
@@ -204,6 +215,11 @@ class AppConfig(BaseModel):
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     jobs: JobConfig = Field(default_factory=JobConfig)
+
+    @field_validator("user_name")
+    @classmethod
+    def validate_user_name(cls, value: str) -> str:
+        return clean_profile_name(value, "user_name") or "User"
 
     @field_validator("data_dir")
     @classmethod

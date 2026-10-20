@@ -17,3 +17,24 @@
 .settings-main:focus {
   outline: none;
 }
+
+.settings-main .panel + .panel {
+  margin-top: var(--gap);
+}
+
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--sheet);
+  color: var(--graphite);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  font-family: var(--body);
+  font-size: 14px;
+  resize: vertical;
+}
+
+textarea[aria-invalid="true"] {
+  border-color: var(--tally);
+  box-shadow: inset 3px 0 0 var(--tally);
+}

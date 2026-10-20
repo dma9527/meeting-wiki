@@ -21,6 +21,7 @@ test("build.files lists every runtime source file that must ship", () => {
     "memory-client.js",
     "preload.js",
     "secret-store.js",
+    "managed-config.js",
     "setup-window.js",
     "setup-preload.js",
     "settings-window.js",

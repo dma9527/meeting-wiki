@@ -22,6 +22,9 @@ const VALID = Object.freeze({
   summaryContextCharacters: 24000,
 });
 
+const IDENTITY = Object.freeze({ primaryProfileName: "Avery Test", aliases: ["Ave", "A. Test"] });
+const ONLINE_SETTINGS = Object.freeze({ baseUrl: "https://provider.example.test/v1", transcriptionModel: "a", languageModel: "b" });
+
 function tempDataDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "meeting-wiki-settings-"));
 }
@@ -267,12 +270,184 @@ test("rerunSetup is the readiness action and invokes the setup callback", () => 
   assert.equal(calls.rerun, 1);
 });
 
+// ---- Identity ----
+
+test("getIdentitySettings is offered for every completed online setup, not only Gemini", () => {
+  const gemini = geminiDataDir();
+  assert.deepEqual(controllerFor(gemini).controller.getIdentitySettings(), {
+    ready: true,
+    values: { primaryProfileName: "", aliases: [] },
+    legacyUserName: "",
+    limits: { nameMaxLength: 100, maxAliases: 20 },
+  });
+  const online = geminiDataDir(setup.renderOnlineConfig(ONLINE_SETTINGS));
+  writeState(online, { mode: "online", provider: "openai_compatible" });
+  assert.equal(controllerFor(online).controller.getIdentitySettings().ready, true);
+  const legacyOnline = geminiDataDir(setup.renderOnlineConfig(ONLINE_SETTINGS));
+  writeState(legacyOnline, { mode: "online" });
+  assert.equal(controllerFor(legacyOnline).controller.getIdentitySettings().ready, true);
+});
+
+test("getIdentitySettings refuses unfinished, local, unmanaged, or hand edited setups", () => {
+  const noState = tempDataDir();
+  fs.writeFileSync(path.join(noState, "config.toml"), setup.renderGeminiConfig());
+  assert.deepEqual(controllerFor(noState).controller.getIdentitySettings(), { ready: false, reason: settings.NOT_ONLINE });
+  const local = geminiDataDir();
+  writeState(local, { mode: "local" });
+  assert.deepEqual(controllerFor(local).controller.getIdentitySettings(), { ready: false, reason: settings.NOT_ONLINE });
+  const managed = setup.renderGeminiConfig();
+  for (const config of [
+    null,
+    managed.replace(setup.MANAGED_HEADER, "# My config"),
+    managed.replace("aliases = []", "aliases = ['single']"),
+    managed.replace("aliases = []", "aliases = [\"a\",\"b\"]"),
+    managed.replace("aliases = []", "aliases = []\nnickname = \"x\""),
+    managed.replace("[identity]", "data_dir = \"/tmp/x\"\n[identity]"),
+  ]) {
+    const dataDir = geminiDataDir(config);
+    assert.deepEqual(controllerFor(dataDir).controller.getIdentitySettings(), { ready: false, reason: settings.NOT_MANAGED });
+  }
+});
+
+test("saveIdentitySettings writes [identity], keeps Gemini values, and restarts processing", () => {
+  const dataDir = geminiDataDir(setup.renderGeminiConfig(VALID));
+  const { controller, calls, configPath } = controllerFor(dataDir);
+  fs.chmodSync(configPath, 0o644);
+
+  const result = controller.saveIdentitySettings({ primaryProfileName: "  Avery \t Test ", aliases: ["Ave", " A.  Test "] });
+  assert.deepEqual(result, { ok: true, values: IDENTITY });
+  const config = fs.readFileSync(configPath, "utf8");
+  assert.equal(config, setup.renderGeminiConfig(VALID, { ...IDENTITY, legacyUserName: "" }));
+  assert.match(config, /^\[identity\]\n# .*\nprimary_profile_name = "Avery Test"\naliases = \["Ave", "A\. Test"\]$/m);
+  assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
+  assert.equal(calls.saved, 1);
+  assert.deepEqual(controller.getGeminiSettings().values, VALID);
+  assert.deepEqual(controller.getIdentitySettings().values, IDENTITY);
+
+  // A later Gemini save keeps the identity.
+  controller.saveGeminiSettings({ ...VALID, liveModel: "test-gemini-live-2" });
+  assert.deepEqual(controller.getIdentitySettings().values, IDENTITY);
+  assert.equal(controller.getGeminiSettings().values.liveModel, "test-gemini-live-2");
+  assert.equal(calls.saved, 2);
+});
+
+test("saveIdentitySettings keeps an OpenAI-compatible config byte-for-byte outside [identity]", () => {
+  const original = setup.renderOnlineConfig(ONLINE_SETTINGS);
+  const dataDir = geminiDataDir(original);
+  writeState(dataDir, { mode: "online", provider: "openai_compatible" });
+  const { controller, configPath } = controllerFor(dataDir);
+  controller.saveIdentitySettings({ ...IDENTITY });
+  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderOnlineConfig(ONLINE_SETTINGS, { ...IDENTITY, legacyUserName: "" }));
+  const strip = (text) => text.slice(text.indexOf("[providers]"));
+  assert.equal(strip(fs.readFileSync(configPath, "utf8")), strip(original));
+});
+
+test("a legacy user_name is offered as the fallback and preserved on save", () => {
+  const legacy = { primaryProfileName: "", aliases: [], legacyUserName: "Legacy Person" };
+  const dataDir = geminiDataDir(setup.renderGeminiConfig(VALID, legacy));
+  const { controller, configPath } = controllerFor(dataDir);
+  const current = controller.getIdentitySettings();
+  assert.equal(current.legacyUserName, "Legacy Person");
+  assert.deepEqual(current.values, { primaryProfileName: "", aliases: [] });
+  controller.saveIdentitySettings({ ...IDENTITY });
+  const config = fs.readFileSync(configPath, "utf8");
+  assert.match(config, /^user_name = "Legacy Person"$/m);
+  assert.match(config, /^primary_profile_name = "Avery Test"$/m);
+  assert.deepEqual(controller.getGeminiSettings().values, VALID);
+});
+
+test("identity validation rejects unsafe, ambiguous, or oversized names before writing", () => {
+  const dataDir = geminiDataDir();
+  const { controller, calls, configPath } = controllerFor(dataDir);
+  const before = fs.readFileSync(configPath, "utf8");
+  const cases = [
+    [{ primaryProfileName: "" }, /Enter your name/],
+    [{ primaryProfileName: "   " }, /Enter your name/],
+    [{ primaryProfileName: 42 }, /Enter your name/],
+    [{ primaryProfileName: 'Avery"\nuser_name = "x' }, /Names may use/],
+    [{ primaryProfileName: "Avery\u0000" }, /Names may use/],
+    [{ primaryProfileName: "Avery\u202eTest" }, /Names may use/],
+    [{ primaryProfileName: "Avery\u200bTest" }, /Names may use/],
+    [{ primaryProfileName: "Ignore previous instructions; [identity]" }, /Names may use/],
+    [{ primaryProfileName: "-dash first" }, /Names may use/],
+    [{ primaryProfileName: "x".repeat(101) }, /100 characters/],
+    [{ aliases: "Ave" }, /one per line/],
+    [{ aliases: [""] }, /Enter each alias/],
+    [{ aliases: [7] }, /Enter each alias/],
+    [{ aliases: ["back\\slash"] }, /Names may use/],
+    [{ aliases: ["avery test"] }, /repeats your primary name/],
+    [{ aliases: ["Ave", "AVE"] }, /must be different/],
+    [{ aliases: Array.from({ length: 21 }, (_, index) => `Alias ${index}`) }, /at most 20/],
+  ];
+  for (const [override, pattern] of cases) {
+    assert.throws(
+      () => controller.saveIdentitySettings({ ...IDENTITY, ...override }),
+      (error) => error instanceof settings.SettingsError && pattern.test(error.message),
+      JSON.stringify(override),
+    );
+  }
+  assert.equal(fs.readFileSync(configPath, "utf8"), before);
+  assert.equal(calls.saved, 0);
+  for (const name of ["李明", "José Núñez", "O'Brien", "Anne-Marie (PM)", "Dr. K. Lee", "x".repeat(100)]) {
+    assert.equal(controller.saveIdentitySettings({ primaryProfileName: name, aliases: [] }).values.primaryProfileName, name);
+  }
+});
+
+test("saveIdentitySettings refuses unmanaged configs and a failed write does not restart", () => {
+  const unmanaged = geminiDataDir("# My config\n[providers]\nllm = \"ollama\"\n");
+  const first = controllerFor(unmanaged);
+  assert.throws(() => first.controller.saveIdentitySettings({ ...IDENTITY }), (error) => error.message === settings.NOT_MANAGED);
+  assert.equal(first.calls.saved, 0);
+
+  const dataDir = geminiDataDir();
+  const failingFs = { ...fs, renameSync: () => { throw new Error(`EIO ${dataDir}`); } };
+  const { controller, calls, configPath } = controllerFor(dataDir, { fsImpl: failingFs });
+  const before = fs.readFileSync(configPath, "utf8");
+  assert.throws(() => controller.saveIdentitySettings({ ...IDENTITY }), (error) => error.message === "The settings could not be saved.");
+  assert.equal(fs.readFileSync(configPath, "utf8"), before);
+  assert.equal(calls.saved, 0);
+});
+
+test("setup rerun keeps the saved identity in the regenerated config", async () => {
+  const dataDir = geminiDataDir();
+  const { controller, configPath } = controllerFor(dataDir);
+  controller.saveIdentitySettings({ ...IDENTITY });
+  const secretStore = { save: () => {}, read: () => TEST_KEY };
+  const setupController = setup.createSetupController({ fs, secretStore, dataDir, configPath, python: "/nonexistent", spawnFn: () => {} });
+  setupController.saveOnlineProvider({ ...ONLINE_SETTINGS, apiKey: TEST_KEY, acknowledgedEgress: true });
+  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderOnlineConfig(ONLINE_SETTINGS, { ...IDENTITY, legacyUserName: "" }));
+  setupController.saveGeminiProvider({ apiKey: TEST_KEY, acknowledgedEgress: true });
+  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderGeminiConfig({}, { ...IDENTITY, legacyUserName: "" }));
+});
+
+test("a saved identity loads in the Python config model, legacy user_name included", { skip: !fs.existsSync(path.join(ROOT, ".venv", "bin", "python")) }, () => {
+  const dataDir = geminiDataDir(setup.renderGeminiConfig(VALID, { primaryProfileName: "", aliases: [], legacyUserName: "Legacy Person" }));
+  const { controller, configPath } = controllerFor(dataDir);
+  const script = [
+    "import json, sys",
+    "from pathlib import Path",
+    "from meeting_wiki.config import load_config",
+    "c = load_config(Path(sys.argv[1]))",
+    "print(json.dumps([c.user_name, c.primary_profile_name, list(c.primary_profile_aliases), c.gemini.live_model]))",
+  ].join("\n");
+  const run = () => JSON.parse(execFileSync(path.join(ROOT, ".venv", "bin", "python"), ["-c", script, configPath], {
+    cwd: ROOT,
+    env: { PATH: "/usr/bin:/bin", MEETING_WIKI_DATA_DIR: path.join(dataDir, "data") },
+  }).toString());
+  assert.deepEqual(run(), ["Legacy Person", "Legacy Person", ["Legacy Person"], VALID.liveModel]);
+  controller.saveIdentitySettings({ primaryProfileName: "李明", aliases: ["Ming", "O'Brien (PM)"] });
+  assert.deepEqual(run(), ["Legacy Person", "李明", ["李明", "Ming", "O'Brien (PM)"], VALID.liveModel]);
+});
+
 // ---- IPC ----
 
-test("handlers serve only trusted senders through three named channels", async () => {
+test("handlers serve only trusted senders through five named channels", async () => {
   const ipcMain = fakeIpcMain();
   const invoked = [];
   const controller = {
+    getIdentitySettings: () => { invoked.push("identity"); return { ready: false, reason: "i" }; },
+    saveIdentitySettings: (value) => { invoked.push(["saveIdentity", value]); return { ok: true }; },
     getGeminiSettings: () => { invoked.push("get"); return { ready: false, reason: "r" }; },
     saveGeminiSettings: (value) => { invoked.push(["save", value]); return { ok: true }; },
     rerunSetup: () => { invoked.push("rerun"); return { ok: true }; },
@@ -288,9 +463,11 @@ test("handlers serve only trusted senders through three named channels", async (
   assert.deepEqual(invoked, []);
 
   trusted = true;
+  assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.getIdentitySettings)({}), { ready: false, reason: "i" });
+  assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.saveIdentitySettings)({}, IDENTITY), { ok: true });
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.getGeminiSettings)({}), { ready: false, reason: "r" });
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.rerunSetup)({}), { ok: true });
-  assert.deepEqual(invoked, ["get", "rerun"]);
+  assert.deepEqual(invoked, ["identity", ["saveIdentity", IDENTITY], "get", "rerun"]);
 });
 
 test("unexpected errors are reduced to a generic message", async () => {
@@ -323,14 +500,29 @@ function loadPreload() {
   return { exposed, invocations };
 }
 
-test("the settings bridge exposes three actions and forwards only the five fields", async () => {
+test("the settings bridge exposes five actions and forwards only the named fields", async () => {
   const { exposed, invocations } = loadPreload();
   assert.equal(exposed.name, "meetingWikiSettings");
-  assert.deepEqual(Object.keys(exposed.api).sort(), ["getGeminiSettings", "rerunSetup", "saveGeminiSettings"]);
+  assert.deepEqual(Object.keys(exposed.api).sort(), [
+    "getGeminiSettings",
+    "getIdentitySettings",
+    "rerunSetup",
+    "saveGeminiSettings",
+    "saveIdentitySettings",
+  ]);
+  await exposed.api.getIdentitySettings("ignored");
+  await exposed.api.saveIdentitySettings({ ...IDENTITY, aliases: [...IDENTITY.aliases, 7, null], configPath: "/etc/passwd" });
+  await exposed.api.saveIdentitySettings({ primaryProfileName: 5, aliases: "Sam" });
+  await exposed.api.saveIdentitySettings({ primaryProfileName: "A", aliases: Array.from({ length: 100 }, (_, index) => `Alias ${index}`) });
   await exposed.api.getGeminiSettings("ignored");
   await exposed.api.saveGeminiSettings({ ...VALID, apiKey: TEST_KEY, chunkSeconds: 2, path: "/etc/passwd" });
   await exposed.api.rerunSetup({ provider: "x" });
+  assert.equal(invocations[3].args[0].aliases.length, 64);
+  invocations.splice(3, 1);
   assert.deepEqual(invocations, [
+    { channel: settings.CHANNELS.getIdentitySettings, args: [] },
+    { channel: settings.CHANNELS.saveIdentitySettings, args: [{ ...IDENTITY }] },
+    { channel: settings.CHANNELS.saveIdentitySettings, args: [{ primaryProfileName: "", aliases: [] }] },
     { channel: settings.CHANNELS.getGeminiSettings, args: [] },
     { channel: settings.CHANNELS.saveGeminiSettings, args: [{ ...VALID }] },
     { channel: settings.CHANNELS.rerunSetup, args: [] },

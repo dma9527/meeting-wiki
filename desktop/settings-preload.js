@@ -1,6 +1,6 @@
 "use strict";
 
-// Settings bridge. Exposes only the named Gemini settings actions. Channel names must
+// Settings bridge. Exposes only the named identity and Gemini settings actions. Channel names must
 // match CHANNELS in settings-window.js (sandboxed preloads cannot require local modules).
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -18,7 +18,22 @@ function pickGeminiFeatureSettings(settings) {
   };
 }
 
+// Main validates the limits; this only bounds the payload and drops non-string values.
+const MAX_FORWARDED_ALIASES = 64;
+
+function pickIdentitySettings(settings) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  const aliases = Array.isArray(source.aliases) ? source.aliases.slice(0, MAX_FORWARDED_ALIASES) : [];
+  return {
+    primaryProfileName: typeof source.primaryProfileName === "string" ? source.primaryProfileName : "",
+    aliases: aliases.filter((alias) => typeof alias === "string"),
+  };
+}
+
 contextBridge.exposeInMainWorld("meetingWikiSettings", {
+  getIdentitySettings: () => ipcRenderer.invoke("settings:getIdentitySettings"),
+  saveIdentitySettings: (settings) =>
+    ipcRenderer.invoke("settings:saveIdentitySettings", pickIdentitySettings(settings)),
   getGeminiSettings: () => ipcRenderer.invoke("settings:getGeminiSettings"),
   saveGeminiSettings: (settings) =>
     ipcRenderer.invoke("settings:saveGeminiSettings", pickGeminiFeatureSettings(settings)),

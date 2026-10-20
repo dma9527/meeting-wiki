@@ -8,6 +8,14 @@ const crypto = require("crypto");
 const path = require("path");
 const { pathToFileURL } = require("url");
 
+const {
+  EMPTY_IDENTITY,
+  MANAGED_HEADER,
+  readManagedIdentity,
+  renderIdentityLines,
+  tomlString,
+} = require("./managed-config");
+
 const API_KEY_ENV = "MEETING_WIKI_ONLINE_API_KEY";
 const SECRET_ID = "online";
 const GEMINI_PROVIDER = "gemini";
@@ -20,7 +28,6 @@ const GEMINI_MODELS = Object.freeze({
   languageModel: "gemini-3.5-flash",
 });
 const MANAGED_KEY_ENVS = Object.freeze([API_KEY_ENV, GEMINI_API_KEY_ENV]);
-const MANAGED_HEADER = "# Managed by Meeting Wiki setup.";
 const SETUP_STATE_FILE = "setup-state.json";
 const CHECK_TIMEOUT_MS = 30_000;
 const MAX_CHECK_OUTPUT = 64 * 1024;
@@ -104,21 +111,13 @@ function validateGeminiSettings(raw) {
   return { apiKey };
 }
 
-function tomlString(value) {
-  const escaped = String(value).replace(/[\\"\u0000-\u001f\u007f]/g, (char) => {
-    if (char === "\\") return "\\\\";
-    if (char === '"') return '\\"';
-    return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
-  });
-  return `"${escaped}"`;
-}
-
-function renderOnlineConfig(settings) {
+function renderOnlineConfig(settings, identity = EMPTY_IDENTITY) {
   return [
     MANAGED_HEADER,
     "# Secrets are not stored here. The API key lives in the macOS Keychain and is",
     `# provided to Meeting Wiki processes through ${API_KEY_ENV}.`,
     "",
+    ...renderIdentityLines(identity),
     "[providers]",
     'transcription = "openai_compatible"',
     'llm = "openai_compatible"',
@@ -143,7 +142,7 @@ function renderOnlineConfig(settings) {
 }
 
 // Settings may override the models and add the two live keys; setup passes nothing.
-function renderGeminiConfig(settings = {}) {
+function renderGeminiConfig(settings = {}, identity = EMPTY_IDENTITY) {
   const models = { ...GEMINI_MODELS, ...pickDefined(settings, ["batchAudioModel", "liveModel", "languageModel"]) };
   const liveLines = [];
   if (settings.translationTargetLanguage !== undefined) {
@@ -157,6 +156,7 @@ function renderGeminiConfig(settings = {}) {
     "# Secrets are not stored here. The Gemini API key lives in the macOS Keychain and",
     `# is provided to Meeting Wiki processes through ${GEMINI_API_KEY_ENV}.`,
     "",
+    ...renderIdentityLines(identity),
     "[providers]",
     'transcription = "gemini"',
     'llm = "gemini"',
@@ -358,7 +358,12 @@ function createSetupController({
   // in this window session; a new save of either provider resets both.
   const session = { savedProvider: null, testedProvider: null };
 
-  function saveProvider(provider, secretId, apiKey, config) {
+  // Rerunning setup keeps the name and aliases saved in Settings.
+  function currentIdentity() {
+    return readManagedIdentity(readText(fs, configPath)) || EMPTY_IDENTITY;
+  }
+
+  function saveProvider(provider, secretId, apiKey, renderConfig) {
     session.savedProvider = null;
     session.testedProvider = null;
     try {
@@ -369,6 +374,7 @@ function createSetupController({
       );
     }
     try {
+      const config = renderConfig(currentIdentity());
       backupUnmanagedConfig(fs, configPath, now);
       atomicWriteFile(fs, configPath, config);
     } catch (_) {
@@ -407,7 +413,7 @@ function createSetupController({
 
     saveOnlineProvider(raw) {
       const { settings, apiKey } = validateOnlineSettings(raw);
-      return saveProvider(OPENAI_PROVIDER, SECRET_ID, apiKey, renderOnlineConfig(settings));
+      return saveProvider(OPENAI_PROVIDER, SECRET_ID, apiKey, (identity) => renderOnlineConfig(settings, identity));
     },
 
     testOnlineProvider() {
@@ -416,7 +422,7 @@ function createSetupController({
 
     saveGeminiProvider(raw) {
       const { apiKey } = validateGeminiSettings(raw);
-      return saveProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, apiKey, renderGeminiConfig());
+      return saveProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, apiKey, (identity) => renderGeminiConfig({}, identity));
     },
 
     // The renderer never resends the key; only the egress acknowledgement is checked.
