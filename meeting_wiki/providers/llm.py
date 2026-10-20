@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 
 import httpx
@@ -19,6 +20,30 @@ def _transcript_window(text: str) -> str:
         return text
     half = _MAX_TRANSCRIPT_CHARS // 2
     return text[:half] + "\n\n[... middle omitted ...]\n\n" + text[-half:]
+
+
+def openai_strict_schema(schema: dict[str, object]) -> dict[str, object]:
+    """Normalize Pydantic JSON Schema for OpenAI strict structured outputs."""
+    strict = copy.deepcopy(schema)
+
+    def normalize(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                normalize(item)
+            return
+        if not isinstance(node, dict):
+            return
+        for key in ("default", "minLength", "maxLength", "minItems", "maxItems"):
+            node.pop(key, None)
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            node["required"] = list(properties)
+            node["additionalProperties"] = False
+        for value in node.values():
+            normalize(value)
+
+    normalize(strict)
+    return strict
 
 
 def analysis_messages(meeting: MeetingInput, transcript: TranscriptResult, policy: PrivacyConfig):
@@ -189,7 +214,7 @@ class OpenAICompatibleProvider:
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
         system, user, meeting_type = analysis_messages(meeting, transcript, self.privacy)
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        schema = MeetingAnalysis.model_json_schema()
+        schema = openai_strict_schema(MeetingAnalysis.model_json_schema())
         payload = {
             "model": self.model,
             "temperature": 0,
@@ -209,7 +234,21 @@ class OpenAICompatibleProvider:
             timeout=self.timeout,
         )
         if response.status_code == 400:
-            fallback_payload = {**payload, "response_format": {"type": "json_object"}}
+            fallback_system = (
+                f"{system}\n\nReturn exactly one JSON object matching this output schema: "
+                f"{json.dumps(schema, ensure_ascii=False)}\n"
+                "The user payload is wrapped in an input object. Analyze its transcript, "
+                "do not return input fields, and do not add any fields outside the output schema."
+            )
+            fallback_input = json.dumps({"input": json.loads(user)}, ensure_ascii=False)
+            fallback_payload = {
+                **payload,
+                "messages": [
+                    {"role": "system", "content": fallback_system},
+                    {"role": "user", "content": fallback_input},
+                ],
+                "response_format": {"type": "json_object"},
+            }
             response = httpx.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
