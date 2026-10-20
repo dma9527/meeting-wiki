@@ -11,7 +11,7 @@ The current builds are not signed with a Developer ID or notarized, so macOS
 blocks them on first launch. Only install builds you received directly from
 the person who built them.
 
-1. Copy `Meeting Wiki-0.1.2-arm64.dmg` (or the `.zip`) and `SHA256SUMS` to the
+1. Copy `Meeting Wiki-0.1.3-arm64.dmg` (or the `.zip`) and `SHA256SUMS` to the
    Mac. Check the file was not changed in transit:
 
    ```bash
@@ -77,8 +77,8 @@ blocker").
 The build writes:
 
 ```text
-desktop/dist/Meeting Wiki-0.1.2-arm64.dmg
-desktop/dist/Meeting Wiki-0.1.2-arm64-mac.zip
+desktop/dist/Meeting Wiki-0.1.3-arm64.dmg
+desktop/dist/Meeting Wiki-0.1.3-arm64-mac.zip
 desktop/dist/SHA256SUMS
 desktop/dist/mac-arm64/Meeting Wiki.app
 ```
