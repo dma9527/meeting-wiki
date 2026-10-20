@@ -284,6 +284,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     cleanup.add_argument("--older-than-days", type=float, required=True)
     sub.add_parser("doctor", help="Validate configured providers")
+    sub.add_parser(
+        "self-check",
+        help="Print a capability report with fixed status codes only (for the desktop app)",
+    )
     sub.add_parser("mcp", help="Run read-only MCP server over stdio")
     live = sub.add_parser(
         "live",
@@ -358,6 +362,15 @@ def main(argv: list[str] | None = None) -> int:
 
         mcp_main()
         return 0
+    if args.command == "self-check":
+        from .self_check import run_self_check
+
+        report = run_self_check(args.config)
+        print(json.dumps(report))
+        ready = report["config"] == "ok" and all(
+            status == "ready" for status in report["capabilities"].values()
+        )
+        return 0 if ready else 1
 
     config = load_config(args.config)
     if args.command == "live":
