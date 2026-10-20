@@ -123,8 +123,47 @@ test("stop, discard, and quit end the live session while batch ingest still runs
   const enqueueAt = stop.indexOf("enqueue(");
   assert.ok(liveStopAt >= 0 && enqueueAt > liveStopAt, "batch ingest must follow live shutdown");
   assert.doesNotMatch(stop, /await\s+liveSession|await\s+stopLiveSession/);
-  assert.match(source, /label: "Stop and discard", click: async \(\) => \{ stopLiveSession\(\); await capture\.discard\(\);/);
+  const discard = functionBody("discardRecording");
+  assert.match(discard, /recordingSession\.end\("discard", async \(\) => \{\s*stopLiveSession\(\);\s*await capture\.discard\(\);/);
+  assert.match(source, /label: "Stop and discard", click: \(\) => \{ void discardRecording\(\); \}/);
   const quit = source.slice(source.indexOf('app.on("will-quit"'));
   assert.match(quit, /stopLiveSession\(\);/);
   assert.match(source, /buildEnv: \(\) => processingEnv\(\{ background: true \}\)/);
+});
+
+test("the limit, user, and quit stops share one single-flight stop with the same batch path", () => {
+  const stop = functionBody("stopRecording");
+  assert.match(stop, /^function stopRecording\(reason = "user"\) \{\s*return recordingSession\.end\(reason, async \(\) => \{/);
+  assert.match(stop, /if \(reason === "limit"\) notify\(LIMIT_NOTICE\.title, LIMIT_NOTICE\.body\);/);
+  assert.match(source, /new RecordingSession\(\{ onLimit: \(\) => \{ void stopRecording\("limit"\); \} \}\)/);
+  assert.match(source, /label: "Stop and process", accelerator: "CommandOrControl\+Shift\+0", click: \(\) => \{ void stopRecording\("user"\); \}/);
+  assert.match(source, /if \(recordingSession\.recording\) void stopRecording\("user"\);/);
+  assert.match(functionBody("enqueue"), /ingests\.track\(child\);/);
+});
+
+test("startRecording reads the limit fresh and arms it only after capture starts", () => {
+  const start = functionBody("startRecording");
+  assert.match(start, /if \(capture\.active \|\| !recordingSession\.idle \|\| quitRequested\) return;/);
+  const readAt = start.indexOf("readMaxDurationMinutes(fs, DATA_DIR)");
+  const captureAt = start.indexOf("capture.start(timestamp())");
+  const beginAt = start.indexOf("recordingSession.begin(maxDurationMinutes * 60_000)");
+  assert.ok(readAt >= 0 && captureAt > readAt && beginAt > captureAt);
+});
+
+test("quit saves and queues an active recording instead of discarding it", () => {
+  const willQuit = source.slice(source.indexOf('app.on("will-quit"'), source.indexOf('app.on("window-all-closed"'));
+  assert.doesNotMatch(willQuit, /capture\.discard|discardRecording/);
+  const beforeQuit = source.slice(source.indexOf('app.on("before-quit"'), source.indexOf('app.on("will-quit"'));
+  assert.match(beforeQuit, /if \(quitPrepared \|\| \(recordingSession\.idle && ingests\.size === 0\)\) return;\s*event\.preventDefault\(\);\s*if \(quitRequested\) return;/);
+  assert.match(beforeQuit, /notify\(QUIT_NOTICE\.title, QUIT_NOTICE\.body\)/);
+  const prepare = functionBody("prepareQuit");
+  const stopAt = prepare.indexOf('await stopRecording("quit");');
+  const drainAt = prepare.indexOf("await ingests.drain(QUIT_INGEST_TIMEOUT_MS);");
+  const quitAt = prepare.indexOf("app.quit();");
+  assert.ok(stopAt >= 0 && drainAt > stopAt && quitAt > drainAt);
+  assert.ok(prepare.indexOf("quitPrepared = true;") < quitAt);
+});
+
+test("the recording settings save does not restart processing", () => {
+  assert.doesNotMatch(functionBody("openSettingsWindow"), /onRecordingSaved|maxDuration/);
 });

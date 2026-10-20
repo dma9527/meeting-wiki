@@ -31,6 +31,8 @@ test("build.files lists every runtime source file that must ship", () => {
     "live-session.js",
     "live-sidebar-window.js",
     "live-sidebar-preload.js",
+    "recording-session.js",
+    "recording-settings.js",
     "renderer/**",
   ];
   for (const entry of required) {

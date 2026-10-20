@@ -93,3 +93,24 @@ test("settings.js uses only the settings bridge and never parses markup or opens
 test("settings.css loads no external resources", () => {
   assert.doesNotMatch(read("settings.css"), /@import|url\(/);
 });
+
+test("the recording form edits only the maximum length, with a label, error, and status", () => {
+  const html = read("settings.html");
+  const panel = section(html, "panel-recording-settings");
+  const names = [...panel.matchAll(/<(?:input|textarea)\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(names, ["maxDurationMinutes"]);
+  assert.match(panel, /<label for="max-duration-minutes">/);
+  assert.match(panel, /<input id="max-duration-minutes"(?![^>]*\bvalue=)[^>]*type="number"[^>]*>/);
+  assert.match(panel, /id="max-duration-minutes-error" class="field-error"/);
+  assert.match(panel, /id="recording-status"[^>]*role="status"/);
+  assert.ok(html.indexOf("panel-identity-settings") < html.indexOf("panel-recording-settings"));
+  assert.ok(html.indexOf("panel-recording-settings") < html.indexOf("panel-gemini-settings"));
+});
+
+test("settings.js loads and saves the recording limit through the bridge without claiming a restart", () => {
+  const js = read("settings.js");
+  assert.match(js, /call\("getRecordingSettings"\)/);
+  assert.match(js, /call\("saveRecordingSettings", \{ maxDurationMinutes: minutes \}\)/);
+  assert.match(js, /"Saved\. The new limit applies to your next recording\."/);
+  assert.match(js, /!identityReady && !geminiReady && !recordingReady/);
+});

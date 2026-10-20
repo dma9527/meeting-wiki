@@ -440,9 +440,74 @@ test("a saved identity loads in the Python config model, legacy user_name includ
   assert.deepEqual(run(), ["Legacy Person", "李明", ["李明", "Ming", "O'Brien (PM)"], VALID.liveModel]);
 });
 
+// ---- Recording limit ----
+
+test("recording limit settings are offered for every completed online setup, not local or unfinished ones", () => {
+  for (const [state, config] of [
+    [{ mode: "online", provider: "gemini" }, setup.renderGeminiConfig()],
+    [{ mode: "online", provider: "openai_compatible" }, setup.renderOnlineConfig(ONLINE_SETTINGS)],
+    [{ mode: "online", provider: "openai_compatible" }, "# hand written\n"],
+  ]) {
+    const dataDir = geminiDataDir(config);
+    writeState(dataDir, state);
+    assert.deepEqual(controllerFor(dataDir).controller.getRecordingSettings(), {
+      ready: true,
+      values: { maxDurationMinutes: 120 },
+      bounds: { maxDurationMinutes: { min: 15, max: 480 } },
+    });
+  }
+  const local = geminiDataDir();
+  writeState(local, { mode: "local" });
+  const unfinished = tempDataDir();
+  for (const dataDir of [local, unfinished]) {
+    const { controller } = controllerFor(dataDir);
+    assert.deepEqual(controller.getRecordingSettings(), { ready: false, reason: settings.NOT_ONLINE_RECORDING });
+    assert.throws(() => controller.saveRecordingSettings({ maxDurationMinutes: 60 }), settings.SettingsError);
+    assert.ok(!fs.existsSync(path.join(dataDir, "desktop-settings.json")));
+  }
+});
+
+test("saveRecordingSettings persists owner-only, keeps the config and other keys, and never restarts processing", () => {
+  const dataDir = geminiDataDir();
+  const { controller, calls, configPath } = controllerFor(dataDir);
+  const configBefore = fs.readFileSync(configPath, "utf8");
+  const settingsFile = path.join(dataDir, "desktop-settings.json");
+  fs.writeFileSync(settingsFile, JSON.stringify({ other: { keep: true }, recording: { extra: "x", max_duration_minutes: 30 } }));
+  assert.deepEqual(controller.saveRecordingSettings({ maxDurationMinutes: "90" }), { ok: true, values: { maxDurationMinutes: 90 } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, "utf8")), {
+    other: { keep: true },
+    recording: { extra: "x", max_duration_minutes: 90 },
+  });
+  assert.equal(fs.statSync(settingsFile).mode & 0o777, 0o600);
+  assert.equal(fs.readFileSync(configPath, "utf8"), configBefore);
+  assert.equal(calls.saved, 0);
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
+  assert.equal(controller.getRecordingSettings().values.maxDurationMinutes, 90);
+  // Identity and Gemini saves rewrite only config.toml, so the recording limit survives them.
+  controller.saveIdentitySettings(IDENTITY);
+  controller.saveGeminiSettings({ ...VALID });
+  assert.equal(controller.getRecordingSettings().values.maxDurationMinutes, 90);
+});
+
+test("saveRecordingSettings rejects out-of-range values and unreadable files without writing", () => {
+  const dataDir = geminiDataDir();
+  const { controller } = controllerFor(dataDir);
+  const settingsFile = path.join(dataDir, "desktop-settings.json");
+  for (const value of [14, 481, 90.5, "1e2", "", null, -30]) {
+    assert.throws(
+      () => controller.saveRecordingSettings({ maxDurationMinutes: value }),
+      (error) => error instanceof settings.SettingsError && /from 15 to 480/.test(error.message),
+    );
+  }
+  assert.ok(!fs.existsSync(settingsFile));
+  fs.writeFileSync(settingsFile, "{ not json");
+  assert.throws(() => controller.saveRecordingSettings({ maxDurationMinutes: 60 }), /left unchanged/);
+  assert.equal(fs.readFileSync(settingsFile, "utf8"), "{ not json");
+});
+
 // ---- IPC ----
 
-test("handlers serve only trusted senders through five named channels", async () => {
+test("handlers serve only trusted senders through the named channels", async () => {
   const ipcMain = fakeIpcMain();
   const invoked = [];
   const controller = {
@@ -450,6 +515,8 @@ test("handlers serve only trusted senders through five named channels", async ()
     saveIdentitySettings: (value) => { invoked.push(["saveIdentity", value]); return { ok: true }; },
     getGeminiSettings: () => { invoked.push("get"); return { ready: false, reason: "r" }; },
     saveGeminiSettings: (value) => { invoked.push(["save", value]); return { ok: true }; },
+    getRecordingSettings: () => { invoked.push("getRecording"); return { ready: false, reason: "x" }; },
+    saveRecordingSettings: (value) => { invoked.push(["saveRecording", value]); return { ok: true }; },
     rerunSetup: () => { invoked.push("rerun"); return { ok: true }; },
   };
   let trusted = false;
@@ -466,8 +533,12 @@ test("handlers serve only trusted senders through five named channels", async ()
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.getIdentitySettings)({}), { ready: false, reason: "i" });
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.saveIdentitySettings)({}, IDENTITY), { ok: true });
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.getGeminiSettings)({}), { ready: false, reason: "r" });
+  assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.getRecordingSettings)({}), { ready: false, reason: "x" });
+  assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.saveRecordingSettings)({}, { maxDurationMinutes: 90 }), { ok: true });
   assert.deepEqual(await ipcMain.handlers.get(settings.CHANNELS.rerunSetup)({}), { ok: true });
-  assert.deepEqual(invoked, ["identity", ["saveIdentity", IDENTITY], "get", "rerun"]);
+  assert.deepEqual(invoked, [
+    "identity", ["saveIdentity", IDENTITY], "get", "getRecording", ["saveRecording", { maxDurationMinutes: 90 }], "rerun",
+  ]);
 });
 
 test("unexpected errors are reduced to a generic message", async () => {
@@ -500,15 +571,17 @@ function loadPreload() {
   return { exposed, invocations };
 }
 
-test("the settings bridge exposes five actions and forwards only the named fields", async () => {
+test("the settings bridge exposes the named actions and forwards only the named fields", async () => {
   const { exposed, invocations } = loadPreload();
   assert.equal(exposed.name, "meetingWikiSettings");
   assert.deepEqual(Object.keys(exposed.api).sort(), [
     "getGeminiSettings",
     "getIdentitySettings",
+    "getRecordingSettings",
     "rerunSetup",
     "saveGeminiSettings",
     "saveIdentitySettings",
+    "saveRecordingSettings",
   ]);
   await exposed.api.getIdentitySettings("ignored");
   await exposed.api.saveIdentitySettings({ ...IDENTITY, aliases: [...IDENTITY.aliases, 7, null], configPath: "/etc/passwd" });
@@ -516,6 +589,9 @@ test("the settings bridge exposes five actions and forwards only the named field
   await exposed.api.saveIdentitySettings({ primaryProfileName: "A", aliases: Array.from({ length: 100 }, (_, index) => `Alias ${index}`) });
   await exposed.api.getGeminiSettings("ignored");
   await exposed.api.saveGeminiSettings({ ...VALID, apiKey: TEST_KEY, chunkSeconds: 2, path: "/etc/passwd" });
+  await exposed.api.getRecordingSettings("ignored");
+  await exposed.api.saveRecordingSettings({ maxDurationMinutes: 90, path: "/etc/passwd" });
+  await exposed.api.saveRecordingSettings({ maxDurationMinutes: { nested: 1 } });
   await exposed.api.rerunSetup({ provider: "x" });
   assert.equal(invocations[3].args[0].aliases.length, 64);
   invocations.splice(3, 1);
@@ -525,6 +601,9 @@ test("the settings bridge exposes five actions and forwards only the named field
     { channel: settings.CHANNELS.saveIdentitySettings, args: [{ primaryProfileName: "", aliases: [] }] },
     { channel: settings.CHANNELS.getGeminiSettings, args: [] },
     { channel: settings.CHANNELS.saveGeminiSettings, args: [{ ...VALID }] },
+    { channel: settings.CHANNELS.getRecordingSettings, args: [] },
+    { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: 90 }] },
+    { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: "" }] },
     { channel: settings.CHANNELS.rerunSetup, args: [] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "settings-preload.js"), "utf8");

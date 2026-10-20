@@ -8,6 +8,8 @@
 //   saveIdentitySettings({ primaryProfileName, aliases }) -> { ok: true, values } | { error }
 //   getGeminiSettings()  -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveGeminiSettings(values) -> { ok: true, values } | { error }
+//   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
+//   saveRecordingSettings({ maxDurationMinutes }) -> { ok: true, values } | { error }
 //   rerunSetup()         -> { ok: true } | { error }
 
 (function settingsWindow() {
@@ -58,6 +60,7 @@
     $("settings-loading").hidden = true;
     $("panel-identity-settings").hidden = true;
     $("panel-gemini-settings").hidden = true;
+    $("panel-recording-settings").hidden = true;
     $("unsupported-reason").textContent = reason;
     $("panel-unsupported").hidden = false;
     $("panel-unsupported").focus();
@@ -192,6 +195,50 @@
     });
   }
 
+  function setRecordingStatus(message, tone) {
+    const node = $("recording-status");
+    node.textContent = message;
+    node.dataset.tone = tone || "";
+  }
+
+  function showRecording(result) {
+    const bounds = result.bounds.maxDurationMinutes;
+    const input = $("max-duration-minutes");
+    const values = result.values || {};
+    input.min = String(bounds.min);
+    input.max = String(bounds.max);
+    input.value = String(values.maxDurationMinutes ?? "");
+    $("max-duration-minutes-hint").textContent = `From ${bounds.min} to ${bounds.max} minutes. Applies to your next recording.`;
+    $("panel-recording-settings").hidden = false;
+
+    $("recording-settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const raw = input.value.trim();
+      const minutes = Number(raw);
+      const valid = /^\d+$/.test(raw) && minutes >= bounds.min && minutes <= bounds.max;
+      showFieldError(input, valid ? "" : `Enter a whole number from ${bounds.min} to ${bounds.max}.`);
+      if (!valid) {
+        setRecordingStatus("Fix the highlighted field.", "error");
+        return;
+      }
+      busy = true;
+      const button = $("recording-save");
+      button.setAttribute("aria-disabled", "true");
+      setRecordingStatus("Saving the recording limit.", "");
+      const saved = await call("saveRecordingSettings", { maxDurationMinutes: minutes });
+      busy = false;
+      button.removeAttribute("aria-disabled");
+      const saveError = errorOf(saved);
+      if (saveError) {
+        setRecordingStatus(saveError, "error");
+        return;
+      }
+      input.value = String(saved.values.maxDurationMinutes);
+      setRecordingStatus("Saved. The new limit applies to your next recording.", "ok");
+    });
+  }
+
   async function rerunSetup() {
     const result = await call("rerunSetup");
     const error = errorOf(result);
@@ -200,15 +247,21 @@
 
   async function load() {
     if (!bridge) $("bridge-missing").hidden = false;
-    const [identity, result] = await Promise.all([call("getIdentitySettings"), call("getGeminiSettings")]);
+    const [identity, result, recording] = await Promise.all([
+      call("getIdentitySettings"),
+      call("getGeminiSettings"),
+      call("getRecordingSettings"),
+    ]);
     const identityReady = !errorOf(identity) && identity.ready === true;
     const geminiReady = !errorOf(result) && result.ready === true;
-    if (!identityReady && !geminiReady) {
+    const recordingReady = !errorOf(recording) && recording.ready === true;
+    if (!identityReady && !geminiReady && !recordingReady) {
       showUnsupported(reasonOf(identity));
       return;
     }
     $("settings-loading").hidden = true;
     if (identityReady) showIdentity(identity);
+    if (recordingReady) showRecording(recording);
     if (!geminiReady) {
       $("gemini-unavailable").textContent = reasonOf(result);
       $("gemini-unavailable").hidden = false;

@@ -49,6 +49,8 @@
       "live-session.js",
       "live-sidebar-window.js",
       "live-sidebar-preload.js",
+      "recording-session.js",
+      "recording-settings.js",
       "secret-store.js",
       "skill-installer.js",
       "skills/meeting-wiki-memory/SKILL.md",

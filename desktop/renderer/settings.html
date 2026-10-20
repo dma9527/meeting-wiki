@@ -62,6 +62,29 @@
           <p id="gemini-unavailable" class="hint" hidden></p>
         </section>
 
+        <section id="panel-recording-settings" class="panel" aria-labelledby="recording-settings-heading" tabindex="-1" hidden>
+          <h1 id="recording-settings-heading" class="display">Recording length</h1>
+          <p class="lede">
+            Recording stops on its own at this limit, then the meeting is saved and processed the same way as when
+            you stop it yourself.
+          </p>
+
+          <form id="recording-settings-form" novalidate>
+            <div class="field">
+              <label for="max-duration-minutes">Maximum meeting length (minutes)</label>
+              <input id="max-duration-minutes" name="maxDurationMinutes" type="number" inputmode="numeric" step="1" required aria-describedby="max-duration-minutes-hint max-duration-minutes-error" />
+              <p id="max-duration-minutes-hint" class="hint"></p>
+              <p id="max-duration-minutes-error" class="field-error" hidden></p>
+            </div>
+
+            <p id="recording-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="submit" class="button button-primary" id="recording-save">Save limit</button>
+            </div>
+          </form>
+        </section>
+
         <section id="panel-gemini-settings" class="panel" aria-labelledby="gemini-settings-heading" tabindex="-1" hidden>
           <h1 id="gemini-settings-heading" class="display">Gemini features</h1>
           <p class="lede">

@@ -1,6 +1,6 @@
 "use strict";
 
-// Settings bridge. Exposes only the named identity and Gemini settings actions. Channel names must
+// Settings bridge. Exposes only the named identity, Gemini, and recording settings actions. Channel names must
 // match CHANNELS in settings-window.js (sandboxed preloads cannot require local modules).
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -30,6 +30,12 @@ function pickIdentitySettings(settings) {
   };
 }
 
+function pickRecordingSettings(settings) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  const minutes = source.maxDurationMinutes;
+  return { maxDurationMinutes: typeof minutes === "number" || typeof minutes === "string" ? minutes : "" };
+}
+
 contextBridge.exposeInMainWorld("meetingWikiSettings", {
   getIdentitySettings: () => ipcRenderer.invoke("settings:getIdentitySettings"),
   saveIdentitySettings: (settings) =>
@@ -37,5 +43,8 @@ contextBridge.exposeInMainWorld("meetingWikiSettings", {
   getGeminiSettings: () => ipcRenderer.invoke("settings:getGeminiSettings"),
   saveGeminiSettings: (settings) =>
     ipcRenderer.invoke("settings:saveGeminiSettings", pickGeminiFeatureSettings(settings)),
+  getRecordingSettings: () => ipcRenderer.invoke("settings:getRecordingSettings"),
+  saveRecordingSettings: (settings) =>
+    ipcRenderer.invoke("settings:saveRecordingSettings", pickRecordingSettings(settings)),
   rerunSetup: () => ipcRenderer.invoke("settings:rerunSetup"),
 });

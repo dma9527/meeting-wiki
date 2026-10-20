@@ -1,7 +1,8 @@
 "use strict";
 
 // Settings window. Same lockdown as setup-window.js. It edits the [identity] section and
-// the five Gemini feature values in a setup-managed config and never touches the secret store.
+// the five Gemini feature values in a setup-managed config, plus the desktop-only recording
+// limit in desktop-settings.json. It never touches the secret store.
 
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -23,12 +24,20 @@ const {
   replaceIdentitySection,
   validateIdentity,
 } = require("./managed-config");
+const {
+  MAX_DURATION_BOUNDS,
+  RecordingSettingsError,
+  readMaxDurationMinutes,
+  saveMaxDurationMinutes,
+} = require("./recording-settings");
 
 const CHANNELS = Object.freeze({
   getIdentitySettings: "settings:getIdentitySettings",
   saveIdentitySettings: "settings:saveIdentitySettings",
   getGeminiSettings: "settings:getGeminiSettings",
   saveGeminiSettings: "settings:saveGeminiSettings",
+  getRecordingSettings: "settings:getRecordingSettings",
+  saveRecordingSettings: "settings:saveRecordingSettings",
   rerunSetup: "settings:rerunSetup",
 });
 
@@ -42,6 +51,7 @@ const NOT_GEMINI = "These settings cover Gemini only. Run setup again to configu
 const NOT_MANAGED =
   "Your configuration was not created by setup or was edited by hand. Run setup again to manage it here.";
 const NOT_ONLINE = "Finish setup first. Your name and aliases can be edited here once setup is complete.";
+const NOT_ONLINE_RECORDING = "Finish setup first. The recording length limit can be changed here once setup is complete.";
 const SAVE_FAILED = "The settings could not be saved.";
 
 // Tables a Gemini config may contain. Anything else counts as a manual edit.
@@ -129,6 +139,11 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     return { ready: true, values, identity: identityFromTables(parseManagedConfig(text)) };
   }
 
+  function recordingReady() {
+    const state = readSetupState(fs, dataDir);
+    return Boolean(state && state.mode === "online");
+  }
+
   function write(config) {
     try {
       atomicWriteFile(fs, configPath, config);
@@ -197,6 +212,27 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       return { ok: true, values };
     },
 
+    getRecordingSettings() {
+      if (!recordingReady()) return { ready: false, reason: NOT_ONLINE_RECORDING };
+      return {
+        ready: true,
+        values: { maxDurationMinutes: readMaxDurationMinutes(fs, dataDir) },
+        bounds: { maxDurationMinutes: { ...MAX_DURATION_BOUNDS } },
+      };
+    },
+
+    // Desktop-only: the worker never reads this file, so processing is not restarted.
+    saveRecordingSettings(raw) {
+      if (!recordingReady()) throw new SettingsError(NOT_ONLINE_RECORDING);
+      const source = raw && typeof raw === "object" ? raw : {};
+      try {
+        const maxDurationMinutes = saveMaxDurationMinutes(fs, dataDir, source.maxDurationMinutes, atomicWriteFile);
+        return { ok: true, values: { maxDurationMinutes } };
+      } catch (error) {
+        throw error instanceof RecordingSettingsError ? new SettingsError(error.message) : error;
+      }
+    },
+
     rerunSetup() {
       onRerunSetup();
       return { ok: true };
@@ -225,6 +261,8 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.saveIdentitySettings, (controller, settings) => controller.saveIdentitySettings(settings));
   handle(CHANNELS.getGeminiSettings, (controller) => controller.getGeminiSettings());
   handle(CHANNELS.saveGeminiSettings, (controller, settings) => controller.saveGeminiSettings(settings));
+  handle(CHANNELS.getRecordingSettings, (controller) => controller.getRecordingSettings());
+  handle(CHANNELS.saveRecordingSettings, (controller, settings) => controller.saveRecordingSettings(settings));
   handle(CHANNELS.rerunSetup, (controller) => controller.rerunSetup());
 }
 
@@ -300,6 +338,7 @@ module.exports = {
   NOT_GEMINI,
   NOT_MANAGED,
   NOT_ONLINE,
+  NOT_ONLINE_RECORDING,
   SUMMARY_CONTEXT_BOUNDS,
   SettingsError,
   createSettingsController,

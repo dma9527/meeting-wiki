@@ -71,6 +71,8 @@ node --check desktop/settings-preload.js
 node --check desktop/live-session.js
 node --check desktop/live-sidebar-window.js
 node --check desktop/live-sidebar-preload.js
+node --check desktop/recording-session.js
+node --check desktop/recording-settings.js
 node --check desktop/renderer/app.js
 node --check desktop/renderer/setup.js
 node --check desktop/renderer/settings.js

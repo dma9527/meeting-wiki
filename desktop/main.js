@@ -17,6 +17,16 @@ const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const { installClaudeSkill, skillInstallMessage } = require("./skill-installer");
+const { readMaxDurationMinutes } = require("./recording-settings");
+const {
+  IngestTracker,
+  LIMIT_NOTICE,
+  LIMIT_REACHED_LABEL,
+  QUIT_NOTICE,
+  RecordingSession,
+  SAVING_LABEL,
+  recordingLabel,
+} = require("./recording-session");
 const {
   formatQueueLabel,
   trayIconState,
@@ -47,7 +57,10 @@ const TRAY_ICON_PATHS = Object.freeze({
 let tray;
 let worker;
 let shuttingDown = false;
-let recordingStartedAt;
+// Quit waits for an active recording to stop and its ingest to finish before exiting.
+let quitRequested = false;
+let quitPrepared = false;
+const QUIT_INGEST_TIMEOUT_MS = 60_000;
 let nextTitle = "";
 let nextPrivate = false;
 let queueSummary = { total: 0, active: 0, action_required: 0 };
@@ -75,6 +88,8 @@ const liveSession = new LiveSessionManager({
   buildEnv: () => processingEnv({ background: true }),
   onEvent: publishLiveEvent,
 });
+const recordingSession = new RecordingSession({ onLimit: () => { void stopRecording("limit"); } });
+const ingests = new IngestTracker();
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
 
 let keyUnavailableNotified = false;
@@ -104,7 +119,7 @@ function icon(state) {
 function updateTrayIcon() {
   if (!tray) return;
   const state = trayIconState({
-    isRecording: Boolean(capture.active),
+    isRecording: !recordingSession.idle,
     queueStatusError,
     queueSummary,
   });
@@ -290,6 +305,7 @@ function enqueue(
   const env = processingEnv();
   if (!env) return;
   const child = spawn(PYTHON, args, { env, stdio: "ignore" });
+  ingests.track(child);
   child.once("exit", (code) => {
     notify(code === 0 ? "Meeting queued" : "Meeting queue failed", path.basename(filePath));
     void refreshQueueStatus();
@@ -310,7 +326,8 @@ function stopLiveSession() {
 }
 
 async function startRecording() {
-  if (capture.active) return;
+  if (capture.active || !recordingSession.idle || quitRequested) return;
+  const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
   const titleExplicit = Boolean(nextTitle);
   const title = nextTitle || `Meeting ${new Date().toLocaleString()}`;
   const isPrivate = nextPrivate;
@@ -322,7 +339,7 @@ async function startRecording() {
     notify("Recording failed", error.message);
     return;
   }
-  recordingStartedAt = Date.now();
+  recordingSession.begin(maxDurationMinutes * 60_000);
   updateMenu();
   notify(isPrivate ? "Private recording started" : "Recording started", title);
   capture.active.title = title;
@@ -331,28 +348,39 @@ async function startRecording() {
   startLiveSession(capture.active.micPath, isPrivate);
 }
 
-async function stopRecording() {
-  if (!capture.active) return;
-  const title = capture.active.title;
-  const titleExplicit = capture.active.titleExplicit;
-  const isPrivate = capture.active.private;
-  stopLiveSession();
-  try {
-    const files = await capture.stop();
-    enqueue(
-      files.audioPath,
-      title,
-      isPrivate,
-      titleExplicit,
-      files.micAudioPath,
-      files.systemAudioPath,
-    );
-    notify("Recording saved", files.audioPath);
-  } catch (error) {
-    notify("Recording failed", error.message);
-  }
-  recordingStartedAt = null;
-  updateMenu();
+// The limit, the user, and quit share one single-flight stop; the batch path is identical for all.
+function stopRecording(reason = "user") {
+  return recordingSession.end(reason, async () => {
+    if (!capture.active) return;
+    const title = capture.active.title;
+    const titleExplicit = capture.active.titleExplicit;
+    const isPrivate = capture.active.private;
+    if (reason === "limit") notify(LIMIT_NOTICE.title, LIMIT_NOTICE.body);
+    stopLiveSession();
+    updateMenu();
+    try {
+      const files = await capture.stop();
+      enqueue(
+        files.audioPath,
+        title,
+        isPrivate,
+        titleExplicit,
+        files.micAudioPath,
+        files.systemAudioPath,
+      );
+      notify("Recording saved", files.audioPath);
+    } catch (error) {
+      notify("Recording failed", error.message);
+    }
+  }).finally(updateMenu);
+}
+
+// Shares the single-flight guard, so a discard never races a limit, user, or quit stop.
+function discardRecording() {
+  return recordingSession.end("discard", async () => {
+    stopLiveSession();
+    await capture.discard();
+  }).finally(updateMenu);
 }
 
 async function importAudio() {
@@ -373,14 +401,16 @@ async function importAudio() {
 function updateMenu() {
   updateTrayIcon();
   const items = [];
-  if (capture.active) {
-    const seconds = Math.floor((Date.now() - recordingStartedAt) / 1000);
+  if (recordingSession.recording) {
     items.push(
-      { label: `Recording ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`, enabled: false },
-      { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: stopRecording },
-      { label: "Stop and discard", click: async () => { stopLiveSession(); await capture.discard(); recordingStartedAt = null; updateMenu(); } },
+      { label: recordingLabel(recordingSession), enabled: false },
+      { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: () => { void stopRecording("user"); } },
+      { label: "Stop and discard", click: () => { void discardRecording(); } },
     );
+  } else if (recordingSession.stopping) {
+    items.push({ label: SAVING_LABEL, enabled: false });
   } else {
+    if (recordingSession.lastStopReason === "limit") items.push({ label: LIMIT_REACHED_LABEL, enabled: false });
     items.push(
       { label: "Start recording", accelerator: "CommandOrControl+Shift+0", click: startRecording },
       { label: `${nextPrivate ? "✓" : ""} Mark next recording private`, click: () => { nextPrivate = !nextPrivate; updateMenu(); } },
@@ -431,7 +461,8 @@ app.whenReady().then(async () => {
   tray = new Tray(icon("idle"));
   tray.on("click", () => tray.popUpContextMenu());
   globalShortcut.register("CommandOrControl+Shift+0", () => {
-    if (capture.active) void stopRecording(); else void startRecording();
+    if (recordingSession.recording) void stopRecording("user");
+    else if (recordingSession.idle) void startRecording();
   });
   startWorker();
   if (RUNTIME.packaged && !pythonAvailable()) notifyMissingPython();
@@ -440,15 +471,37 @@ app.whenReady().then(async () => {
   if (needsSetup(fs, DATA_DIR, CONFIG_PATH)) openSetupWindow();
 });
 
-setInterval(() => { if (tray && capture.active) updateMenu(); }, 1000).unref();
+setInterval(() => {
+  if (!tray || recordingSession.idle) return;
+  recordingSession.checkDeadline();
+  updateMenu();
+}, 1000).unref();
 setInterval(() => { if (tray) void refreshQueueStatus(); }, 5000).unref();
+
+async function prepareQuit() {
+  try {
+    await stopRecording("quit");
+  } catch (_) {}
+  await ingests.drain(QUIT_INGEST_TIMEOUT_MS);
+  quitPrepared = true;
+  app.quit();
+}
+
+app.on("before-quit", (event) => {
+  if (quitPrepared || (recordingSession.idle && ingests.size === 0)) return;
+  event.preventDefault();
+  if (quitRequested) return;
+  quitRequested = true;
+  if (!recordingSession.idle) notify(QUIT_NOTICE.title, QUIT_NOTICE.body);
+  void prepareQuit();
+});
 
 app.on("will-quit", () => {
   shuttingDown = true;
   globalShortcut.unregisterAll();
   if (worker) worker.kill("SIGTERM");
   stopLiveSession();
-  if (capture.active) void capture.discard();
+  // Recordings are never discarded on quit; before-quit already saved and queued them.
 });
 
 app.on("window-all-closed", (event) => event.preventDefault());
