@@ -11,6 +11,7 @@
 //   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveRecordingSettings({ maxDurationMinutes }) -> { ok: true, values } | { error }
 //   rerunSetup()         -> { ok: true } | { error }
+//   getSettingMetadata() -> { settings: { [key]: { form, appliesAfter, copy } }, manualEdit }
 
 (function settingsWindow() {
   const bridge = window.meetingWikiSettings;
@@ -25,6 +26,31 @@
   const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'\u2019()_-]*$/u;
   const NAME_RULE = "Use letters, numbers, spaces, and . , ' - _ ( ) starting with a letter or number.";
   let busy = false;
+  // Applies-after copy comes only from setting-metadata.js, delivered over the bridge.
+  let metadata = { settings: {}, manualEdit: "" };
+
+  function copyFor(key) {
+    const entry = metadata.settings[key];
+    return entry && typeof entry.copy === "string" ? entry.copy : "";
+  }
+
+  function applyMetadata(result) {
+    if (result && typeof result === "object" && result.settings && typeof result.settings === "object") {
+      metadata = { settings: result.settings, manualEdit: typeof result.manualEdit === "string" ? result.manualEdit : "" };
+    }
+    for (const node of document.querySelectorAll("[data-applies-for]")) {
+      const copy = copyFor(node.dataset.appliesFor);
+      node.textContent = copy;
+      node.hidden = !copy;
+    }
+  }
+
+  // "Saved." plus each distinct applies-after line for the keys that changed.
+  function savedMessage(keys) {
+    if (!keys.length) return "Saved. Nothing changed.";
+    const lines = [...new Set(keys.map(copyFor).filter(Boolean))];
+    return ["Saved.", ...lines].join(" ");
+  }
 
   async function call(method, ...args) {
     if (!bridge || typeof bridge[method] !== "function") {
@@ -56,8 +82,10 @@
     else input.removeAttribute("aria-invalid");
   }
 
-  function showUnsupported(reason) {
+  function showUnsupported(reason, manualConfig) {
     $("settings-loading").hidden = true;
+    $("unsupported-manual").textContent = manualConfig ? metadata.manualEdit : "";
+    $("unsupported-manual").hidden = !(manualConfig && metadata.manualEdit);
     $("panel-identity-settings").hidden = true;
     $("panel-gemini-settings").hidden = true;
     $("panel-recording-settings").hidden = true;
@@ -146,6 +174,13 @@
     return errors;
   }
 
+  function identityChanges(before, after) {
+    const changed = [];
+    if (before.primaryProfileName !== after.primaryProfileName) changed.push("primaryProfileName");
+    if (JSON.stringify(before.aliases) !== JSON.stringify(after.aliases)) changed.push("aliases");
+    return changed;
+  }
+
   function setIdentityStatus(message, tone) {
     const node = $("identity-status");
     node.textContent = message;
@@ -165,6 +200,7 @@
         : "Not set yet, so your microphone is labeled User.";
     $("profile-aliases-hint").textContent = `One per line, up to ${limits.maxAliases}. For example a nickname or how a calendar spells your name.`;
     $("panel-identity-settings").hidden = false;
+    let current = { primaryProfileName: values.primaryProfileName || "", aliases: Array.isArray(values.aliases) ? [...values.aliases] : [] };
 
     $("identity-settings-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -177,6 +213,7 @@
         setIdentityStatus("Fix the highlighted fields.", "error");
         return;
       }
+      const before = { ...current };
       busy = true;
       const button = $("identity-save");
       button.setAttribute("aria-disabled", "true");
@@ -189,9 +226,11 @@
         setIdentityStatus(saveError, "error");
         return;
       }
+      const changed = identityChanges(before, saved.values);
+      current = { primaryProfileName: saved.values.primaryProfileName, aliases: [...saved.values.aliases] };
       fillIdentity(saved.values);
       $("primary-profile-name-hint").textContent = "Shown on your microphone channel and owned action items.";
-      setIdentityStatus("Saved. Meeting processing restarted with your name.", "ok");
+      setIdentityStatus(savedMessage(changed), "ok");
     });
   }
 
@@ -208,7 +247,8 @@
     input.min = String(bounds.min);
     input.max = String(bounds.max);
     input.value = String(values.maxDurationMinutes ?? "");
-    $("max-duration-minutes-hint").textContent = `From ${bounds.min} to ${bounds.max} minutes. Applies to your next recording.`;
+    $("max-duration-minutes-hint").textContent = `From ${bounds.min} to ${bounds.max} minutes.`;
+    let savedMinutes = values.maxDurationMinutes;
     $("panel-recording-settings").hidden = false;
 
     $("recording-settings-form").addEventListener("submit", async (event) => {
@@ -235,7 +275,9 @@
         return;
       }
       input.value = String(saved.values.maxDurationMinutes);
-      setRecordingStatus("Saved. The new limit applies to your next recording.", "ok");
+      const changed = saved.values.maxDurationMinutes === savedMinutes ? [] : ["maxDurationMinutes"];
+      savedMinutes = saved.values.maxDurationMinutes;
+      setRecordingStatus(savedMessage(changed), "ok");
     });
   }
 
@@ -247,23 +289,26 @@
 
   async function load() {
     if (!bridge) $("bridge-missing").hidden = false;
-    const [identity, result, recording] = await Promise.all([
+    const [identity, result, recording, meta] = await Promise.all([
       call("getIdentitySettings"),
       call("getGeminiSettings"),
       call("getRecordingSettings"),
+      call("getSettingMetadata"),
     ]);
+    applyMetadata(errorOf(meta) ? null : meta);
     const identityReady = !errorOf(identity) && identity.ready === true;
     const geminiReady = !errorOf(result) && result.ready === true;
     const recordingReady = !errorOf(recording) && recording.ready === true;
     if (!identityReady && !geminiReady && !recordingReady) {
-      showUnsupported(reasonOf(identity));
+      showUnsupported(reasonOf(identity), identity && identity.manualConfig === true);
       return;
     }
     $("settings-loading").hidden = true;
     if (identityReady) showIdentity(identity);
     if (recordingReady) showRecording(recording);
     if (!geminiReady) {
-      $("gemini-unavailable").textContent = reasonOf(result);
+      const manual = result && result.manualConfig === true && metadata.manualEdit ? ` ${metadata.manualEdit}` : "";
+      $("gemini-unavailable").textContent = `${reasonOf(result)}${manual}`;
       $("gemini-unavailable").hidden = false;
       return;
     }
@@ -273,6 +318,7 @@
     input.max = String(bounds.max);
     $("summary-context-characters-hint").textContent = `From ${bounds.min} to ${bounds.max}. Recent transcript text kept for live summaries.`;
     fill(result.values);
+    let geminiValues = readForm();
     $("settings-loading").hidden = true;
     $("panel-gemini-settings").hidden = false;
 
@@ -299,7 +345,10 @@
         return;
       }
       fill(saved.values);
-      setStatus("Saved. Meeting processing restarted with the new settings.", "ok");
+      const after = readForm();
+      const changed = Object.keys(FIELDS).filter((key) => after[key] !== geminiValues[key]);
+      geminiValues = after;
+      setStatus(savedMessage(changed), "ok");
     });
   }
 

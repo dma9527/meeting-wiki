@@ -16,6 +16,7 @@ const {
   renderIdentityLines,
   tomlString,
 } = require("./managed-config");
+const { appliesCopy } = require("./setting-metadata");
 
 const API_KEY_ENV = "MEETING_WIKI_ONLINE_API_KEY";
 const SECRET_ID = "online";
@@ -503,6 +504,7 @@ function createSetupController({
       const completed = readSetupState(fs, dataDir);
       const result = {
         storagePath: dataDir,
+        appliesAfter: appliesCopy("provider"),
         savedKeys: {
           [GEMINI_PROVIDER]: savedKeyPresent(GEMINI_SECRET_ID),
           [OPENAI_PROVIDER]: savedKeyPresent(SECRET_ID),

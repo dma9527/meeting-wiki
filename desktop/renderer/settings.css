@@ -38,3 +38,7 @@ textarea[aria-invalid="true"] {
   border-color: var(--tally);
   box-shadow: inset 3px 0 0 var(--tally);
 }
+
+.hint.applies {
+  font-style: italic;
+}

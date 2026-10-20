@@ -1,6 +1,6 @@
 "use strict";
 
-// Settings bridge. Exposes only the named identity, Gemini, and recording settings actions. Channel names must
+// Settings bridge. Exposes only the named identity, Gemini, recording, and metadata actions. Channel names must
 // match CHANNELS in settings-window.js (sandboxed preloads cannot require local modules).
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -47,4 +47,5 @@ contextBridge.exposeInMainWorld("meetingWikiSettings", {
   saveRecordingSettings: (settings) =>
     ipcRenderer.invoke("settings:saveRecordingSettings", pickRecordingSettings(settings)),
   rerunSetup: () => ipcRenderer.invoke("settings:rerunSetup"),
+  getSettingMetadata: () => ipcRenderer.invoke("settings:getSettingMetadata"),
 });

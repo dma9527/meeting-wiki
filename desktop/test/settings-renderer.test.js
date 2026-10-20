@@ -111,6 +111,7 @@ test("settings.js loads and saves the recording limit through the bridge without
   const js = read("settings.js");
   assert.match(js, /call\("getRecordingSettings"\)/);
   assert.match(js, /call\("saveRecordingSettings", \{ maxDurationMinutes: minutes \}\)/);
-  assert.match(js, /"Saved\. The new limit applies to your next recording\."/);
+  assert.match(js, /setRecordingStatus\(savedMessage\(changed\), "ok"\)/);
+  assert.doesNotMatch(js, /restarted/);
   assert.match(js, /!identityReady && !geminiReady && !recordingReady/);
 });

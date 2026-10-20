@@ -19,6 +19,7 @@ const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths"
 const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("./skill-installer");
 const { formatSelfCheck, runSelfCheck } = require("./self-check");
 const { readMaxDurationMinutes } = require("./recording-settings");
+const { APPLIES } = require("./setting-metadata");
 const {
   IngestTracker,
   LIMIT_NOTICE,
@@ -474,7 +475,7 @@ function updateMenu() {
     { type: "separator" },
     { label: "Settings...", click: openSettingsWindow },
     { label: "Run setup...", click: openSetupWindow },
-    { label: "Edit configuration", click: () => shell.openPath(CONFIG_PATH) },
+    { label: "Edit configuration", toolTip: APPLIES.manualEdit, click: () => shell.openPath(CONFIG_PATH) },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   );

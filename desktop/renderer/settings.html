@@ -27,6 +27,7 @@
         <section id="panel-unsupported" class="panel" aria-labelledby="unsupported-heading" tabindex="-1" hidden>
           <h1 id="unsupported-heading" class="display">Settings are not available</h1>
           <p id="unsupported-reason" class="lede"></p>
+          <p id="unsupported-manual" class="hint" hidden></p>
           <div class="actions">
             <button type="button" class="button button-primary" id="unsupported-rerun">Run setup again</button>
           </div>
@@ -42,14 +43,16 @@
           <form id="identity-settings-form" novalidate>
             <div class="field">
               <label for="primary-profile-name">Primary name</label>
-              <input id="primary-profile-name" name="primaryProfileName" type="text" autocomplete="off" spellcheck="false" required aria-describedby="primary-profile-name-hint primary-profile-name-error" />
+              <input id="primary-profile-name" name="primaryProfileName" type="text" autocomplete="off" spellcheck="false" required aria-describedby="primary-profile-name-hint primary-profile-name-applies primary-profile-name-error" />
               <p id="primary-profile-name-hint" class="hint"></p>
+              <p id="primary-profile-name-applies" class="hint applies" data-applies-for="primaryProfileName"></p>
               <p id="primary-profile-name-error" class="field-error" hidden></p>
             </div>
             <div class="field">
               <label for="profile-aliases">Aliases</label>
-              <textarea id="profile-aliases" name="aliases" rows="4" autocomplete="off" spellcheck="false" aria-describedby="profile-aliases-hint profile-aliases-error"></textarea>
+              <textarea id="profile-aliases" name="aliases" rows="4" autocomplete="off" spellcheck="false" aria-describedby="profile-aliases-hint profile-aliases-applies profile-aliases-error"></textarea>
               <p id="profile-aliases-hint" class="hint"></p>
+              <p id="profile-aliases-applies" class="hint applies" data-applies-for="aliases"></p>
               <p id="profile-aliases-error" class="field-error" hidden></p>
             </div>
 
@@ -72,8 +75,9 @@
           <form id="recording-settings-form" novalidate>
             <div class="field">
               <label for="max-duration-minutes">Maximum meeting length (minutes)</label>
-              <input id="max-duration-minutes" name="maxDurationMinutes" type="number" inputmode="numeric" step="1" required aria-describedby="max-duration-minutes-hint max-duration-minutes-error" />
+              <input id="max-duration-minutes" name="maxDurationMinutes" type="number" inputmode="numeric" step="1" required aria-describedby="max-duration-minutes-hint max-duration-minutes-applies max-duration-minutes-error" />
               <p id="max-duration-minutes-hint" class="hint"></p>
+              <p id="max-duration-minutes-applies" class="hint applies" data-applies-for="maxDurationMinutes"></p>
               <p id="max-duration-minutes-error" class="field-error" hidden></p>
             </div>
 
@@ -96,17 +100,20 @@
             <h2 class="subhead">Models</h2>
             <div class="field">
               <label for="batch-audio-model">Recording transcription model</label>
-              <input id="batch-audio-model" name="batchAudioModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="batch-audio-model-error" />
+              <input id="batch-audio-model" name="batchAudioModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="batch-audio-model-applies batch-audio-model-error" />
+              <p id="batch-audio-model-applies" class="hint applies" data-applies-for="batchAudioModel"></p>
               <p id="batch-audio-model-error" class="field-error" hidden></p>
             </div>
             <div class="field">
               <label for="live-model">Live transcription model</label>
-              <input id="live-model" name="liveModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="live-model-error" />
+              <input id="live-model" name="liveModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="live-model-applies live-model-error" />
+              <p id="live-model-applies" class="hint applies" data-applies-for="liveModel"></p>
               <p id="live-model-error" class="field-error" hidden></p>
             </div>
             <div class="field">
               <label for="language-model">Summary and translation model</label>
-              <input id="language-model" name="languageModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="language-model-error" />
+              <input id="language-model" name="languageModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="language-model-applies language-model-error" />
+              <p id="language-model-applies" class="hint applies" data-applies-for="languageModel"></p>
               <p id="language-model-error" class="field-error" hidden></p>
             </div>
 
@@ -114,15 +121,17 @@
             <div class="field-row">
               <div class="field">
                 <label for="translation-target-language">Translation language</label>
-                <input id="translation-target-language" name="translationTargetLanguage" type="text" autocomplete="off" spellcheck="false" required aria-describedby="translation-target-language-hint translation-target-language-error" />
+                <input id="translation-target-language" name="translationTargetLanguage" type="text" autocomplete="off" spellcheck="false" required aria-describedby="translation-target-language-hint translation-target-language-applies translation-target-language-error" />
                 <p id="translation-target-language-hint" class="hint">A code such as zh or a name such as Japanese.</p>
-                <p id="translation-target-language-error" class="field-error" hidden></p>
+                <p id="translation-target-language-applies" class="hint applies" data-applies-for="translationTargetLanguage"></p>
+              <p id="translation-target-language-error" class="field-error" hidden></p>
               </div>
               <div class="field">
                 <label for="summary-context-characters">Summary context characters</label>
-                <input id="summary-context-characters" name="summaryContextCharacters" type="number" inputmode="numeric" step="1" required aria-describedby="summary-context-characters-hint summary-context-characters-error" />
+                <input id="summary-context-characters" name="summaryContextCharacters" type="number" inputmode="numeric" step="1" required aria-describedby="summary-context-characters-hint summary-context-characters-applies summary-context-characters-error" />
                 <p id="summary-context-characters-hint" class="hint"></p>
-                <p id="summary-context-characters-error" class="field-error" hidden></p>
+                <p id="summary-context-characters-applies" class="hint applies" data-applies-for="summaryContextCharacters"></p>
+              <p id="summary-context-characters-error" class="field-error" hidden></p>
               </div>
             </div>
 

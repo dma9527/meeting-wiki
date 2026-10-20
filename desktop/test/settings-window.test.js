@@ -157,7 +157,7 @@ test("getGeminiSettings refuses a config that is unmanaged, missing, or hand edi
   ];
   for (const config of configs) {
     const dataDir = geminiDataDir(config);
-    assert.deepEqual(controllerFor(dataDir).controller.getGeminiSettings(), { ready: false, reason: settings.NOT_MANAGED });
+    assert.deepEqual(controllerFor(dataDir).controller.getGeminiSettings(), { ready: false, reason: settings.NOT_MANAGED, manualConfig: true });
   }
 });
 
@@ -306,7 +306,7 @@ test("getIdentitySettings refuses unfinished, local, unmanaged, or hand edited s
     managed.replace("[identity]", "data_dir = \"/tmp/x\"\n[identity]"),
   ]) {
     const dataDir = geminiDataDir(config);
-    assert.deepEqual(controllerFor(dataDir).controller.getIdentitySettings(), { ready: false, reason: settings.NOT_MANAGED });
+    assert.deepEqual(controllerFor(dataDir).controller.getIdentitySettings(), { ready: false, reason: settings.NOT_MANAGED, manualConfig: true });
   }
 });
 
@@ -596,6 +596,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
     "getGeminiSettings",
     "getIdentitySettings",
     "getRecordingSettings",
+    "getSettingMetadata",
     "rerunSetup",
     "saveGeminiSettings",
     "saveIdentitySettings",

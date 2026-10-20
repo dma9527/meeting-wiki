@@ -30,6 +30,7 @@ const {
   readMaxDurationMinutes,
   saveMaxDurationMinutes,
 } = require("./recording-settings");
+const { settingMetadata } = require("./setting-metadata");
 
 const CHANNELS = Object.freeze({
   getIdentitySettings: "settings:getIdentitySettings",
@@ -39,6 +40,7 @@ const CHANNELS = Object.freeze({
   getRecordingSettings: "settings:getRecordingSettings",
   saveRecordingSettings: "settings:saveRecordingSettings",
   rerunSetup: "settings:rerunSetup",
+  getSettingMetadata: "settings:getSettingMetadata",
 });
 
 // Mirrors LiveConfig in meeting_wiki/config.py; a test keeps the two in sync.
@@ -126,7 +128,7 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     if (!state || state.mode !== "online") return { ready: false, reason: NOT_ONLINE };
     const text = readText(fs, configPath);
     const tables = parseManagedConfig(text);
-    if (!tables) return { ready: false, reason: NOT_MANAGED };
+    if (!tables) return { ready: false, reason: NOT_MANAGED, manualConfig: true };
     return { ready: true, text, tables, identity: identityFromTables(tables) };
   }
 
@@ -135,7 +137,7 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     if (!state || state.mode !== "online" || state.provider !== GEMINI_PROVIDER) return { ready: false, reason: NOT_GEMINI };
     const text = readText(fs, configPath);
     const values = parseManagedGeminiConfig(text);
-    if (!values) return { ready: false, reason: NOT_MANAGED };
+    if (!values) return { ready: false, reason: NOT_MANAGED, manualConfig: true };
     return { ready: true, values, identity: identityFromTables(parseManagedConfig(text)) };
   }
 
@@ -237,6 +239,10 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       onRerunSetup();
       return { ok: true };
     },
+
+    getSettingMetadata() {
+      return settingMetadata();
+    },
   };
 }
 
@@ -264,6 +270,7 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.getRecordingSettings, (controller) => controller.getRecordingSettings());
   handle(CHANNELS.saveRecordingSettings, (controller, settings) => controller.saveRecordingSettings(settings));
   handle(CHANNELS.rerunSetup, (controller) => controller.rerunSetup());
+  handle(CHANNELS.getSettingMetadata, (controller) => controller.getSettingMetadata());
 }
 
 let settingsWindow = null;

@@ -32,6 +32,7 @@
     onlineSaved: false,
     savedKeys: { gemini: false, openai_compatible: false },
     usedSavedKey: false,
+    appliesAfter: "",
     models: [],
     progress: new Map(),
     busy: false,
@@ -646,7 +647,7 @@
       rows.push(["Data egress", "None. Meeting content stays on this Mac."]);
     }
     rows.push(["Storage", $("boundary-storage").textContent]);
-    rows.push(["Until you finish", "Your current provider, key, and settings stay active."]);
+    if (state.appliesAfter) rows.push(["When it applies", state.appliesAfter]);
     for (const [term, value] of rows) {
       list.appendChild(el("dt", { text: term }));
       list.appendChild(el("dd", { text: value }));
@@ -726,6 +727,7 @@
       const keys = initial.savedKeys && typeof initial.savedKeys === "object" ? initial.savedKeys : {};
       state.savedKeys = { gemini: keys.gemini === true, openai_compatible: keys.openai_compatible === true };
       renderSavedKeyHints();
+      if (typeof initial.appliesAfter === "string") state.appliesAfter = initial.appliesAfter;
       if (initial.mode === "online") {
         $("current-setup-summary").textContent = initial.provider === "gemini"
           ? "Gemini is set up and in use."

@@ -63,6 +63,7 @@ node --check desktop/corrections-client.js
 node --check desktop/memory-client.js
 node --check desktop/skill-installer.js
 node --check desktop/self-check.js
+node --check desktop/setting-metadata.js
 node --check desktop/preload.js
 node --check desktop/managed-config.js
 node --check desktop/setup-window.js

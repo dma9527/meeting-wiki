@@ -9,6 +9,7 @@ const path = require("path");
 
 const { createSecretStore } = require("../secret-store");
 const setup = require("../setup-window");
+const APPLIES_SETUP = require("../setting-metadata").APPLIES.setupFinish;
 
 const TEST_KEY = "test-online-key-not-real-0000";
 const VALID_SETTINGS = Object.freeze({
@@ -427,7 +428,7 @@ test("completeSetup requires a passing online test and records completion", asyn
   assert.equal(mode(statePath), 0o600);
   assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).mode, "online");
   assert.equal(setup.needsSetup(fs, dataDir, configPath), false);
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, appliesAfter: APPLIES_SETUP, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
 });
 
 test("needsSetup treats a pre-existing hand-written config as configured", () => {
@@ -545,6 +546,7 @@ test("setup window uses the same hardening as the wiki window and loads only set
   const setupUrl = require("url").pathToFileURL(path.join(__dirname, "..", "renderer", "setup.html")).href;
   assert.deepEqual(await getState({ sender: win.webContents, senderFrame: { url: setupUrl } }), {
     storagePath: dataDir,
+    appliesAfter: APPLIES_SETUP,
     savedKeys: { gemini: false, openai_compatible: false },
   });
   assert.match((await getState({ sender: win.webContents, senderFrame: { url: "https://evil.test/" } })).error, /setup window/);
@@ -777,7 +779,7 @@ test("completeSetup records the Gemini provider and requires the matching provid
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
   assert.equal(saved.mode, "online");
   assert.equal(saved.provider, "gemini");
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: true, openai_compatible: false }, mode: "online", provider: "gemini" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, appliesAfter: APPLIES_SETUP, savedKeys: { gemini: true, openai_compatible: false }, mode: "online", provider: "gemini" });
 });
 
 test("saving the generic provider after a Gemini test invalidates the Gemini session", async () => {
@@ -791,7 +793,7 @@ test("saving the generic provider after a Gemini test invalidates the Gemini ses
   assert.deepEqual(controller.completeSetup({ mode: "online" }), { ok: true });
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
   assert.equal(saved.provider, "openai_compatible");
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, appliesAfter: APPLIES_SETUP, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
 });
 
 test("the generic OpenAI-compatible check keeps only the online key in the child environment", async () => {
