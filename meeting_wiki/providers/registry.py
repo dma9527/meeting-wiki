@@ -16,7 +16,12 @@ from .base import (
     TranscriptionProvider,
 )
 from .calendar import ICSCalendarProvider, NoneCalendarProvider
-from .gemini import GeminiLanguageProvider, GeminiLiveTranscriber, GeminiTranscriber
+from .gemini import (
+    GeminiLanguageProvider,
+    GeminiLiveLanguageProvider,
+    GeminiLiveTranscriber,
+    GeminiTranscriber,
+)
 from .integrations import (
     MacOSNotificationProvider,
     NoneTaskProvider,
@@ -76,6 +81,12 @@ def build_live_language(config: AppConfig) -> LiveLanguageProvider | None:
             config.ollama.base_url,
             config.ollama.model,
             config.ollama.timeout_seconds,
+        )
+    if config.providers.live_language == "gemini":
+        return GeminiLiveLanguageProvider(
+            config.gemini.language_model,
+            config.secret(config.gemini.api_key_env),
+            config.gemini.timeout_seconds,
         )
     return None
 

@@ -12,6 +12,7 @@ from meeting_wiki.config import AppConfig, PrivacyConfig
 from meeting_wiki.models import MeetingType
 from meeting_wiki.providers import gemini as gemini_module
 from meeting_wiki.providers.base import (
+    LiveLanguageProvider,
     LiveSessionTranscriptionProvider,
     LiveTranscriptEvent,
     LiveTranscriptionProvider,
@@ -21,6 +22,7 @@ from meeting_wiki.providers.base import (
 )
 from meeting_wiki.providers.gemini import (
     GeminiLanguageProvider,
+    GeminiLiveLanguageProvider,
     GeminiLiveTranscriber,
     GeminiTranscriber,
 )
@@ -672,3 +674,126 @@ def test_live_payloads_validate_against_installed_sdk_types():
         LiveTranscriptEvent(LiveTranscriptKind.INTERIM, "hel"),
         LiveTranscriptEvent(LiveTranscriptKind.FINAL, "hello"),
     ]
+
+
+def live_language_provider(client=None, api_key=TEST_KEY):
+    factory = (lambda: client) if client is not None else forbid_client
+    return GeminiLiveLanguageProvider(LANGUAGE_MODEL, api_key, 600, client_factory=factory)
+
+
+def test_live_language_provider_satisfies_protocol():
+    assert isinstance(live_language_provider(), LiveLanguageProvider)
+
+
+def test_live_language_translate_requests_plain_text():
+    models = FakeModels("  你好，团队  ")
+    provider = live_language_provider(fake_client(models=models))
+
+    assert provider.translate("Hello team", "zh") == "你好，团队"
+
+    call = models.calls[0]
+    assert call["model"] == LANGUAGE_MODEL
+    assert call["contents"] == "Hello team"
+    assert call["config"]["response_mime_type"] == "text/plain"
+    assert call["config"]["temperature"] == 0
+    assert "Chinese" in call["config"]["system_instruction"]
+    assert "plain text" in call["config"]["system_instruction"]
+
+
+def test_live_language_summarize_requests_concise_bullets():
+    models = FakeModels("- Chose option B\n\n* Ship Friday\n  - Alex owns docs  \n")
+    provider = live_language_provider(fake_client(models=models))
+
+    assert provider.summarize("Alex: we chose option B") == [
+        "Chose option B",
+        "Ship Friday",
+        "Alex owns docs",
+    ]
+
+    call = models.calls[0]
+    assert call["contents"] == "Alex: we chose option B"
+    assert call["config"]["response_mime_type"] == "text/plain"
+    assert "concise bullet points" in call["config"]["system_instruction"]
+
+
+@pytest.mark.parametrize("text", [None, ""])
+def test_live_language_handles_empty_model_output(text):
+    provider = live_language_provider(fake_client(models=FakeModels(text)))
+
+    assert provider.translate("Hello", "fr") == ""
+    assert provider.summarize("Hello") == []
+
+
+@pytest.mark.parametrize("blank", ["", "   \n\t"])
+def test_live_language_empty_input_never_constructs_client(blank):
+    provider = live_language_provider()
+
+    assert provider.translate(blank, "zh") == ""
+    assert provider.summarize(blank) == []
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (lambda provider: provider.translate("Alex: secret plan", "zh"), "translation"),
+        (lambda provider: provider.summarize("Alex: secret plan"), "summary"),
+    ],
+)
+def test_live_language_errors_are_redacted(call, expected):
+    error = ConnectionError(f"leaked {TEST_KEY} Alex: secret plan")
+    provider = live_language_provider(fake_client(models=FakeModels("", error=error)))
+
+    with pytest.raises(RuntimeError) as raised:
+        call(provider)
+
+    assert str(raised.value) == f"Gemini live {expected} failed (ConnectionError)"
+    assert TEST_KEY not in str(raised.value)
+    assert raised.value.__cause__ is None
+
+
+def test_live_language_health_is_local_and_sends_nothing(monkeypatch):
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace(Client=object))
+
+    assert live_language_provider().health() == (True, f"Gemini SDK ready ({LANGUAGE_MODEL})")
+    assert live_language_provider(api_key="").health() == (False, "Gemini API key is not set")
+
+
+def test_live_language_health_reports_missing_extra(monkeypatch):
+    def missing():
+        raise ImportError("google.genai")
+
+    monkeypatch.setattr(gemini_module, "_import_genai", missing)
+
+    assert live_language_provider().health() == (False, "install meeting-wiki[gemini]")
+
+
+def live_language_config(**gemini):
+    return AppConfig.model_validate(
+        {
+            "providers": {"live_language": "gemini"},
+            "live": {"allow_external_providers": True},
+            "gemini": {"language_model": LANGUAGE_MODEL, **gemini},
+        }
+    )
+
+
+def test_registry_builds_gemini_live_language_with_configured_secret(monkeypatch):
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+
+    bundle = build_providers(live_language_config())
+
+    assert isinstance(bundle.live_language, GeminiLiveLanguageProvider)
+    assert bundle.live_language.api_key == TEST_KEY
+    assert bundle.live_language.model == LANGUAGE_MODEL
+
+
+def test_registry_reads_only_the_configured_gemini_key_env_for_live_language(monkeypatch):
+    monkeypatch.delenv("MEETING_WIKI_GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider-key")
+    monkeypatch.setenv("TEST_CUSTOM_GEMINI_KEY", TEST_KEY)
+
+    with pytest.raises(RuntimeError, match="'MEETING_WIKI_GEMINI_API_KEY' is not set"):
+        build_providers(live_language_config())
+
+    custom = build_providers(live_language_config(api_key_env="TEST_CUSTOM_GEMINI_KEY"))
+    assert custom.live_language.api_key == TEST_KEY

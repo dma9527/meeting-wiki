@@ -208,7 +208,10 @@ def test_registry_leaves_unimplemented_live_selections_unbuilt(monkeypatch):
     monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", "test-gemini-key-not-real")
     config = AppConfig.model_validate(
         {
-            "providers": {"live_transcription": "openai_compatible", "live_language": "gemini"},
+            "providers": {
+                "live_transcription": "openai_compatible",
+                "live_language": "openai_compatible",
+            },
             "live": {"allow_external_providers": True},
             "gemini": {"language_model": "test-gemini-language-model"},
         }

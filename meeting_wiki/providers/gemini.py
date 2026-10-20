@@ -166,6 +166,67 @@ class GeminiLanguageProvider(_GeminiClientMixin):
         return _sdk_health(self.api_key, self.model)
 
 
+class GeminiLiveLanguageProvider(_GeminiClientMixin):
+    """Display-only live translation and rolling summary via models.generate_content."""
+
+    name = "gemini"
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        timeout_seconds: float,
+        client_factory: ClientFactory | None = None,
+    ):
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout_seconds
+        self._client_factory = client_factory
+
+    def _ask(self, action: str, instruction: str, text: str) -> str:
+        client = self._client()
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=text,
+                config={
+                    "system_instruction": instruction,
+                    "temperature": 0,
+                    "response_mime_type": "text/plain",
+                },
+            )
+            content = response.text
+        except Exception as error:
+            raise _redacted(action, error) from None
+        return str(content or "").strip()
+
+    def translate(self, text: str, target_language: str) -> str:
+        if not text.strip():
+            return ""
+        language = "Chinese" if target_language == "zh" else target_language
+        instruction = (
+            f"Translate accurately into {language}. "
+            "Return only the translation as plain text, with no notes or formatting."
+        )
+        return self._ask("translation", instruction, text)
+
+    def summarize(self, transcript: str) -> list[str]:
+        if not transcript.strip():
+            return []
+        instruction = (
+            "Summarize as up to three concise bullet points, one per line, "
+            "each starting with '- '. Return only the bullets."
+        )
+        result = self._ask("summary", instruction, transcript)
+        bullets = (
+            line.strip().removeprefix("- ").removeprefix("* ") for line in result.splitlines()
+        )
+        return [bullet.strip() for bullet in bullets if bullet.strip()]
+
+    def health(self) -> tuple[bool, str]:
+        return _sdk_health(self.api_key, self.model)
+
+
 def _redacted(action: str, error: BaseException) -> RuntimeError:
     # SDK messages can echo keys, paths, or transcript text; keep only the type name.
     return RuntimeError(f"Gemini live {action} failed ({type(error).__name__})")
