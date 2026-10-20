@@ -454,3 +454,244 @@ test("resolveProcessEnv returns a safe error and no env when the online key is u
     assert.ok(!result.error.includes(TEST_KEY));
   }
 });
+
+// ---- Gemini provider ----
+
+const GEMINI_KEY = "test-gemini-key-not-real-0000";
+const GEMINI_SETTINGS = Object.freeze({ apiKey: GEMINI_KEY, acknowledgedEgress: true });
+
+test("Gemini constants are provider scoped and models use the source-backed defaults", () => {
+  assert.equal(setup.GEMINI_SECRET_ID, "gemini");
+  assert.equal(setup.GEMINI_API_KEY_ENV, "MEETING_WIKI_GEMINI_API_KEY");
+  assert.deepEqual(setup.GEMINI_MODELS, {
+    batchAudioModel: "gemini-3.5-transcribe",
+    liveModel: "gemini-3.5-transcribe-live",
+    languageModel: "gemini-3.5-flash",
+  });
+  assert.notEqual(setup.GEMINI_SECRET_ID, setup.SECRET_ID);
+  assert.notEqual(setup.GEMINI_API_KEY_ENV, setup.API_KEY_ENV);
+});
+
+test("Gemini validation requires egress acknowledgement and a clean key, and ignores other fields", () => {
+  const cases = [
+    [{ acknowledgedEgress: false }, /Confirm that meeting data/],
+    [{ acknowledgedEgress: "true" }, /Confirm that meeting data/],
+    [{ apiKey: "" }, /API key/],
+    [{ apiKey: "has space" }, /API key/],
+    [{ apiKey: "line\nbreak" }, /API key/],
+  ];
+  for (const [override, pattern] of cases) {
+    assert.throws(
+      () => setup.validateGeminiSettings({ ...GEMINI_SETTINGS, ...override }),
+      (error) => error instanceof setup.SetupError && pattern.test(error.message) && !error.message.includes(GEMINI_KEY),
+    );
+  }
+  assert.throws(() => setup.validateGeminiSettings(null), setup.SetupError);
+  assert.deepEqual(
+    setup.validateGeminiSettings({ ...GEMINI_SETTINGS, apiKey: ` ${GEMINI_KEY} `, baseUrl: "https://evil.test", model: "x" }),
+    { apiKey: GEMINI_KEY },
+  );
+});
+
+test("renderGeminiConfig selects gemini everywhere with the default models and only the key env name", () => {
+  const config = setup.renderGeminiConfig();
+  assert.ok(config.startsWith(setup.MANAGED_HEADER));
+  for (const capability of ["transcription", "llm", "live_transcription", "live_language"]) {
+    assert.match(config, new RegExp(`^${capability} = "gemini"$`, "m"));
+  }
+  assert.match(config, /^\[live\]\n(#.*\n)*allow_external_providers = true$/m);
+  assert.match(config, /^\[gemini\]$/m);
+  assert.match(config, /^api_key_env = "MEETING_WIKI_GEMINI_API_KEY"$/m);
+  assert.match(config, /^batch_audio_model = "gemini-3\.5-transcribe"$/m);
+  assert.match(config, /^live_model = "gemini-3\.5-transcribe-live"$/m);
+  assert.match(config, /^language_model = "gemini-3\.5-flash"$/m);
+  assert.doesNotMatch(config, /openai|MEETING_WIKI_ONLINE_API_KEY|base_url/);
+});
+
+test("saveGeminiProvider stores the key encrypted under the gemini secret and never on disk in plaintext", () => {
+  const dataDir = tempDataDir();
+  const { controller } = controllerFor(dataDir);
+
+  assert.deepEqual(controller.saveGeminiProvider({ ...GEMINI_SETTINGS }), { ok: true });
+
+  const secrets = JSON.parse(fs.readFileSync(path.join(dataDir, "secrets.json"), "utf8"));
+  assert.deepEqual(Object.keys(secrets), ["gemini"]);
+  const configPath = path.join(dataDir, "config.toml");
+  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderGeminiConfig());
+  assert.equal(mode(configPath), 0o600);
+  for (const name of fs.readdirSync(dataDir)) assert.ok(!name.includes(GEMINI_KEY), "key in a file name");
+  for (const content of filesUnder(dataDir)) assert.ok(!content.includes(GEMINI_KEY), "plaintext key on disk");
+});
+
+test("saveGeminiProvider rejects missing acknowledgement before writing anything", () => {
+  const dataDir = tempDataDir();
+  const { controller } = controllerFor(dataDir);
+  assert.throws(() => controller.saveGeminiProvider({ apiKey: GEMINI_KEY }), /Confirm that meeting data/);
+  assert.deepEqual(fs.readdirSync(dataDir), ["python"]);
+});
+
+test("testGeminiProvider runs doctor with only the Gemini key in the child environment", async () => {
+  const dataDir = tempDataDir();
+  const { controller, spawn, baseEnv } = controllerFor(dataDir, { code: 0, stdout: "OK transcription: ok\nOK llm: ok\n" });
+  baseEnv.MEETING_WIKI_ONLINE_API_KEY = "inherited-online-value";
+  baseEnv.MEETING_WIKI_GEMINI_API_KEY = "inherited-gemini-value";
+
+  await assert.rejects(async () => controller.testGeminiProvider({ acknowledgedEgress: true }), /Save the provider settings/);
+  controller.saveGeminiProvider({ ...GEMINI_SETTINGS });
+  await assert.rejects(async () => controller.testGeminiProvider({}), /Confirm that meeting data/);
+  const result = await controller.testGeminiProvider({ acknowledgedEgress: true, apiKey: "ignored-renderer-value" });
+
+  assert.equal(result.ok, true);
+  assert.ok(!JSON.stringify(result).includes(GEMINI_KEY));
+  assert.equal(spawn.calls.length, 1);
+  const [call] = spawn.calls;
+  assert.equal(call.env.MEETING_WIKI_GEMINI_API_KEY, GEMINI_KEY);
+  assert.equal("MEETING_WIKI_ONLINE_API_KEY" in call.env, false, "online key leaked into Gemini check");
+  assert.deepEqual(call.args, ["-m", "meeting_wiki.cli", "--config", path.join(dataDir, "config.toml"), "doctor"]);
+  assert.ok(!call.args.some((arg) => arg.includes(GEMINI_KEY)));
+  assert.equal("MEETING_WIKI_GEMINI_API_KEY" in call.liveEnv, false, "key not discarded after check");
+  assert.equal(baseEnv.MEETING_WIKI_GEMINI_API_KEY, "inherited-gemini-value");
+  assert.equal("MEETING_WIKI_GEMINI_API_KEY" in process.env, false);
+});
+
+test("a failed Gemini check redacts the key", async () => {
+  const dataDir = tempDataDir();
+  const stdout = `FAIL llm: rejected ${GEMINI_KEY}\nProvider configuration error: missing ${GEMINI_KEY}\n`;
+  const { controller } = controllerFor(dataDir, { code: 1, stdout });
+  controller.saveGeminiProvider({ ...GEMINI_SETTINGS });
+  const result = await controller.testGeminiProvider({ acknowledgedEgress: true });
+  assert.ok(!result.error.includes(GEMINI_KEY));
+  assert.match(result.error, /\[redacted\]/);
+  assert.throws(() => controller.completeSetup({ mode: "online", provider: "gemini" }), /Test the provider connection/);
+});
+
+test("completeSetup records the Gemini provider and requires the matching provider test", async () => {
+  const dataDir = tempDataDir();
+  const { controller, completed } = controllerFor(dataDir, { code: 0 });
+  controller.saveGeminiProvider({ ...GEMINI_SETTINGS });
+  await controller.testGeminiProvider({ acknowledgedEgress: true });
+
+  assert.throws(() => controller.completeSetup({ mode: "online" }), /Test the provider connection/);
+  assert.deepEqual(controller.completeSetup({ mode: "online", provider: "gemini" }), { ok: true });
+
+  assert.deepEqual(completed, ["online"]);
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
+  assert.equal(saved.mode, "online");
+  assert.equal(saved.provider, "gemini");
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online", provider: "gemini" });
+});
+
+test("saving the generic provider after a Gemini test invalidates the Gemini session", async () => {
+  const dataDir = tempDataDir();
+  const { controller } = controllerFor(dataDir, { code: 0 });
+  controller.saveGeminiProvider({ ...GEMINI_SETTINGS });
+  await controller.testGeminiProvider({ acknowledgedEgress: true });
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  assert.throws(() => controller.completeSetup({ mode: "online", provider: "gemini" }), /Test the provider connection/);
+  await controller.testOnlineProvider();
+  assert.deepEqual(controller.completeSetup({ mode: "online" }), { ok: true });
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
+  assert.equal(saved.provider, "openai_compatible");
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online" });
+});
+
+test("the generic OpenAI-compatible check keeps only the online key in the child environment", async () => {
+  const dataDir = tempDataDir();
+  const { controller, spawn, baseEnv } = controllerFor(dataDir, { code: 0 });
+  baseEnv.MEETING_WIKI_GEMINI_API_KEY = "inherited-gemini-value";
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  const [call] = spawn.calls;
+  assert.equal(call.env.MEETING_WIKI_ONLINE_API_KEY, TEST_KEY);
+  assert.equal("MEETING_WIKI_GEMINI_API_KEY" in call.env, false);
+});
+
+test("IPC registers the narrow Gemini channels and forwards only settings", async () => {
+  const handlers = new Map();
+  const received = [];
+  const controller = {
+    saveGeminiProvider: (settings) => { received.push(["save", settings]); return { ok: true }; },
+    testGeminiProvider: (settings) => { received.push(["test", settings]); return { ok: true }; },
+  };
+  const trusted = { trusted: true };
+  setup.registerSetupHandlers({ handle: (channel, fn) => handlers.set(channel, fn) }, () => controller, (event) => event === trusted);
+  assert.equal(setup.CHANNELS.saveGeminiProvider, "setup:saveGeminiProvider");
+  assert.equal(setup.CHANNELS.testGeminiProvider, "setup:testGeminiProvider");
+  await handlers.get(setup.CHANNELS.saveGeminiProvider)(trusted, GEMINI_SETTINGS, "extra");
+  await handlers.get(setup.CHANNELS.testGeminiProvider)(trusted, { acknowledgedEgress: true });
+  assert.deepEqual(received, [["save", GEMINI_SETTINGS], ["test", { acknowledgedEgress: true }]]);
+  assert.match((await handlers.get(setup.CHANNELS.saveGeminiProvider)({}, GEMINI_SETTINGS)).error, /setup window/);
+});
+
+function writeState(dataDir, state) {
+  fs.writeFileSync(path.join(dataDir, "setup-state.json"), JSON.stringify({ version: 1, completed: true, ...state }));
+}
+
+function storeWithBothKeys(dataDir) {
+  const secretStore = createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") });
+  secretStore.save(setup.SECRET_ID, TEST_KEY);
+  secretStore.save(setup.GEMINI_SECRET_ID, GEMINI_KEY);
+  return secretStore;
+}
+
+const INHERITED_ENV = Object.freeze({
+  PATH: "/usr/bin",
+  MEETING_WIKI_ONLINE_API_KEY: "inherited-online-value",
+  MEETING_WIKI_GEMINI_API_KEY: "inherited-gemini-value",
+});
+
+test("resolveProcessEnv injects only the Gemini key for Gemini setup state", () => {
+  const dataDir = tempDataDir();
+  writeState(dataDir, { mode: "online", provider: "gemini" });
+  const result = setup.resolveProcessEnv({ fs, dataDir, secretStore: storeWithBothKeys(dataDir), baseEnv: INHERITED_ENV });
+  assert.deepEqual(result, { env: { PATH: "/usr/bin", MEETING_WIKI_GEMINI_API_KEY: GEMINI_KEY } });
+  assert.equal(INHERITED_ENV.MEETING_WIKI_GEMINI_API_KEY, "inherited-gemini-value");
+  assert.equal("MEETING_WIKI_GEMINI_API_KEY" in process.env, false);
+});
+
+test("resolveProcessEnv keeps legacy and openai_compatible online states on the online key", () => {
+  for (const state of [{ mode: "online" }, { mode: "online", provider: "openai_compatible" }]) {
+    const dataDir = tempDataDir();
+    writeState(dataDir, state);
+    const result = setup.resolveProcessEnv({ fs, dataDir, secretStore: storeWithBothKeys(dataDir), baseEnv: INHERITED_ENV });
+    assert.deepEqual(result, { env: { PATH: "/usr/bin", MEETING_WIKI_ONLINE_API_KEY: TEST_KEY } });
+  }
+});
+
+test("resolveProcessEnv injects no managed key for local state", () => {
+  const dataDir = tempDataDir();
+  writeState(dataDir, { mode: "local" });
+  const result = setup.resolveProcessEnv({ fs, dataDir, secretStore: storeWithBothKeys(dataDir), baseEnv: { PATH: "/usr/bin" } });
+  assert.deepEqual(result, { env: { PATH: "/usr/bin" } });
+});
+
+test("resolveProcessEnv returns a safe error when the Gemini key is unavailable", () => {
+  const dataDir = tempDataDir();
+  writeState(dataDir, { mode: "online", provider: "gemini" });
+  const onlineOnly = storeWithKey(dataDir);
+  const result = setup.resolveProcessEnv({ fs, dataDir, secretStore: onlineOnly, baseEnv: INHERITED_ENV });
+  assert.deepEqual(result, { error: setup.GEMINI_KEY_UNAVAILABLE });
+  assert.ok(!result.error.includes(GEMINI_KEY));
+});
+
+test("managed Gemini config is accepted by AppConfig and passes doctor", { skip: !fs.existsSync(REPO_PYTHON) && "repo .venv not installed" }, () => {
+  const dataDir = tempDataDir();
+  const configPath = path.join(dataDir, "config.toml");
+  fs.writeFileSync(configPath, setup.renderGeminiConfig());
+  const env = { ...process.env, MEETING_WIKI_DATA_DIR: dataDir };
+  delete env[setup.API_KEY_ENV];
+  delete env[setup.GEMINI_API_KEY_ENV];
+  const { spawnSync } = require("child_process");
+  const loaded = spawnSync(REPO_PYTHON, ["-", configPath], { input: LOAD_CONFIG_SCRIPT, env, encoding: "utf8" });
+  assert.equal(loaded.status, 0, loaded.stderr);
+  assert.equal(loaded.stdout.trim(), "gemini gemini True");
+
+  const doctor = spawnSync(REPO_PYTHON, ["-m", "meeting_wiki.cli", "--config", configPath, "doctor"], {
+    env: { ...env, [setup.GEMINI_API_KEY_ENV]: GEMINI_KEY },
+    encoding: "utf8",
+  });
+  assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
+  assert.match(doctor.stdout, /^OK transcription: .*gemini-3\.5-transcribe/m);
+  assert.match(doctor.stdout, /^OK llm: .*gemini-3\.5-flash/m);
+  assert.ok(!(doctor.stdout + doctor.stderr).includes(GEMINI_KEY));
+});

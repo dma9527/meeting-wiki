@@ -797,3 +797,39 @@ def test_registry_reads_only_the_configured_gemini_key_env_for_live_language(mon
 
     custom = build_providers(live_language_config(api_key_env="TEST_CUSTOM_GEMINI_KEY"))
     assert custom.live_language.api_key == TEST_KEY
+
+
+def test_doctor_checks_gemini_batch_and_llm_without_printing_the_key(tmp_path, monkeypatch, capsys):
+    from meeting_wiki.cli import doctor
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[providers]",
+                'transcription = "gemini"',
+                'llm = "gemini"',
+                'live_transcription = "gemini"',
+                'live_language = "gemini"',
+                "[live]",
+                "allow_external_providers = true",
+                "[gemini]",
+                'api_key_env = "MEETING_WIKI_GEMINI_API_KEY"',
+                f'batch_audio_model = "{BATCH_MODEL}"',
+                'live_model = "test-gemini-live-model"',
+                f'language_model = "{LANGUAGE_MODEL}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEETING_WIKI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+    monkeypatch.delenv("MEETING_WIKI_ONLINE_API_KEY", raising=False)
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace())
+
+    assert doctor(config_path) == 0
+
+    output = capsys.readouterr().out
+    assert f"OK transcription: Gemini SDK ready ({BATCH_MODEL})" in output
+    assert f"OK llm: Gemini SDK ready ({LANGUAGE_MODEL})" in output
+    assert TEST_KEY not in output

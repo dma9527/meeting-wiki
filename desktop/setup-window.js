@@ -1,8 +1,8 @@
 "use strict";
 
-// First-run setup window. Same lockdown as wiki-window.js. The API key crosses
-// from the renderer exactly once (saveOnlineProvider), goes straight to the
-// Keychain-backed secret store, and is never returned, logged, or written to TOML.
+// First-run setup window. Same lockdown as wiki-window.js. An API key crosses from
+// the renderer exactly once (saveOnlineProvider or saveGeminiProvider), goes straight
+// to the Keychain-backed secret store, and is never returned, logged, or written to TOML.
 
 const crypto = require("crypto");
 const path = require("path");
@@ -10,6 +10,16 @@ const { pathToFileURL } = require("url");
 
 const API_KEY_ENV = "MEETING_WIKI_ONLINE_API_KEY";
 const SECRET_ID = "online";
+const GEMINI_PROVIDER = "gemini";
+const OPENAI_PROVIDER = "openai_compatible";
+const GEMINI_API_KEY_ENV = "MEETING_WIKI_GEMINI_API_KEY";
+const GEMINI_SECRET_ID = "gemini";
+const GEMINI_MODELS = Object.freeze({
+  batchAudioModel: "gemini-3.5-transcribe",
+  liveModel: "gemini-3.5-transcribe-live",
+  languageModel: "gemini-3.5-flash",
+});
+const MANAGED_KEY_ENVS = Object.freeze([API_KEY_ENV, GEMINI_API_KEY_ENV]);
 const MANAGED_HEADER = "# Managed by Meeting Wiki setup.";
 const SETUP_STATE_FILE = "setup-state.json";
 const CHECK_TIMEOUT_MS = 30_000;
@@ -20,6 +30,8 @@ const CHANNELS = Object.freeze({
   getSetupState: "setup:getSetupState",
   saveOnlineProvider: "setup:saveOnlineProvider",
   testOnlineProvider: "setup:testOnlineProvider",
+  saveGeminiProvider: "setup:saveGeminiProvider",
+  testGeminiProvider: "setup:testGeminiProvider",
   listLocalModels: "setup:listLocalModels",
   downloadLocalModel: "setup:downloadLocalModel",
   completeSetup: "setup:completeSetup",
@@ -35,9 +47,7 @@ class SetupError extends Error {}
 
 function validateOnlineSettings(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
-  if (source.acknowledgedEgress !== true) {
-    throw new SetupError("Confirm that meeting data will be sent to this provider.");
-  }
+  requireEgressAck(source);
   const baseUrlRaw = typeof source.baseUrl === "string" ? source.baseUrl.trim() : "";
   if (!baseUrlRaw || baseUrlRaw.length > 2048) throw new SetupError("Enter the provider's endpoint URL.");
   let url;
@@ -76,6 +86,24 @@ function validateOnlineSettings(raw) {
   };
 }
 
+const EGRESS_REQUIRED = "Confirm that meeting data will be sent to this provider.";
+
+function requireEgressAck(source) {
+  if (!source || typeof source !== "object" || source.acknowledgedEgress !== true) {
+    throw new SetupError(EGRESS_REQUIRED);
+  }
+}
+
+// Gemini accepts only a key; endpoint and models are fixed by GEMINI_MODELS.
+function validateGeminiSettings(raw) {
+  requireEgressAck(raw);
+  const apiKey = typeof raw.apiKey === "string" ? raw.apiKey.trim() : "";
+  if (!API_KEY_PATTERN.test(apiKey)) {
+    throw new SetupError("Enter the Gemini API key without spaces or line breaks.");
+  }
+  return { apiKey };
+}
+
 function tomlString(value) {
   const escaped = String(value).replace(/[\\"\u0000-\u001f\u007f]/g, (char) => {
     if (char === "\\") return "\\\\";
@@ -110,6 +138,31 @@ function renderOnlineConfig(settings) {
     `base_url = ${tomlString(settings.baseUrl)}`,
     `model = ${tomlString(settings.transcriptionModel)}`,
     `api_key_env = ${tomlString(API_KEY_ENV)}`,
+    "",
+  ].join("\n");
+}
+
+function renderGeminiConfig() {
+  return [
+    MANAGED_HEADER,
+    "# Secrets are not stored here. The Gemini API key lives in the macOS Keychain and",
+    `# is provided to Meeting Wiki processes through ${GEMINI_API_KEY_ENV}.`,
+    "",
+    "[providers]",
+    'transcription = "gemini"',
+    'llm = "gemini"',
+    'live_transcription = "gemini"',
+    'live_language = "gemini"',
+    "",
+    "[live]",
+    "# The user acknowledged sending meeting data to Google Gemini during setup.",
+    "allow_external_providers = true",
+    "",
+    "[gemini]",
+    `api_key_env = ${tomlString(GEMINI_API_KEY_ENV)}`,
+    `batch_audio_model = ${tomlString(GEMINI_MODELS.batchAudioModel)}`,
+    `live_model = ${tomlString(GEMINI_MODELS.liveModel)}`,
+    `language_model = ${tomlString(GEMINI_MODELS.languageModel)}`,
     "",
   ].join("\n");
 }
@@ -183,22 +236,32 @@ function needsSetup(fs, dataDir, configPath) {
 }
 
 const KEY_UNAVAILABLE = "The online API key could not be read from the macOS Keychain. Run setup again.";
+const GEMINI_KEY_UNAVAILABLE = "The Gemini API key could not be read from the macOS Keychain. Run setup again.";
 
-// Child environment for a processing process. The online key is added only when setup
-// completed in online mode; returns { error } instead of an env when the key is unavailable.
+// Legacy online state (no provider) and openai_compatible both use the generic online key.
+function providerCredentials(state) {
+  if (!state || state.mode !== "online") return null;
+  if (state.provider === GEMINI_PROVIDER) {
+    return { secretId: GEMINI_SECRET_ID, envName: GEMINI_API_KEY_ENV, unavailable: GEMINI_KEY_UNAVAILABLE };
+  }
+  return { secretId: SECRET_ID, envName: API_KEY_ENV, unavailable: KEY_UNAVAILABLE };
+}
+
+// Child environment for a processing process. Only the selected provider's key is added,
+// and only when setup completed online; returns { error } when that key is unavailable.
 function resolveProcessEnv({ fs, dataDir, secretStore, baseEnv }) {
   const env = { ...baseEnv };
-  const state = readSetupState(fs, dataDir);
-  if (!state || state.mode !== "online") return { env };
-  delete env[API_KEY_ENV];
+  const credentials = providerCredentials(readSetupState(fs, dataDir));
+  if (!credentials) return { env };
+  for (const name of MANAGED_KEY_ENVS) delete env[name];
   let apiKey = "";
   try {
-    apiKey = secretStore.read(SECRET_ID);
+    apiKey = secretStore.read(credentials.secretId);
   } catch (_) {
-    return { error: KEY_UNAVAILABLE };
+    return { error: credentials.unavailable };
   }
-  if (!apiKey) return { error: KEY_UNAVAILABLE };
-  env[API_KEY_ENV] = apiKey;
+  if (!apiKey) return { error: credentials.unavailable };
+  env[credentials.envName] = apiKey;
   return { env };
 }
 
@@ -213,10 +276,19 @@ function failureDetail(stdout, apiKey) {
 }
 
 // Run `meeting-wiki doctor` with the key present only in this child's environment.
-function runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, timeoutMs = CHECK_TIMEOUT_MS }) {
+function runProviderCheck({
+  spawnFn,
+  python,
+  configPath,
+  apiKey,
+  baseEnv,
+  envName = API_KEY_ENV,
+  successDetail = "Transcription and language endpoints responded.",
+  timeoutMs = CHECK_TIMEOUT_MS,
+}) {
   const childEnv = { ...baseEnv };
-  delete childEnv[API_KEY_ENV];
-  childEnv[API_KEY_ENV] = apiKey;
+  for (const name of MANAGED_KEY_ENVS) delete childEnv[name];
+  childEnv[envName] = apiKey;
   return new Promise((resolve) => {
     let stdout = "";
     let settled = false;
@@ -225,7 +297,7 @@ function runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, timeou
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      delete childEnv[API_KEY_ENV];
+      delete childEnv[envName];
       resolve(result);
     };
     const timer = setTimeout(() => {
@@ -247,7 +319,7 @@ function runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, timeou
     child.once("error", () => finish({ error: "The connection check could not start." }));
     child.once("close", (code) => {
       if (code === 0) {
-        finish({ ok: true, detail: "Transcription and language endpoints responded." });
+        finish({ ok: true, detail: successDetail });
       } else {
         finish({ error: failureDetail(stdout, apiKey) || "The provider rejected the connection check." });
       }
@@ -266,53 +338,78 @@ function createSetupController({
   now = () => new Date(),
   onComplete = () => {},
 }) {
-  const session = { savedOnline: false, testedOnline: false };
+  // savedProvider/testedProvider name the provider whose settings were saved and checked
+  // in this window session; a new save of either provider resets both.
+  const session = { savedProvider: null, testedProvider: null };
+
+  function saveProvider(provider, secretId, apiKey, config) {
+    session.savedProvider = null;
+    session.testedProvider = null;
+    try {
+      secretStore.save(secretId, apiKey);
+    } catch (error) {
+      throw new SetupError(
+        /Keychain/.test(error && error.message) ? "macOS Keychain encryption is unavailable." : "The API key could not be saved.",
+      );
+    }
+    try {
+      backupUnmanagedConfig(fs, configPath, now);
+      atomicWriteFile(fs, configPath, config);
+    } catch (_) {
+      throw new SetupError("The provider settings could not be saved.");
+    }
+    session.savedProvider = provider;
+    return { ok: true };
+  }
+
+  async function testProvider(provider, secretId, checkOptions) {
+    if (session.savedProvider !== provider) throw new SetupError("Save the provider settings before testing.");
+    if (!fs.existsSync(python)) {
+      throw new SetupError("The Meeting Wiki engine is not installed yet, so the connection cannot be tested.");
+    }
+    let apiKey = "";
+    try {
+      apiKey = secretStore.read(secretId);
+    } catch (_) {
+      throw new SetupError("macOS Keychain encryption is unavailable.");
+    }
+    if (!apiKey) throw new SetupError("The saved API key could not be read. Enter it again.");
+    const result = await runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, ...checkOptions });
+    apiKey = "";
+    session.testedProvider = result.ok ? provider : null;
+    return result;
+  }
 
   return {
     getSetupState() {
       const completed = readSetupState(fs, dataDir);
       const result = { storagePath: dataDir };
       if (completed && (completed.mode === "online" || completed.mode === "local")) result.mode = completed.mode;
+      if (result.mode === "online" && completed.provider === GEMINI_PROVIDER) result.provider = GEMINI_PROVIDER;
       return result;
     },
 
     saveOnlineProvider(raw) {
       const { settings, apiKey } = validateOnlineSettings(raw);
-      session.savedOnline = false;
-      session.testedOnline = false;
-      try {
-        secretStore.save(SECRET_ID, apiKey);
-      } catch (error) {
-        throw new SetupError(
-          /Keychain/.test(error && error.message) ? "macOS Keychain encryption is unavailable." : "The API key could not be saved.",
-        );
-      }
-      try {
-        backupUnmanagedConfig(fs, configPath, now);
-        atomicWriteFile(fs, configPath, renderOnlineConfig(settings));
-      } catch (_) {
-        throw new SetupError("The provider settings could not be saved.");
-      }
-      session.savedOnline = true;
-      return { ok: true };
+      return saveProvider(OPENAI_PROVIDER, SECRET_ID, apiKey, renderOnlineConfig(settings));
     },
 
-    async testOnlineProvider() {
-      if (!session.savedOnline) throw new SetupError("Save the provider settings before testing.");
-      if (!fs.existsSync(python)) {
-        throw new SetupError("The Meeting Wiki engine is not installed yet, so the connection cannot be tested.");
-      }
-      let apiKey = "";
-      try {
-        apiKey = secretStore.read(SECRET_ID);
-      } catch (_) {
-        throw new SetupError("macOS Keychain encryption is unavailable.");
-      }
-      if (!apiKey) throw new SetupError("The saved API key could not be read. Enter it again.");
-      const result = await runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv });
-      apiKey = "";
-      session.testedOnline = Boolean(result.ok);
-      return result;
+    testOnlineProvider() {
+      return testProvider(OPENAI_PROVIDER, SECRET_ID, {});
+    },
+
+    saveGeminiProvider(raw) {
+      const { apiKey } = validateGeminiSettings(raw);
+      return saveProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, apiKey, renderGeminiConfig());
+    },
+
+    // The renderer never resends the key; only the egress acknowledgement is checked.
+    testGeminiProvider(raw) {
+      requireEgressAck(raw);
+      return testProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, {
+        envName: GEMINI_API_KEY_ENV,
+        successDetail: "Gemini transcription and language providers are ready.",
+      });
     },
 
     listLocalModels() {
@@ -324,15 +421,17 @@ function createSetupController({
     },
 
     completeSetup(options) {
-      const mode = options && typeof options === "object" ? options.mode : undefined;
+      const source = options && typeof options === "object" ? options : {};
+      const mode = source.mode;
       if (mode === "local") throw new SetupError(LOCAL_UNAVAILABLE);
       if (mode !== "online") throw new SetupError("Choose a setup path first.");
-      if (!session.testedOnline) throw new SetupError("Test the provider connection before finishing.");
+      const provider = source.provider === GEMINI_PROVIDER ? GEMINI_PROVIDER : OPENAI_PROVIDER;
+      if (session.testedProvider !== provider) throw new SetupError("Test the provider connection before finishing.");
       try {
         atomicWriteFile(
           fs,
           path.join(dataDir, SETUP_STATE_FILE),
-          JSON.stringify({ version: 1, completed: true, mode, completedAt: now().toISOString() }),
+          JSON.stringify({ version: 1, completed: true, mode, provider, completedAt: now().toISOString() }),
         );
       } catch (_) {
         throw new SetupError("Setup could not be saved.");
@@ -364,6 +463,8 @@ function registerSetupHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.getSetupState, (controller) => controller.getSetupState());
   handle(CHANNELS.saveOnlineProvider, (controller, settings) => controller.saveOnlineProvider(settings));
   handle(CHANNELS.testOnlineProvider, (controller) => controller.testOnlineProvider());
+  handle(CHANNELS.saveGeminiProvider, (controller, settings) => controller.saveGeminiProvider(settings));
+  handle(CHANNELS.testGeminiProvider, (controller, settings) => controller.testGeminiProvider(settings));
   handle(CHANNELS.listLocalModels, (controller) => controller.listLocalModels());
   handle(CHANNELS.downloadLocalModel, (controller, id) => controller.downloadLocalModel(String(id || "")));
   handle(CHANNELS.completeSetup, (controller, options) => controller.completeSetup(options));
@@ -433,6 +534,10 @@ function createSetupWindow(electron, context) {
 module.exports = {
   API_KEY_ENV,
   CHANNELS,
+  GEMINI_API_KEY_ENV,
+  GEMINI_KEY_UNAVAILABLE,
+  GEMINI_MODELS,
+  GEMINI_SECRET_ID,
   KEY_UNAVAILABLE,
   LOCAL_UNAVAILABLE,
   MANAGED_HEADER,
@@ -445,9 +550,11 @@ module.exports = {
   guard,
   needsSetup,
   registerSetupHandlers,
+  renderGeminiConfig,
   renderOnlineConfig,
   resolveProcessEnv,
   runProviderCheck,
   tomlString,
+  validateGeminiSettings,
   validateOnlineSettings,
 };

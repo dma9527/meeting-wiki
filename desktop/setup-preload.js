@@ -20,6 +20,23 @@ function pickOnlineSettings(settings) {
   };
 }
 
+function pickGeminiSettings(settings) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  return {
+    apiKey: typeof source.apiKey === "string" ? source.apiKey : "",
+    acknowledgedEgress: source.acknowledgedEgress === true,
+  };
+}
+
+const COMPLETION_PROVIDERS = new Set(["gemini", "openai_compatible"]);
+
+function pickCompletion(options) {
+  const source = options && typeof options === "object" ? options : {};
+  const picked = { mode: typeof source.mode === "string" ? source.mode : "" };
+  if (COMPLETION_PROVIDERS.has(source.provider)) picked.provider = source.provider;
+  return picked;
+}
+
 function sanitizeProgress(payload) {
   const source = payload && typeof payload === "object" ? payload : {};
   if (typeof source.id !== "string" || !PROGRESS_STATUSES.has(source.status)) return null;
@@ -34,6 +51,8 @@ contextBridge.exposeInMainWorld("meetingWikiSetup", {
   getSetupState: () => ipcRenderer.invoke("setup:getSetupState"),
   saveOnlineProvider: (settings) => ipcRenderer.invoke("setup:saveOnlineProvider", pickOnlineSettings(settings)),
   testOnlineProvider: () => ipcRenderer.invoke("setup:testOnlineProvider"),
+  saveGeminiProvider: (settings) => ipcRenderer.invoke("setup:saveGeminiProvider", pickGeminiSettings(settings)),
+  testGeminiProvider: (settings) => ipcRenderer.invoke("setup:testGeminiProvider", pickGeminiSettings(settings)),
   listLocalModels: () => ipcRenderer.invoke("setup:listLocalModels"),
   downloadLocalModel: (id) => ipcRenderer.invoke("setup:downloadLocalModel", typeof id === "string" ? id : ""),
   onLocalModelProgress: (callback) => {
@@ -45,8 +64,5 @@ contextBridge.exposeInMainWorld("meetingWikiSetup", {
     ipcRenderer.on("setup:localModelProgress", listener);
     return () => ipcRenderer.removeListener("setup:localModelProgress", listener);
   },
-  completeSetup: (options) =>
-    ipcRenderer.invoke("setup:completeSetup", {
-      mode: options && typeof options.mode === "string" ? options.mode : "",
-    }),
+  completeSetup: (options) => ipcRenderer.invoke("setup:completeSetup", pickCompletion(options)),
 });

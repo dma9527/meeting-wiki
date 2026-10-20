@@ -81,3 +81,7 @@ test("missing Python marks the tray status as attention before returning", () =>
   const menuUpdate = body.indexOf("updateMenu()", statusError);
   assert.ok(unavailable >= 0 && statusError > unavailable && menuUpdate > statusError);
 });
+
+test("startWorker runs Python unbuffered so worker.log receives job events", () => {
+  assert.match(functionBody("startWorker"), /spawn\(PYTHON, \["-u", "-m", "meeting_wiki\.cli", "--config", CONFIG_PATH, "worker"\]/);
+});

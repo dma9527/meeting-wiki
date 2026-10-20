@@ -51,7 +51,9 @@ test("the setup bridge exposes only the named setup actions", () => {
     "getSetupState",
     "listLocalModels",
     "onLocalModelProgress",
+    "saveGeminiProvider",
     "saveOnlineProvider",
+    "testGeminiProvider",
     "testOnlineProvider",
   ]);
   for (const value of Object.values(exposed.api)) assert.equal(typeof value, "function");
@@ -121,4 +123,31 @@ test("the setup preload has no generic IPC passthrough", () => {
   const channels = [...source.matchAll(/"(setup:[A-Za-z]+)"/g)].map((match) => match[1]);
   assert.ok(channels.length > 0);
   for (const channel of channels) assert.ok(Object.values(CHANNELS).includes(channel), `unknown channel ${channel}`);
+});
+
+test("Gemini bridge actions forward only a key and an acknowledgement on their own channels", async () => {
+  const { exposed, invocations } = loadPreload();
+  await exposed.api.saveGeminiProvider({
+    apiKey: "test-gemini-key",
+    acknowledgedEgress: true,
+    baseUrl: "https://evil.test",
+    model: "override",
+  });
+  await exposed.api.testGeminiProvider({ acknowledgedEgress: "yes", channel: "wiki:readPage" });
+  await exposed.api.saveGeminiProvider("not an object");
+  assert.deepEqual(invocations, [
+    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "test-gemini-key", acknowledgedEgress: true }] },
+    { channel: CHANNELS.testGeminiProvider, args: [{ apiKey: "", acknowledgedEgress: false }] },
+    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "", acknowledgedEgress: false }] },
+  ]);
+});
+
+test("completeSetup forwards only a known provider", async () => {
+  const { exposed, invocations } = loadPreload();
+  await exposed.api.completeSetup({ mode: "online", provider: "gemini" });
+  await exposed.api.completeSetup({ mode: "online", provider: "../evil" });
+  assert.deepEqual(invocations.map(({ args }) => args[0]), [
+    { mode: "online", provider: "gemini" },
+    { mode: "online" },
+  ]);
 });

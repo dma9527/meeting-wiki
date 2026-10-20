@@ -8,16 +8,20 @@
 //   saveOnlineProvider(settings)    -> { ok: true } | { error: string }
 //       settings: { baseUrl, transcriptionModel, languageModel, apiKey, acknowledgedEgress: true }
 //   testOnlineProvider()            -> { ok: true, detail?: string } | { error: string }
+//   saveGeminiProvider({ apiKey, acknowledgedEgress: true }) -> { ok: true } | { error: string }
+//   testGeminiProvider({ acknowledgedEgress: true })         -> { ok: true, detail?: string } | { error: string }
 //   listLocalModels()               -> LocalModel[] | { error: string }
 //       LocalModel: { id, name, role, sizeBytes?, source, license?, installed?, required? }
 //   downloadLocalModel(id)          -> { ok: true } | { error: string }
 //   onLocalModelProgress(callback)  -> unsubscribe function
 //       callback({ id, receivedBytes?, totalBytes?, status: "downloading" | "installed" | "error", error? })
-//   completeSetup({ mode })         -> { ok: true } | { error: string }
+//   completeSetup({ mode, provider? }) -> { ok: true } | { error: string }
+//       Gemini completes as { mode: "online", provider: "gemini" }.
 
 (function setupWizard() {
   const bridge = window.meetingWikiSetup;
   const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+  const GEMINI_DESTINATION = "Google Gemini";
 
   const state = {
     mode: null,
@@ -130,13 +134,14 @@
 
   function renderBoundary() {
     const panel = $("boundary");
-    panel.dataset.mode = state.mode || "undecided";
+    const gemini = state.mode === "gemini";
+    panel.dataset.mode = gemini ? "online" : state.mode || "undecided";
 
     const parsed = parseEndpoint($("online-base-url").value);
-    const host = parsed.error ? "" : parsed.host;
+    const host = gemini ? GEMINI_DESTINATION : parsed.error ? "" : parsed.host;
     state.onlineHost = host;
     $("boundary-host").textContent = host || "the endpoint you enter";
-    $("boundary-loopback").hidden = !(host && parsed.loopback);
+    $("boundary-loopback").hidden = gemini || !(host && parsed.loopback);
     for (const node of document.querySelectorAll("[data-host-ref]")) {
       node.textContent = host || "the provider above";
     }
@@ -146,6 +151,7 @@
 
   const PANEL_FOR_STEP = {
     choose: "panel-choose",
+    gemini: "panel-gemini",
     online: "panel-online",
     local: "panel-local",
     confirm: "panel-confirm",
@@ -154,6 +160,7 @@
 
   const INDICATOR_FOR_STEP = {
     choose: "choose",
+    gemini: "configure",
     online: "configure",
     local: "configure",
     confirm: "confirm",
@@ -202,17 +209,77 @@
     const mode = selectedMode();
     if (!mode) {
       const node = $("choose-error");
-      node.textContent = "Choose Online API key or Local only to continue.";
+      node.textContent = "Choose Gemini, Other online API key, or Local only to continue.";
       node.hidden = false;
-      $("mode-online").focus();
+      $("mode-gemini").focus();
       return;
     }
     state.mode = mode;
     renderBoundary();
-    goTo(mode === "online" ? "online" : "local");
+    goTo(mode);
   }
 
-  // ---- Step 2a: online ----
+  // ---- Step 2a: Gemini ----
+
+  async function onGeminiSubmit(event) {
+    event.preventDefault();
+    if (state.busy) return;
+    const button = $("gemini-save");
+    const apiKey = $("gemini-api-key");
+    const ack = $("gemini-egress-ack");
+    const problems = [];
+    const keyMessage = apiKey.value.trim() ? "" : "Enter your Gemini API key.";
+    showFieldError(apiKey, keyMessage);
+    if (keyMessage) problems.push(apiKey);
+    const ackMessage = ack.checked ? "" : "Confirm that meeting data will be sent to Google Gemini.";
+    showFieldError(ack, ackMessage);
+    if (ackMessage) problems.push(ack);
+    if (problems.length) {
+      setStatus("gemini-status", "", "");
+      problems[0].focus();
+      announce(`${problems.length} ${problems.length === 1 ? "field needs" : "fields need"} attention.`);
+      return;
+    }
+
+    setBusy(button, true, "Saving");
+    setStatus("gemini-status", "Saving the Gemini key.", "");
+    const saved = await call("saveGeminiProvider", {
+      apiKey: apiKey.value.trim(),
+      acknowledgedEgress: true,
+    });
+    // The key is handed to the main process once and never kept in the page.
+    apiKey.value = "";
+
+    const saveError = errorOf(saved);
+    if (saveError) {
+      setBusy(button, false);
+      setStatus("gemini-status", saveError, "error");
+      apiKey.focus();
+      return;
+    }
+
+    button.textContent = "Checking";
+    setStatus("gemini-status", "Checking the Gemini setup.", "");
+    const tested = await call("testGeminiProvider", { acknowledgedEgress: true });
+    setBusy(button, false);
+
+    const testError = errorOf(tested);
+    if (testError || !tested.ok) {
+      setStatus(
+        "gemini-status",
+        `Check failed: ${testError || "no response from the engine."} Enter the API key again.`,
+        "error",
+      );
+      apiKey.focus();
+      return;
+    }
+
+    const detail = typeof tested.detail === "string" && tested.detail ? ` ${tested.detail}` : "";
+    setStatus("gemini-status", `Gemini is set up.${detail}`, "ok");
+    goTo("confirm");
+  }
+
+  // ---- Step 2b: online ----
 
   function validateOnline() {
     const baseUrl = $("online-base-url");
@@ -303,7 +370,7 @@
     goTo("confirm");
   }
 
-  // ---- Step 2b: local ----
+  // ---- Step 2c: local ----
 
   function formatBytes(bytes) {
     if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) return "Size not reported";
@@ -466,7 +533,12 @@
     const list = $("confirm-summary");
     clear(list);
     const rows = [];
-    if (state.mode === "online") {
+    if (state.mode === "gemini") {
+      rows.push(["Path", "Gemini"]);
+      rows.push(["Used for", "Transcription, live captions, translation, and summaries"]);
+      rows.push(["API key", "Saved in the Keychain"]);
+      rows.push(["Data egress", `Audio and transcript text are sent to ${GEMINI_DESTINATION}.`]);
+    } else if (state.mode === "online") {
       rows.push(["Path", "Online API key"]);
       rows.push(["Provider", state.onlineHost || "Not set"]);
       rows.push(["Transcription model", $("online-transcription-model").value.trim()]);
@@ -491,7 +563,8 @@
     const button = $("confirm-finish");
     setBusy(button, true, "Finishing");
     setStatus("confirm-status", "Saving setup.", "");
-    const result = await call("completeSetup", { mode: state.mode });
+    const completion = state.mode === "gemini" ? { mode: "online", provider: "gemini" } : { mode: state.mode };
+    const result = await call("completeSetup", completion);
     setBusy(button, false);
     const message = errorOf(result);
     if (message) {
@@ -517,6 +590,10 @@
       radio.addEventListener("change", onModeChange);
     }
 
+    $("gemini-form").addEventListener("submit", onGeminiSubmit);
+    $("gemini-api-key").addEventListener("input", () => showFieldError($("gemini-api-key"), ""));
+    $("gemini-egress-ack").addEventListener("change", () => showFieldError($("gemini-egress-ack"), ""));
+
     $("online-form").addEventListener("submit", onOnlineSubmit);
     $("online-base-url").addEventListener("input", () => {
       showFieldError($("online-base-url"), "");
@@ -533,7 +610,7 @@
     $("local-continue").addEventListener("click", () => {
       if (requiredReady()) goTo("confirm");
     });
-    $("confirm-back").addEventListener("click", () => goTo(state.mode === "online" ? "online" : "local"));
+    $("confirm-back").addEventListener("click", () => goTo(state.mode || "choose"));
     $("confirm-finish").addEventListener("click", onFinish);
 
     if (bridge && typeof bridge.onLocalModelProgress === "function") {
@@ -549,7 +626,8 @@
         $("boundary-storage").textContent = initial.storagePath;
       }
       if (initial.mode === "online" || initial.mode === "local") {
-        const radio = $(`mode-${initial.mode}`);
+        const selected = initial.mode === "online" && initial.provider === "gemini" ? "gemini" : initial.mode;
+        const radio = $(`mode-${selected}`);
         radio.checked = true;
         onModeChange();
       }

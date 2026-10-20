@@ -40,10 +40,21 @@
             <fieldset class="paths">
               <legend class="visually-hidden">Processing path</legend>
 
+              <label class="path-card" for="mode-gemini">
+                <input type="radio" id="mode-gemini" name="mode" value="gemini" aria-describedby="mode-gemini-desc" />
+                <span class="path-body">
+                  <span class="path-title">Gemini, recommended</span>
+                  <span id="mode-gemini-desc" class="path-desc">
+                    Use your Google Gemini API key for transcription, live captions, translation, and summaries.
+                    Only the key is needed. Audio and transcript text are sent to Google.
+                  </span>
+                </span>
+              </label>
+
               <label class="path-card" for="mode-online">
                 <input type="radio" id="mode-online" name="mode" value="online" aria-describedby="mode-online-desc" />
                 <span class="path-body">
-                  <span class="path-title">Online API key <span class="tag">Recommended</span></span>
+                  <span class="path-title">Other online API key</span>
                   <span id="mode-online-desc" class="path-desc">
                     Use an OpenAI-compatible provider. Fast setup, no large downloads. Audio and transcript
                     text are sent to the provider you choose.
@@ -71,7 +82,49 @@
           </form>
         </section>
 
-        <!-- Step 2a: online provider -->
+        <!-- Step 2a: Gemini -->
+        <section id="panel-gemini" class="panel" aria-labelledby="gemini-heading" tabindex="-1" hidden>
+          <h1 id="gemini-heading" class="display">Connect Gemini</h1>
+          <p class="lede">
+            Paste the API key from Google AI Studio. Meeting Wiki chooses the Gemini settings for you. The key
+            is saved in the macOS Keychain and is not shown again after you save it.
+          </p>
+
+          <form id="gemini-form" novalidate>
+            <div class="field">
+              <label for="gemini-api-key">Gemini API key</label>
+              <input
+                id="gemini-api-key"
+                name="apiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                aria-describedby="gemini-api-key-hint gemini-api-key-error"
+              />
+              <p id="gemini-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs.</p>
+              <p id="gemini-api-key-error" class="field-error" hidden></p>
+            </div>
+
+            <div class="consent">
+              <input id="gemini-egress-ack" name="egressAck" type="checkbox" aria-describedby="gemini-egress-ack-error" />
+              <label for="gemini-egress-ack">
+                I understand that meeting audio and transcript text will be sent to Google Gemini whenever I record,
+                including live captions, translation, and summaries.
+              </label>
+            </div>
+            <p id="gemini-egress-ack-error" class="field-error" hidden></p>
+
+            <p id="gemini-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="button" class="button button-quiet" data-back="choose">Back</button>
+              <button type="submit" class="button button-primary" id="gemini-save">Save and check</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Step 2b: online provider -->
         <section id="panel-online" class="panel" aria-labelledby="online-heading" tabindex="-1" hidden>
           <h1 id="online-heading" class="display">Connect an online provider</h1>
           <p class="lede">
@@ -162,7 +215,7 @@
           </form>
         </section>
 
-        <!-- Step 2b: local models -->
+        <!-- Step 2c: local models -->
         <section id="panel-local" class="panel" aria-labelledby="local-heading" tabindex="-1" hidden>
           <h1 id="local-heading" class="display">Install local models</h1>
           <p class="lede">

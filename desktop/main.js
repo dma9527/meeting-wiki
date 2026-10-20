@@ -217,7 +217,8 @@ function startWorker() {
   const logPath = path.join(logDir, "worker.log");
   const log = fs.openSync(logPath, "a", 0o600);
   fs.chmodSync(logPath, 0o600);
-  worker = spawn(PYTHON, ["-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "worker"], {
+  // -u: worker.log is a file, so unbuffered stdout keeps job events from sitting in a buffer.
+  worker = spawn(PYTHON, ["-u", "-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "worker"], {
     detached: false,
     env,
     stdio: ["ignore", log, log],
