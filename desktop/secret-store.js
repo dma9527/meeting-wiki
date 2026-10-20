@@ -37,6 +37,11 @@ function createSecretStore({ safeStorage, fs, filePath }) {
     }
   }
 
+  // Presence only: never decrypts, so it is safe for UI state.
+  function has(provider) {
+    return typeof readAll()[provider] === "string";
+  }
+
   function remove(provider) {
     const secrets = readAll();
     if (!(provider in secrets)) return;
@@ -44,7 +49,7 @@ function createSecretStore({ safeStorage, fs, filePath }) {
     fs.writeFileSync(filePath, JSON.stringify(secrets), { encoding: "utf8", mode: 0o600 });
   }
 
-  return { save, read, remove };
+  return { save, read, has, remove };
 }
 
 module.exports = { createSecretStore };

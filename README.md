@@ -46,12 +46,21 @@ supported.
    - For an online provider, enter the endpoint, model names, and API key.
      The key is encrypted through macOS Keychain facilities, never written to
      `config.toml` or application logs.
-   - Read and acknowledge the data-egress notice before saving an external
+   - Read and acknowledge the data-egress notice before checking an external
      provider. Meeting audio and transcript text are sent only to the provider
      selected in the wizard.
    - Grant Microphone and Screen & System Audio Recording permission when
      macOS requests them.
    - Run the provider connection test, then make a short recording.
+
+Running setup again to change providers is transactional. The new provider is
+checked with a temporary config first, and the active key, config, and setup
+state change only when you press **Finish setup** after a passing check. A
+failed check, or closing the window, leaves the current provider working. Leave
+the key field blank to check and keep the key already saved for that provider,
+or use **Test current setup** to check the active provider without changes.
+The key field has **Show key** (hides again after 20 seconds) and **Paste**
+controls; pasted text goes only into the masked field and is never logged.
 
 Your meetings, local wiki, jobs, logs, and private meeting data stay under
 `~/.meeting-wiki/` by default. Removing the app does not delete this data.

@@ -4,18 +4,20 @@
 // window.meetingWikiSetup bridge and builds every dynamic node with textContent.
 //
 // Expected bridge (implemented by the preload, not here):
-//   getSetupState()                 -> { storagePath?: string, mode?: "online" | "local" }
-//   saveOnlineProvider(settings)    -> { ok: true } | { error: string }
-//       settings: { baseUrl, transcriptionModel, languageModel, apiKey, acknowledgedEgress: true }
+//   getSetupState()                 -> { storagePath?, mode?: "online" | "local", provider?, savedKeys: { gemini, openai_compatible } }
+//   saveOnlineProvider(settings)    -> { ok: true } | { error: string }   (stages only; nothing is saved yet)
+//       settings: { baseUrl, transcriptionModel, languageModel, apiKey, useSavedKey, acknowledgedEgress: true }
 //   testOnlineProvider()            -> { ok: true, detail?: string } | { error: string }
-//   saveGeminiProvider({ apiKey, acknowledgedEgress: true }) -> { ok: true } | { error: string }
+//   saveGeminiProvider({ apiKey, useSavedKey, acknowledgedEgress: true }) -> { ok: true } | { error: string }
 //   testGeminiProvider({ acknowledgedEgress: true })         -> { ok: true, detail?: string } | { error: string }
+//   testSavedProvider()             -> { ok: true, detail } | { error }   (active setup, changes nothing)
+//   readClipboardApiKey()           -> { value } | { error }
 //   listLocalModels()               -> LocalModel[] | { error: string }
 //       LocalModel: { id, name, role, sizeBytes?, source, license?, installed?, required? }
 //   downloadLocalModel(id)          -> { ok: true } | { error: string }
 //   onLocalModelProgress(callback)  -> unsubscribe function
 //       callback({ id, receivedBytes?, totalBytes?, status: "downloading" | "installed" | "error", error? })
-//   completeSetup({ mode, provider? }) -> { ok: true } | { error: string }
+//   completeSetup({ mode, provider? }) -> { ok: true } | { error: string }   (the only commit point)
 //       Gemini completes as { mode: "online", provider: "gemini" }.
 
 (function setupWizard() {
@@ -28,10 +30,16 @@
     step: "choose",
     onlineHost: "",
     onlineSaved: false,
+    savedKeys: { gemini: false, openai_compatible: false },
+    usedSavedKey: false,
     models: [],
     progress: new Map(),
     busy: false,
   };
+
+  // A revealed key is masked again after this delay, on submit, and when the step changes.
+  const REVEAL_MS = 20_000;
+  const revealTimers = new Map();
 
   const $ = (id) => document.getElementById(id);
 
@@ -109,6 +117,83 @@
     else input.removeAttribute("aria-invalid");
   }
 
+  // ---- API key controls ----
+
+  function toggleFor(input) {
+    return document.querySelector(`[data-key-toggle="${input.id}"]`);
+  }
+
+  function maskKey(input, { announceIt = false } = {}) {
+    clearTimeout(revealTimers.get(input.id));
+    revealTimers.delete(input.id);
+    const toggle = toggleFor(input);
+    const wasShown = input.type === "text";
+    input.type = "password";
+    if (toggle) {
+      toggle.textContent = "Show key";
+      toggle.setAttribute("aria-pressed", "false");
+    }
+    if (wasShown && announceIt) announce("API key hidden.");
+  }
+
+  function maskAllKeys() {
+    for (const input of document.querySelectorAll("input[name='apiKey']")) maskKey(input);
+  }
+
+  function onToggleKey(event) {
+    const input = $(event.currentTarget.dataset.keyToggle);
+    if (!input) return;
+    if (input.type === "text") {
+      maskKey(input, { announceIt: true });
+      return;
+    }
+    input.type = "text";
+    event.currentTarget.textContent = "Hide key";
+    event.currentTarget.setAttribute("aria-pressed", "true");
+    announce("API key shown. It hides again in 20 seconds.");
+    revealTimers.set(input.id, window.setTimeout(() => maskKey(input, { announceIt: true }), REVEAL_MS));
+  }
+
+  // The main process validates the clipboard text; the value goes only into this masked field.
+  async function onPasteKey(event) {
+    const input = $(event.currentTarget.dataset.keyPaste);
+    if (!input) return;
+    const result = await call("readClipboardApiKey");
+    const message = errorOf(result);
+    if (message || typeof result.value !== "string") {
+      showFieldError(input, message || "The clipboard could not be read.");
+      input.focus();
+      return;
+    }
+    maskKey(input);
+    input.value = result.value;
+    showFieldError(input, "");
+    input.focus();
+    announce("API key pasted.");
+  }
+
+  function renderSavedKeyHints() {
+    $("gemini-api-key-saved").hidden = !state.savedKeys.gemini;
+    $("online-api-key-saved").hidden = !state.savedKeys.openai_compatible;
+  }
+
+  // ---- Current setup ----
+
+  async function onTestCurrent() {
+    if (state.busy) return;
+    const button = $("current-setup-test");
+    setBusy(button, true, "Testing");
+    setStatus("current-setup-status", "Checking your saved provider with the saved key.", "");
+    const result = await call("testSavedProvider");
+    setBusy(button, false);
+    const message = errorOf(result);
+    if (message || !result.ok) {
+      setStatus("current-setup-status", `Check failed: ${message || "no response from the engine."}`, "error");
+      return;
+    }
+    setStatus("current-setup-status", typeof result.detail === "string" ? result.detail : "Your saved provider responded.", "ok");
+  }
+
   // ---- Endpoint parsing ----
 
   function parseEndpoint(raw) {
@@ -169,6 +254,7 @@
 
   function goTo(step) {
     state.step = step;
+    maskAllKeys();
     for (const [key, id] of Object.entries(PANEL_FOR_STEP)) {
       $(id).hidden = key !== step;
     }
@@ -228,7 +314,8 @@
     const apiKey = $("gemini-api-key");
     const ack = $("gemini-egress-ack");
     const problems = [];
-    const keyMessage = apiKey.value.trim() ? "" : "Enter your Gemini API key.";
+    const useSavedKey = !apiKey.value.trim() && state.savedKeys.gemini;
+    const keyMessage = apiKey.value.trim() || useSavedKey ? "" : "Enter your Gemini API key.";
     showFieldError(apiKey, keyMessage);
     if (keyMessage) problems.push(apiKey);
     const ackMessage = ack.checked ? "" : "Confirm that meeting data will be sent to Google Gemini.";
@@ -241,10 +328,12 @@
       return;
     }
 
-    setBusy(button, true, "Saving");
-    setStatus("gemini-status", "Saving the Gemini key.", "");
+    maskKey(apiKey);
+    setBusy(button, true, "Checking");
+    setStatus("gemini-status", "Preparing the Gemini check. Nothing is saved yet.", "");
     const saved = await call("saveGeminiProvider", {
       apiKey: apiKey.value.trim(),
+      useSavedKey,
       acknowledgedEgress: true,
     });
     // The key is handed to the main process once and never kept in the page.
@@ -258,24 +347,20 @@
       return;
     }
 
-    button.textContent = "Checking";
     setStatus("gemini-status", "Checking the Gemini setup.", "");
     const tested = await call("testGeminiProvider", { acknowledgedEgress: true });
     setBusy(button, false);
 
     const testError = errorOf(tested);
     if (testError || !tested.ok) {
-      setStatus(
-        "gemini-status",
-        `Check failed: ${testError || "no response from the engine."} Enter the API key again.`,
-        "error",
-      );
+      setStatus("gemini-status", `Check failed: ${testError || "no response from the engine."}`, "error");
       apiKey.focus();
       return;
     }
 
+    state.usedSavedKey = useSavedKey;
     const detail = typeof tested.detail === "string" && tested.detail ? ` ${tested.detail}` : "";
-    setStatus("gemini-status", `Gemini is set up.${detail}`, "ok");
+    setStatus("gemini-status", `Gemini check passed.${detail} Finish setup to switch to it.`, "ok");
     goTo("confirm");
   }
 
@@ -302,7 +387,8 @@
       if (message) problems.push(input);
     }
 
-    const keyMessage = apiKey.value.trim() ? "" : "Enter the API key from your provider.";
+    const useSavedKey = !apiKey.value.trim() && state.savedKeys.openai_compatible;
+    const keyMessage = apiKey.value.trim() || useSavedKey ? "" : "Enter the API key from your provider.";
     showFieldError(apiKey, keyMessage);
     if (keyMessage) problems.push(apiKey);
 
@@ -310,14 +396,14 @@
     showFieldError(ack, ackMessage);
     if (ackMessage) problems.push(ack);
 
-    return { problems, parsed };
+    return { problems, parsed, useSavedKey };
   }
 
   async function onOnlineSubmit(event) {
     event.preventDefault();
     if (state.busy) return;
     const button = $("online-save");
-    const { problems, parsed } = validateOnline();
+    const { problems, parsed, useSavedKey } = validateOnline();
     if (problems.length) {
       setStatus("online-status", "", "");
       problems[0].focus();
@@ -326,14 +412,16 @@
     }
 
     const apiKey = $("online-api-key");
-    setBusy(button, true, "Saving");
-    setStatus("online-status", "Saving provider settings.", "");
+    maskKey(apiKey);
+    setBusy(button, true, "Testing connection");
+    setStatus("online-status", "Preparing the connection test. Nothing is saved yet.", "");
 
     const saved = await call("saveOnlineProvider", {
       baseUrl: parsed.url.toString(),
       transcriptionModel: $("online-transcription-model").value.trim(),
       languageModel: $("online-language-model").value.trim(),
       apiKey: apiKey.value.trim(),
+      useSavedKey,
       acknowledgedEgress: true,
     });
     // The key is handed to the main process once and never kept in the page.
@@ -347,7 +435,6 @@
       return;
     }
 
-    button.textContent = "Testing connection";
     setStatus("online-status", `Testing the connection to ${parsed.host}.`, "");
     const tested = await call("testOnlineProvider");
     setBusy(button, false);
@@ -357,7 +444,7 @@
       state.onlineSaved = false;
       setStatus(
         "online-status",
-        `Connection test failed: ${testError || "no response from the provider."} Check the URL and model names, then enter the API key again.`,
+        `Connection test failed: ${testError || "no response from the provider."} Check the URL, model names, and key, then try again.`,
         "error",
       );
       apiKey.focus();
@@ -365,8 +452,9 @@
     }
 
     state.onlineSaved = true;
+    state.usedSavedKey = useSavedKey;
     const detail = typeof tested.detail === "string" && tested.detail ? ` ${tested.detail}` : "";
-    setStatus("online-status", `Connected to ${parsed.host}.${detail}`, "ok");
+    setStatus("online-status", `Connected to ${parsed.host}.${detail} Finish setup to switch to it.`, "ok");
     goTo("confirm");
   }
 
@@ -529,6 +617,12 @@
 
   // ---- Step 3: confirm ----
 
+  function keyRow() {
+    return state.usedSavedKey
+      ? "Keeps the key already saved in the Keychain"
+      : "Saved in the Keychain when you finish setup";
+  }
+
   function renderSummary() {
     const list = $("confirm-summary");
     clear(list);
@@ -536,14 +630,14 @@
     if (state.mode === "gemini") {
       rows.push(["Path", "Gemini"]);
       rows.push(["Used for", "Transcription, live captions, translation, and summaries"]);
-      rows.push(["API key", "Saved in the Keychain"]);
+      rows.push(["API key", keyRow()]);
       rows.push(["Data egress", `Audio and transcript text are sent to ${GEMINI_DESTINATION}.`]);
     } else if (state.mode === "online") {
       rows.push(["Path", "Online API key"]);
       rows.push(["Provider", state.onlineHost || "Not set"]);
       rows.push(["Transcription model", $("online-transcription-model").value.trim()]);
       rows.push(["Summary and translation model", $("online-language-model").value.trim()]);
-      rows.push(["API key", "Saved in the Keychain"]);
+      rows.push(["API key", keyRow()]);
       rows.push(["Data egress", `Audio and transcript text are sent to ${state.onlineHost || "the provider"}.`]);
     } else {
       const installed = state.models.filter(isInstalled).map((model) => model.name || model.id);
@@ -552,6 +646,7 @@
       rows.push(["Data egress", "None. Meeting content stays on this Mac."]);
     }
     rows.push(["Storage", $("boundary-storage").textContent]);
+    rows.push(["Until you finish", "Your current provider, key, and settings stay active."]);
     for (const [term, value] of rows) {
       list.appendChild(el("dt", { text: term }));
       list.appendChild(el("dd", { text: value }));
@@ -612,6 +707,9 @@
     });
     $("confirm-back").addEventListener("click", () => goTo(state.mode || "choose"));
     $("confirm-finish").addEventListener("click", onFinish);
+    $("current-setup-test").addEventListener("click", onTestCurrent);
+    for (const button of document.querySelectorAll("[data-key-toggle]")) button.addEventListener("click", onToggleKey);
+    for (const button of document.querySelectorAll("[data-key-paste]")) button.addEventListener("click", onPasteKey);
 
     if (bridge && typeof bridge.onLocalModelProgress === "function") {
       const unsubscribe = bridge.onLocalModelProgress(onModelProgress);
@@ -624,6 +722,15 @@
     if (!errorOf(initial) && initial && typeof initial === "object") {
       if (typeof initial.storagePath === "string" && initial.storagePath) {
         $("boundary-storage").textContent = initial.storagePath;
+      }
+      const keys = initial.savedKeys && typeof initial.savedKeys === "object" ? initial.savedKeys : {};
+      state.savedKeys = { gemini: keys.gemini === true, openai_compatible: keys.openai_compatible === true };
+      renderSavedKeyHints();
+      if (initial.mode === "online") {
+        $("current-setup-summary").textContent = initial.provider === "gemini"
+          ? "Gemini is set up and in use."
+          : "An online API key provider is set up and in use.";
+        $("current-setup").hidden = false;
       }
       if (initial.mode === "online" || initial.mode === "local") {
         const selected = initial.mode === "online" && initial.provider === "gemini" ? "gemini" : initial.mode;

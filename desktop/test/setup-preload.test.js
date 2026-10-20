@@ -51,10 +51,12 @@ test("the setup bridge exposes only the named setup actions", () => {
     "getSetupState",
     "listLocalModels",
     "onLocalModelProgress",
+    "readClipboardApiKey",
     "saveGeminiProvider",
     "saveOnlineProvider",
     "testGeminiProvider",
     "testOnlineProvider",
+    "testSavedProvider",
   ]);
   for (const value of Object.values(exposed.api)) assert.equal(typeof value, "function");
 });
@@ -96,6 +98,7 @@ test("saveOnlineProvider forwards only the expected settings fields", async () =
     transcriptionModel: "test-transcribe-1",
     languageModel: "test-language-1",
     apiKey: "test-key",
+    useSavedKey: false,
     acknowledgedEgress: false,
   }]);
 });
@@ -136,9 +139,9 @@ test("Gemini bridge actions forward only a key and an acknowledgement on their o
   await exposed.api.testGeminiProvider({ acknowledgedEgress: "yes", channel: "wiki:readPage" });
   await exposed.api.saveGeminiProvider("not an object");
   assert.deepEqual(invocations, [
-    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "test-gemini-key", acknowledgedEgress: true }] },
-    { channel: CHANNELS.testGeminiProvider, args: [{ apiKey: "", acknowledgedEgress: false }] },
-    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "", acknowledgedEgress: false }] },
+    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "test-gemini-key", useSavedKey: false, acknowledgedEgress: true }] },
+    { channel: CHANNELS.testGeminiProvider, args: [{ apiKey: "", useSavedKey: false, acknowledgedEgress: false }] },
+    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "", useSavedKey: false, acknowledgedEgress: false }] },
   ]);
 });
 
@@ -149,5 +152,17 @@ test("completeSetup forwards only a known provider", async () => {
   assert.deepEqual(invocations.map(({ args }) => args[0]), [
     { mode: "online", provider: "gemini" },
     { mode: "online" },
+  ]);
+});
+
+test("saved-key test and clipboard paste take no arguments from the renderer", async () => {
+  const { exposed, invocations } = loadPreload();
+  await exposed.api.testSavedProvider({ configPath: "/evil" });
+  await exposed.api.readClipboardApiKey("ignored");
+  await exposed.api.saveGeminiProvider({ apiKey: "", useSavedKey: true, acknowledgedEgress: true });
+  assert.deepEqual(invocations, [
+    { channel: CHANNELS.testSavedProvider, args: [] },
+    { channel: CHANNELS.readClipboardApiKey, args: [] },
+    { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "", useSavedKey: true, acknowledgedEgress: true }] },
   ]);
 });

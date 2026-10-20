@@ -2,6 +2,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("events");
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const Module = require("module");
@@ -413,12 +414,29 @@ test("setup rerun keeps the saved identity in the regenerated config", async () 
   const dataDir = geminiDataDir();
   const { controller, configPath } = controllerFor(dataDir);
   controller.saveIdentitySettings({ ...IDENTITY });
-  const secretStore = { save: () => {}, read: () => TEST_KEY };
-  const setupController = setup.createSetupController({ fs, secretStore, dataDir, configPath, python: "/nonexistent", spawnFn: () => {} });
+  const secretStore = { save: () => {}, read: () => TEST_KEY, remove: () => {}, has: () => true };
+  const python = path.join(dataDir, "python");
+  fs.writeFileSync(python, "", { mode: 0o700 });
+  const spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => child.emit("close", 0));
+    return child;
+  };
+  const setupController = setup.createSetupController({ fs, secretStore, dataDir, configPath, python, spawnFn, baseEnv: {} });
   setupController.saveOnlineProvider({ ...ONLINE_SETTINGS, apiKey: TEST_KEY, acknowledgedEgress: true });
+  await setupController.testOnlineProvider();
+  setupController.completeSetup({ mode: "online" });
   assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderOnlineConfig(ONLINE_SETTINGS, { ...IDENTITY, legacyUserName: "" }));
   setupController.saveGeminiProvider({ apiKey: TEST_KEY, acknowledgedEgress: true });
-  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderGeminiConfig({}, { ...IDENTITY, legacyUserName: "" }));
+  await setupController.testGeminiProvider({ acknowledgedEgress: true });
+  controller.saveIdentitySettings({ ...IDENTITY, aliases: ["Edited between check and finish"] });
+  setupController.completeSetup({ mode: "online", provider: "gemini" });
+  assert.equal(
+    fs.readFileSync(configPath, "utf8"),
+    setup.renderGeminiConfig({}, { ...IDENTITY, aliases: ["Edited between check and finish"], legacyUserName: "" }),
+  );
 });
 
 test("a saved identity loads in the Python config model, legacy user_name included", { skip: !fs.existsSync(path.join(ROOT, ".venv", "bin", "python")) }, () => {

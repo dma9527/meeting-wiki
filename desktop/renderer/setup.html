@@ -36,6 +36,18 @@
             which service turns audio into text and summaries.
           </p>
 
+          <div id="current-setup" class="current-setup" role="region" aria-labelledby="current-setup-heading" hidden>
+            <h2 id="current-setup-heading" class="subhead">Current setup</h2>
+            <p id="current-setup-summary" class="hint"></p>
+            <p class="hint">
+              Your current provider keeps working until a new one passes its check and you finish setup.
+            </p>
+            <div class="actions">
+              <button type="button" class="button button-secondary" id="current-setup-test">Test current setup</button>
+            </div>
+            <p id="current-setup-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+
           <form id="choose-form" novalidate>
             <fieldset class="paths">
               <legend class="visually-hidden">Processing path</legend>
@@ -87,22 +99,27 @@
           <h1 id="gemini-heading" class="display">Connect Gemini</h1>
           <p class="lede">
             Paste the API key from Google AI Studio. Meeting Wiki chooses the Gemini settings for you. The key
-            is saved in the macOS Keychain and is not shown again after you save it.
+            is checked first and saved in the macOS Keychain only when you finish setup.
           </p>
 
           <form id="gemini-form" novalidate>
             <div class="field">
               <label for="gemini-api-key">Gemini API key</label>
-              <input
-                id="gemini-api-key"
-                name="apiKey"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                required
-                aria-describedby="gemini-api-key-hint gemini-api-key-error"
-              />
-              <p id="gemini-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs.</p>
+              <div class="key-row">
+                <input
+                  id="gemini-api-key"
+                  name="apiKey"
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                  aria-describedby="gemini-api-key-hint gemini-api-key-saved gemini-api-key-error"
+                />
+                <button type="button" class="button button-quiet" data-key-toggle="gemini-api-key" aria-controls="gemini-api-key" aria-pressed="false">Show key</button>
+                <button type="button" class="button button-quiet" data-key-paste="gemini-api-key" aria-controls="gemini-api-key">Paste</button>
+              </div>
+              <p id="gemini-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
+              <p id="gemini-api-key-saved" class="hint" hidden>A Gemini key is already saved. Leave this blank to check and keep using it.</p>
               <p id="gemini-api-key-error" class="field-error" hidden></p>
             </div>
 
@@ -119,7 +136,7 @@
 
             <div class="actions">
               <button type="button" class="button button-quiet" data-back="choose">Back</button>
-              <button type="submit" class="button button-primary" id="gemini-save">Save and check</button>
+              <button type="submit" class="button button-primary" id="gemini-save">Check key</button>
             </div>
           </form>
         </section>
@@ -128,8 +145,8 @@
         <section id="panel-online" class="panel" aria-labelledby="online-heading" tabindex="-1" hidden>
           <h1 id="online-heading" class="display">Connect an online provider</h1>
           <p class="lede">
-            Any OpenAI-compatible endpoint works. Your API key is saved in the macOS Keychain and is not shown
-            again after you save it.
+            Any OpenAI-compatible endpoint works. Your API key is checked first and saved in the macOS Keychain
+            only when you finish setup.
           </p>
 
           <form id="online-form" novalidate>
@@ -184,16 +201,21 @@
 
             <div class="field">
               <label for="online-api-key">API key</label>
-              <input
-                id="online-api-key"
-                name="apiKey"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                required
-                aria-describedby="online-api-key-hint online-api-key-error"
-              />
-              <p id="online-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs.</p>
+              <div class="key-row">
+                <input
+                  id="online-api-key"
+                  name="apiKey"
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                  aria-describedby="online-api-key-hint online-api-key-saved online-api-key-error"
+                />
+                <button type="button" class="button button-quiet" data-key-toggle="online-api-key" aria-controls="online-api-key" aria-pressed="false">Show key</button>
+                <button type="button" class="button button-quiet" data-key-paste="online-api-key" aria-controls="online-api-key">Paste</button>
+              </div>
+              <p id="online-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
+              <p id="online-api-key-saved" class="hint" hidden>A key is already saved for this provider type. Leave this blank to check and keep using it.</p>
               <p id="online-api-key-error" class="field-error" hidden></p>
             </div>
 
@@ -210,7 +232,7 @@
 
             <div class="actions">
               <button type="button" class="button button-quiet" data-back="choose">Back</button>
-              <button type="submit" class="button button-primary" id="online-save">Save and test connection</button>
+              <button type="submit" class="button button-primary" id="online-save">Test connection</button>
             </div>
           </form>
         </section>
@@ -262,8 +284,8 @@
         <section id="panel-done" class="panel" aria-labelledby="done-heading" tabindex="-1" hidden>
           <h1 id="done-heading" class="display">Setup saved</h1>
           <p class="lede">
-            Meeting Wiki is ready to record. You can change providers later in Settings, which runs a new
-            connection check first.
+            Meeting Wiki is ready to record. To change providers later, run setup again from the menu bar. Your
+            current provider keeps working until the new one passes its check and you finish.
           </p>
         </section>
       </main>

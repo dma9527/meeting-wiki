@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray } = require("electron");
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -201,6 +201,8 @@ function openSetupWindow() {
       configPath: CONFIG_PATH,
       python: PYTHON,
       spawnFn: spawn,
+      // Read only on an explicit Paste click; validated in setup-window.js and never stored.
+      readClipboard: () => clipboard.readText(),
       onComplete: restartProcessing,
     },
   );

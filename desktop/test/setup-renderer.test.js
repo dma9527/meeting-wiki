@@ -79,3 +79,41 @@ test("setup.js drives Gemini only through the narrow Gemini bridge actions", () 
   assert.match(js, /provider: "gemini"/);
   assert.doesNotMatch(js, /gemini-3|googleapis/);
 });
+
+test("every API key field has labelled Show and Paste controls wired to it", () => {
+  const html = read("setup.html");
+  for (const id of ["gemini-api-key", "online-api-key"]) {
+    assert.match(html, new RegExp(`data-key-toggle="${id}" aria-controls="${id}" aria-pressed="false">Show key<`));
+    assert.match(html, new RegExp(`data-key-paste="${id}" aria-controls="${id}">Paste<`));
+    assert.match(html, new RegExp(`id="${id}-saved" class="hint" hidden`));
+    assert.match(html, new RegExp(`aria-describedby="${id}-hint ${id}-saved ${id}-error"`));
+  }
+});
+
+test("a revealed key re-masks on a timer, on submit, and on step change", () => {
+  const js = read("setup.js");
+  assert.match(js, /const REVEAL_MS = 20_000;/);
+  assert.match(js, /window\.setTimeout\(\(\) => maskKey\(input, \{ announceIt: true \}\), REVEAL_MS\)/);
+  assert.match(js, /function goTo\(step\) \{\s*state\.step = step;\s*maskAllKeys\(\);/);
+  assert.equal((js.match(/maskKey\(apiKey\);/g) || []).length, 2, "both submits must re-mask");
+  assert.match(js, /setAttribute\("aria-pressed", "true"\)/);
+});
+
+test("Paste reads the clipboard only through the bridge and never logs or stores it", () => {
+  const js = read("setup.js");
+  assert.match(js, /call\("readClipboardApiKey"\)/);
+  assert.doesNotMatch(js, /navigator\.clipboard|console\./);
+  const paste = js.slice(js.indexOf("async function onPasteKey"), js.indexOf("function renderSavedKeyHints"));
+  assert.match(paste, /input\.value = result\.value;/);
+  assert.doesNotMatch(paste, /state\.|setAttribute\("value"|Storage/);
+});
+
+test("a blank key reuses the saved key and the current setup can be tested without changes", () => {
+  const js = read("setup.js");
+  assert.match(js, /const useSavedKey = !apiKey\.value\.trim\(\) && state\.savedKeys\.gemini;/);
+  assert.match(js, /const useSavedKey = !apiKey\.value\.trim\(\) && state\.savedKeys\.openai_compatible;/);
+  assert.match(js, /call\("testSavedProvider"\)/);
+  const choose = section(read("setup.html"), "panel-choose");
+  assert.match(choose, /id="current-setup-test"/);
+  assert.match(choose, /keeps working until a new one passes its check/);
+});

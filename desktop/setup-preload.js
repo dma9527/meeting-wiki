@@ -16,6 +16,7 @@ function pickOnlineSettings(settings) {
     transcriptionModel: text(source.transcriptionModel),
     languageModel: text(source.languageModel),
     apiKey: text(source.apiKey),
+    useSavedKey: source.useSavedKey === true,
     acknowledgedEgress: source.acknowledgedEgress === true,
   };
 }
@@ -24,6 +25,7 @@ function pickGeminiSettings(settings) {
   const source = settings && typeof settings === "object" ? settings : {};
   return {
     apiKey: typeof source.apiKey === "string" ? source.apiKey : "",
+    useSavedKey: source.useSavedKey === true,
     acknowledgedEgress: source.acknowledgedEgress === true,
   };
 }
@@ -53,6 +55,8 @@ contextBridge.exposeInMainWorld("meetingWikiSetup", {
   testOnlineProvider: () => ipcRenderer.invoke("setup:testOnlineProvider"),
   saveGeminiProvider: (settings) => ipcRenderer.invoke("setup:saveGeminiProvider", pickGeminiSettings(settings)),
   testGeminiProvider: (settings) => ipcRenderer.invoke("setup:testGeminiProvider", pickGeminiSettings(settings)),
+  testSavedProvider: () => ipcRenderer.invoke("setup:testSavedProvider"),
+  readClipboardApiKey: () => ipcRenderer.invoke("setup:readClipboardApiKey"),
   listLocalModels: () => ipcRenderer.invoke("setup:listLocalModels"),
   downloadLocalModel: (id) => ipcRenderer.invoke("setup:downloadLocalModel", typeof id === "string" ? id : ""),
   onLocalModelProgress: (callback) => {

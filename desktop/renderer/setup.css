@@ -412,6 +412,37 @@ input[aria-invalid="true"] {
   font-weight: 600;
 }
 
+/* API key input with Show/Hide and Paste controls. */
+.key-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.key-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.key-row .button {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 6px 12px;
+}
+
+.current-setup {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--sheet);
+}
+
+.current-setup .actions {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+
 .consent {
   display: grid;
   grid-template-columns: auto 1fr;

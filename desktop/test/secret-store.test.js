@@ -46,3 +46,11 @@ test("keys reject empty values and unavailable encryption", () => {
   });
   assert.throws(() => unavailable.save("openai", "test-key"), /Keychain/);
 });
+
+test("has reports presence without decrypting", () => {
+  const { store } = createStore();
+  assert.equal(store.has("gemini"), false);
+  store.save("gemini", "test-key");
+  assert.equal(store.has("gemini"), true);
+  assert.equal(store.has("online"), false);
+});

@@ -1,8 +1,9 @@
 "use strict";
 
-// First-run setup window. Same lockdown as wiki-window.js. An API key crosses from
-// the renderer exactly once (saveOnlineProvider or saveGeminiProvider), goes straight
-// to the Keychain-backed secret store, and is never returned, logged, or written to TOML.
+// First-run setup window. Same lockdown as wiki-window.js. A candidate API key crosses
+// from the renderer once (saveOnlineProvider or saveGeminiProvider) and is held only in
+// this session's memory. It reaches the Keychain-backed secret store at completeSetup,
+// after its own check passed, and is never returned, logged, or written to TOML.
 
 const crypto = require("crypto");
 const path = require("path");
@@ -39,6 +40,8 @@ const CHANNELS = Object.freeze({
   testOnlineProvider: "setup:testOnlineProvider",
   saveGeminiProvider: "setup:saveGeminiProvider",
   testGeminiProvider: "setup:testGeminiProvider",
+  testSavedProvider: "setup:testSavedProvider",
+  readClipboardApiKey: "setup:readClipboardApiKey",
   listLocalModels: "setup:listLocalModels",
   downloadLocalModel: "setup:downloadLocalModel",
   completeSetup: "setup:completeSetup",
@@ -343,6 +346,31 @@ function runProviderCheck({
   });
 }
 
+const UNCHANGED = "Your current provider settings are unchanged.";
+const NO_SAVED_KEY = "No saved key was found for this provider. Paste the API key.";
+const NO_SAVED_SETUP = "Finish setup first. There is no saved provider to test yet.";
+const CLIPBOARD_NOT_KEY = "The clipboard does not contain an API key. Copy the key from your provider and try again.";
+const MAX_CLIPBOARD_READ = 8192;
+const PROVIDER_CREDENTIALS = Object.freeze({
+  [OPENAI_PROVIDER]: { secretId: SECRET_ID, envName: API_KEY_ENV, successDetail: "Transcription and language endpoints responded." },
+  [GEMINI_PROVIDER]: {
+    secretId: GEMINI_SECRET_ID,
+    envName: GEMINI_API_KEY_ENV,
+    successDetail: "Gemini transcription and language providers are ready.",
+  },
+});
+
+function keychainError(error) {
+  return new SetupError(/Keychain/.test(error && error.message) ? "macOS Keychain encryption is unavailable." : "The API key could not be saved.");
+}
+
+// Validates a clipboard value as an API key; the value is returned only to the setup field.
+function clipboardApiKey(text) {
+  if (typeof text !== "string" || text.length > MAX_CLIPBOARD_READ) return { error: CLIPBOARD_NOT_KEY };
+  const value = text.trim();
+  return API_KEY_PATTERN.test(value) ? { value } : { error: CLIPBOARD_NOT_KEY };
+}
+
 function createSetupController({
   fs,
   secretStore,
@@ -353,85 +381,185 @@ function createSetupController({
   baseEnv = process.env,
   now = () => new Date(),
   onComplete = () => {},
+  readClipboard = () => "",
 }) {
-  // savedProvider/testedProvider name the provider whose settings were saved and checked
-  // in this window session; a new save of either provider resets both.
-  const session = { savedProvider: null, testedProvider: null };
+  // A candidate lives only in this window session's memory. Disk, Keychain, and setup state
+  // change once, at completeSetup, and only after the candidate passed its own check.
+  const session = { candidate: null, testedProvider: null };
 
   // Rerunning setup keeps the name and aliases saved in Settings.
   function currentIdentity() {
     return readManagedIdentity(readText(fs, configPath)) || EMPTY_IDENTITY;
   }
 
-  function saveProvider(provider, secretId, apiKey, renderConfig) {
-    session.savedProvider = null;
-    session.testedProvider = null;
+  function readSecret(secretId) {
     try {
-      secretStore.save(secretId, apiKey);
-    } catch (error) {
-      throw new SetupError(
-        /Keychain/.test(error && error.message) ? "macOS Keychain encryption is unavailable." : "The API key could not be saved.",
-      );
-    }
-    try {
-      const config = renderConfig(currentIdentity());
-      backupUnmanagedConfig(fs, configPath, now);
-      atomicWriteFile(fs, configPath, config);
-    } catch (_) {
-      throw new SetupError("The provider settings could not be saved.");
-    }
-    session.savedProvider = provider;
-    return { ok: true };
-  }
-
-  async function testProvider(provider, secretId, checkOptions) {
-    if (session.savedProvider !== provider) throw new SetupError("Save the provider settings before testing.");
-    if (!fs.existsSync(python)) {
-      throw new SetupError("The Meeting Wiki engine is not installed yet, so the connection cannot be tested.");
-    }
-    let apiKey = "";
-    try {
-      apiKey = secretStore.read(secretId);
+      return secretStore.read(secretId) || "";
     } catch (_) {
       throw new SetupError("macOS Keychain encryption is unavailable.");
     }
-    if (!apiKey) throw new SetupError("The saved API key could not be read. Enter it again.");
-    const result = await runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, ...checkOptions });
-    apiKey = "";
-    session.testedProvider = result.ok ? provider : null;
-    return result;
+  }
+
+  function savedKeyPresent(secretId) {
+    try {
+      return typeof secretStore.has === "function" ? secretStore.has(secretId) === true : false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function stageProvider(provider, apiKey, useSavedKey, renderConfig) {
+    session.candidate = null;
+    session.testedProvider = null;
+    const { secretId } = PROVIDER_CREDENTIALS[provider];
+    let key = apiKey;
+    if (!key && useSavedKey) key = readSecret(secretId);
+    if (!key) throw new SetupError(useSavedKey ? NO_SAVED_KEY : "Enter the API key from your provider.");
+    const candidate = { provider, apiKey: key, renderConfig };
+    candidateConfig(candidate);
+    session.candidate = candidate;
+    return { ok: true };
+  }
+
+  // Rendered from the current identity each time, so a Settings name edit made between the
+  // check and Finish is kept.
+  function candidateConfig(candidate) {
+    try {
+      return candidate.renderConfig(currentIdentity());
+    } catch (_) {
+      throw new SetupError("The provider settings could not be prepared.");
+    }
+  }
+
+  // The candidate config is checked from an owner-only temp file; the active config is untouched.
+  async function testCandidate(provider) {
+    const candidate = session.candidate;
+    if (!candidate || candidate.provider !== provider) throw new SetupError("Save the provider settings before testing.");
+    if (!fs.existsSync(python)) {
+      throw new SetupError("The Meeting Wiki engine is not installed yet, so the connection cannot be tested.");
+    }
+    const tempConfig = path.join(dataDir, `.config.candidate.${crypto.randomBytes(6).toString("hex")}.toml`);
+    const { envName, successDetail } = PROVIDER_CREDENTIALS[provider];
+    let result;
+    try {
+      atomicWriteFile(fs, tempConfig, candidateConfig(candidate));
+      result = await runProviderCheck({ spawnFn, python, configPath: tempConfig, apiKey: candidate.apiKey, baseEnv, envName, successDetail });
+    } catch (_) {
+      result = { error: "The connection check could not start." };
+    } finally {
+      try { fs.unlinkSync(tempConfig); } catch (_) { /* never written */ }
+    }
+    if (result.ok) {
+      session.testedProvider = provider;
+      return result;
+    }
+    // A failed candidate is discarded so a retry never reuses a rejected key.
+    session.candidate = null;
+    session.testedProvider = null;
+    return { error: `${result.error} ${UNCHANGED}` };
+  }
+
+  function withRollback(write, undo) {
+    try {
+      write();
+    } catch (error) {
+      try { undo(); } catch (_) { /* best effort */ }
+      throw error;
+    }
+  }
+
+  // Keychain, config, then setup state. Any failure rolls back the earlier steps.
+  function commitCandidate(candidate, mode) {
+    const { secretId } = PROVIDER_CREDENTIALS[candidate.provider];
+    const statePath = path.join(dataDir, SETUP_STATE_FILE);
+    const previousKey = readSecret(secretId);
+    const previousConfig = readText(fs, configPath);
+    const restoreKey = () => (previousKey ? secretStore.save(secretId, previousKey) : secretStore.remove(secretId));
+    const configText = candidateConfig(candidate);
+    const restoreConfig = () => (previousConfig === null ? fs.unlinkSync(configPath) : atomicWriteFile(fs, configPath, previousConfig));
+    try {
+      secretStore.save(secretId, candidate.apiKey);
+    } catch (error) {
+      throw keychainError(error);
+    }
+    try {
+      withRollback(() => {
+        backupUnmanagedConfig(fs, configPath, now);
+        atomicWriteFile(fs, configPath, configText);
+      }, restoreKey);
+    } catch (_) {
+      throw new SetupError(`The provider settings could not be saved. ${UNCHANGED}`);
+    }
+    const state = JSON.stringify({ version: 1, completed: true, mode, provider: candidate.provider, completedAt: now().toISOString() });
+    try {
+      withRollback(() => atomicWriteFile(fs, statePath, state), () => { restoreConfig(); restoreKey(); });
+    } catch (_) {
+      throw new SetupError(`Setup could not be saved. ${UNCHANGED}`);
+    }
   }
 
   return {
     getSetupState() {
       const completed = readSetupState(fs, dataDir);
-      const result = { storagePath: dataDir };
+      const result = {
+        storagePath: dataDir,
+        savedKeys: {
+          [GEMINI_PROVIDER]: savedKeyPresent(GEMINI_SECRET_ID),
+          [OPENAI_PROVIDER]: savedKeyPresent(SECRET_ID),
+        },
+      };
       if (completed && (completed.mode === "online" || completed.mode === "local")) result.mode = completed.mode;
       if (result.mode === "online" && completed.provider === GEMINI_PROVIDER) result.provider = GEMINI_PROVIDER;
       return result;
     },
 
     saveOnlineProvider(raw) {
-      const { settings, apiKey } = validateOnlineSettings(raw);
-      return saveProvider(OPENAI_PROVIDER, SECRET_ID, apiKey, (identity) => renderOnlineConfig(settings, identity));
+      const source = raw && typeof raw === "object" ? raw : {};
+      // A blank key with useSavedKey reuses the Keychain key; the placeholder only passes validation.
+      const useSavedKey = source.useSavedKey === true && !String(source.apiKey || "").trim();
+      const { settings, apiKey } = validateOnlineSettings(useSavedKey ? { ...source, apiKey: "saved" } : source);
+      return stageProvider(OPENAI_PROVIDER, useSavedKey ? "" : apiKey, useSavedKey, (identity) => renderOnlineConfig(settings, identity));
     },
 
     testOnlineProvider() {
-      return testProvider(OPENAI_PROVIDER, SECRET_ID, {});
+      return testCandidate(OPENAI_PROVIDER);
     },
 
     saveGeminiProvider(raw) {
-      const { apiKey } = validateGeminiSettings(raw);
-      return saveProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, apiKey, (identity) => renderGeminiConfig({}, identity));
+      const source = raw && typeof raw === "object" ? raw : {};
+      const useSavedKey = source.useSavedKey === true && !String(source.apiKey || "").trim();
+      const { apiKey } = validateGeminiSettings(useSavedKey ? { ...source, apiKey: "saved" } : source);
+      return stageProvider(GEMINI_PROVIDER, useSavedKey ? "" : apiKey, useSavedKey, (identity) => renderGeminiConfig({}, identity));
     },
 
     // The renderer never resends the key; only the egress acknowledgement is checked.
     testGeminiProvider(raw) {
       requireEgressAck(raw);
-      return testProvider(GEMINI_PROVIDER, GEMINI_SECRET_ID, {
-        envName: GEMINI_API_KEY_ENV,
-        successDetail: "Gemini transcription and language providers are ready.",
-      });
+      return testCandidate(GEMINI_PROVIDER);
+    },
+
+    // Checks the active provider with the Keychain key. Changes nothing on disk.
+    async testSavedProvider() {
+      const credentials = providerCredentials(readSetupState(fs, dataDir));
+      if (!credentials) throw new SetupError(NO_SAVED_SETUP);
+      if (!fs.existsSync(python)) {
+        throw new SetupError("The Meeting Wiki engine is not installed yet, so the connection cannot be tested.");
+      }
+      let apiKey = readSecret(credentials.secretId);
+      if (!apiKey) throw new SetupError(credentials.unavailable);
+      const result = await runProviderCheck({ spawnFn, python, configPath, apiKey, baseEnv, envName: credentials.envName });
+      apiKey = "";
+      return result.ok ? { ok: true, detail: "Your saved provider and key responded." } : result;
+    },
+
+    readClipboardApiKey() {
+      let text;
+      try {
+        text = readClipboard();
+      } catch (_) {
+        return { error: CLIPBOARD_NOT_KEY };
+      }
+      return clipboardApiKey(text);
     },
 
     listLocalModels() {
@@ -448,16 +576,13 @@ function createSetupController({
       if (mode === "local") throw new SetupError(LOCAL_UNAVAILABLE);
       if (mode !== "online") throw new SetupError("Choose a setup path first.");
       const provider = source.provider === GEMINI_PROVIDER ? GEMINI_PROVIDER : OPENAI_PROVIDER;
-      if (session.testedProvider !== provider) throw new SetupError("Test the provider connection before finishing.");
-      try {
-        atomicWriteFile(
-          fs,
-          path.join(dataDir, SETUP_STATE_FILE),
-          JSON.stringify({ version: 1, completed: true, mode, provider, completedAt: now().toISOString() }),
-        );
-      } catch (_) {
-        throw new SetupError("Setup could not be saved.");
+      const candidate = session.candidate;
+      if (session.testedProvider !== provider || !candidate || candidate.provider !== provider) {
+        throw new SetupError("Test the provider connection before finishing.");
       }
+      commitCandidate(candidate, mode);
+      session.candidate = null;
+      session.testedProvider = null;
       onComplete(mode);
       return { ok: true };
     },
@@ -487,6 +612,8 @@ function registerSetupHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.testOnlineProvider, (controller) => controller.testOnlineProvider());
   handle(CHANNELS.saveGeminiProvider, (controller, settings) => controller.saveGeminiProvider(settings));
   handle(CHANNELS.testGeminiProvider, (controller, settings) => controller.testGeminiProvider(settings));
+  handle(CHANNELS.testSavedProvider, (controller) => controller.testSavedProvider());
+  handle(CHANNELS.readClipboardApiKey, (controller) => controller.readClipboardApiKey());
   handle(CHANNELS.listLocalModels, (controller) => controller.listLocalModels());
   handle(CHANNELS.downloadLocalModel, (controller, id) => controller.downloadLocalModel(String(id || "")));
   handle(CHANNELS.completeSetup, (controller, options) => controller.completeSetup(options));
@@ -567,7 +694,9 @@ module.exports = {
   MODEL_PATTERN,
   SECRET_ID,
   SetupError,
+  UNCHANGED,
   atomicWriteFile,
+  clipboardApiKey,
   createSetupController,
   createSetupWindow,
   failureDetail,

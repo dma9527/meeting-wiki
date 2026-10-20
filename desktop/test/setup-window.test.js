@@ -102,14 +102,18 @@ test("tomlString escapes quotes, backslashes, and control characters", () => {
   assert.equal(setup.tomlString('a"b\\c\n'), '"a\\"b\\\\c\\u000a"');
 });
 
-test("saveOnlineProvider stores the key encrypted and writes only its env name to TOML", () => {
+test("saveOnlineProvider stages in memory; only completeSetup writes the key and env name", async () => {
   const dataDir = tempDataDir();
-  const { controller } = controllerFor(dataDir);
+  const { controller } = controllerFor(dataDir, { code: 0 });
 
   const result = controller.saveOnlineProvider({ ...VALID_SETTINGS });
 
   assert.deepEqual(result, { ok: true });
   const configPath = path.join(dataDir, "config.toml");
+  assert.deepEqual(fs.readdirSync(dataDir), ["python"], "staging must not touch disk");
+  await controller.testOnlineProvider();
+  assert.deepEqual(fs.readdirSync(dataDir), ["python"], "a passing check must not touch the active state");
+  controller.completeSetup({ mode: "online" });
   const config = fs.readFileSync(configPath, "utf8");
   assert.ok(config.startsWith(setup.MANAGED_HEADER));
   assert.match(config, /^api_key_env = "MEETING_WIKI_ONLINE_API_KEY"$/m);
@@ -119,16 +123,19 @@ test("saveOnlineProvider stores the key encrypted and writes only its env name t
   assert.equal(mode(configPath), 0o600);
   assert.equal(mode(dataDir), 0o700);
   for (const content of filesUnder(dataDir)) assert.ok(!content.includes(TEST_KEY), "plaintext key on disk");
-  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp") || name.includes("candidate")), []);
 });
 
-test("saveOnlineProvider backs up a hand-written config owner-only before replacing it", () => {
+test("completeSetup backs up a hand-written config owner-only before replacing it", async () => {
   const dataDir = tempDataDir();
   const configPath = path.join(dataDir, "config.toml");
   fs.writeFileSync(configPath, 'user_name = "Test User"\n', { mode: 0o600 });
-  const { controller } = controllerFor(dataDir);
+  const { controller } = controllerFor(dataDir, { code: 0 });
 
   controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  assert.equal(fs.readdirSync(dataDir).filter((name) => name.startsWith("config.toml.before-setup-")).length, 0);
+  controller.completeSetup({ mode: "online" });
 
   const backups = fs.readdirSync(dataDir).filter((name) => name.startsWith("config.toml.before-setup-"));
   assert.equal(backups.length, 1);
@@ -137,11 +144,15 @@ test("saveOnlineProvider backs up a hand-written config owner-only before replac
   assert.equal(mode(backupPath), 0o600);
 
   controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  controller.completeSetup({ mode: "online" });
   assert.equal(fs.readdirSync(dataDir).filter((name) => name.startsWith("config.toml.before-setup-")).length, 1);
 });
 
-test("saveOnlineProvider writes nothing when Keychain encryption is unavailable", () => {
+test("completeSetup writes nothing when Keychain encryption is unavailable", async () => {
   const dataDir = tempDataDir();
+  const python = path.join(dataDir, "python");
+  fs.writeFileSync(python, "", { mode: 0o700 });
   const controller = setup.createSetupController({
     fs,
     secretStore: createSecretStore({
@@ -151,11 +162,191 @@ test("saveOnlineProvider writes nothing when Keychain encryption is unavailable"
     }),
     dataDir,
     configPath: path.join(dataDir, "config.toml"),
-    python: "/nonexistent/python",
-    spawnFn: () => assert.fail("spawn must not run"),
+    python,
+    spawnFn: fakeSpawn({ code: 0 }).spawnFn,
   });
-  assert.throws(() => controller.saveOnlineProvider({ ...VALID_SETTINGS }), /Keychain encryption is unavailable/);
-  assert.deepEqual(fs.readdirSync(dataDir), []);
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  assert.throws(() => controller.completeSetup({ mode: "online" }), /Keychain encryption is unavailable/);
+  assert.deepEqual(fs.readdirSync(dataDir), ["python"]);
+});
+
+// Active Gemini setup with a known key, config, and state, to prove replacements never touch them.
+function activeGeminiSetup(dataDir) {
+  const secretStore = createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") });
+  secretStore.save(setup.GEMINI_SECRET_ID, "test-active-gemini-key-0000");
+  fs.writeFileSync(path.join(dataDir, "config.toml"), setup.renderGeminiConfig(), { mode: 0o600 });
+  fs.writeFileSync(
+    path.join(dataDir, "setup-state.json"),
+    JSON.stringify({ version: 1, completed: true, mode: "online", provider: "gemini" }),
+    { mode: 0o600 },
+  );
+  return secretStore;
+}
+
+function snapshot(dataDir) {
+  return Object.fromEntries(
+    fs.readdirSync(dataDir).sort().map((name) => [name, fs.readFileSync(path.join(dataDir, name), "utf8")]),
+  );
+}
+
+function controllerWithStore(dataDir, secretStore, spawnOptions, extra = {}) {
+  const python = path.join(dataDir, "python");
+  fs.writeFileSync(python, "", { mode: 0o700 });
+  const spawn = fakeSpawn(spawnOptions);
+  const completed = [];
+  const controller = setup.createSetupController({
+    fs,
+    secretStore,
+    dataDir,
+    configPath: path.join(dataDir, "config.toml"),
+    python,
+    spawnFn: spawn.spawnFn,
+    baseEnv: { PATH: "/usr/bin" },
+    now: () => new Date("2026-01-01T00:00:00Z"),
+    onComplete: (value) => completed.push(value),
+    ...extra,
+  });
+  return { controller, spawn, completed };
+}
+
+test("a failed replacement check keeps the active provider, key, and setup state byte-identical", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const { controller, completed } = controllerWithStore(dataDir, secretStore, { code: 1, stdout: "FAIL llm: 401\n" });
+  const before = snapshot(dataDir);
+
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  const result = await controller.testOnlineProvider();
+
+  assert.match(result.error, /FAIL llm: 401/);
+  assert.match(result.error, /current provider settings are unchanged/);
+  assert.deepEqual(snapshot(dataDir), before);
+  assert.equal(secretStore.read(setup.GEMINI_SECRET_ID), "test-active-gemini-key-0000");
+  assert.throws(() => controller.completeSetup({ mode: "online" }), /Test the provider connection/);
+  await assert.rejects(async () => controller.testOnlineProvider(), /Save the provider settings/, "a rejected candidate is discarded");
+  assert.deepEqual(completed, []);
+});
+
+test("a passing check without Finish leaves the active setup untouched", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const { controller } = controllerWithStore(dataDir, secretStore, { code: 0 });
+  const before = snapshot(dataDir);
+  controller.saveGeminiProvider({ apiKey: "test-replacement-key-0000", acknowledgedEgress: true });
+  assert.equal((await controller.testGeminiProvider({ acknowledgedEgress: true })).ok, true);
+  assert.deepEqual(snapshot(dataDir), before);
+});
+
+test("the candidate check uses a temporary owner-only config that is removed afterwards", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  let seenConfig = "";
+  let seenMode = 0;
+  const python = path.join(dataDir, "python");
+  fs.writeFileSync(python, "", { mode: 0o700 });
+  const spawnFn = (_command, args) => {
+    seenConfig = fs.readFileSync(args[3], "utf8");
+    seenMode = mode(args[3]);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => child.emit("close", 0));
+    child.args = args;
+    return child;
+  };
+  const controller = setup.createSetupController({
+    fs, secretStore, dataDir, configPath: path.join(dataDir, "config.toml"), python, spawnFn, baseEnv: {},
+  });
+  controller.saveOnlineProvider({ ...VALID_SETTINGS });
+  await controller.testOnlineProvider();
+  assert.match(seenConfig, /openai_compatible/);
+  assert.equal(seenMode, 0o600);
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.includes("candidate")), []);
+  assert.match(fs.readFileSync(path.join(dataDir, "config.toml"), "utf8"), /"gemini"/);
+});
+
+test("useSavedKey replaces settings with the Keychain key and no re-paste", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const { controller, spawn } = controllerWithStore(dataDir, secretStore, { code: 0 });
+  controller.saveGeminiProvider({ apiKey: "", useSavedKey: true, acknowledgedEgress: true });
+  await controller.testGeminiProvider({ acknowledgedEgress: true });
+  assert.equal(spawn.calls[0].env.MEETING_WIKI_GEMINI_API_KEY, "test-active-gemini-key-0000");
+  controller.completeSetup({ mode: "online", provider: "gemini" });
+  assert.equal(secretStore.read(setup.GEMINI_SECRET_ID), "test-active-gemini-key-0000");
+
+  assert.throws(
+    () => controller.saveOnlineProvider({ ...VALID_SETTINGS, apiKey: "", useSavedKey: true }),
+    /No saved key was found/,
+  );
+  assert.throws(() => controller.saveOnlineProvider({ ...VALID_SETTINGS, apiKey: "" }), /API key/);
+});
+
+test("testSavedProvider checks the active config and key and changes nothing", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const { controller, spawn } = controllerWithStore(dataDir, secretStore, { code: 0 });
+  const before = snapshot(dataDir);
+  const result = await controller.testSavedProvider();
+  assert.deepEqual(result, { ok: true, detail: "Your saved provider and key responded." });
+  const [call] = spawn.calls;
+  assert.equal(call.args[3], path.join(dataDir, "config.toml"));
+  assert.equal(call.env.MEETING_WIKI_GEMINI_API_KEY, "test-active-gemini-key-0000");
+  assert.equal("MEETING_WIKI_GEMINI_API_KEY" in call.liveEnv, false);
+  assert.deepEqual(snapshot(dataDir), before);
+
+  const fresh = controllerFor(tempDataDir()).controller;
+  await assert.rejects(async () => fresh.testSavedProvider(), /Finish setup first/);
+});
+
+test("a failed setup-state write rolls back the key and config", async () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const before = snapshot(dataDir);
+  const failingFs = {
+    ...fs,
+    renameSync: (from, to) => {
+      if (path.basename(to) === "setup-state.json") throw new Error("disk full");
+      return fs.renameSync(from, to);
+    },
+  };
+  const { controller, completed } = controllerWithStore(dataDir, secretStore, { code: 0 }, { fs: failingFs });
+  controller.saveGeminiProvider({ apiKey: "test-replacement-key-0000", acknowledgedEgress: true });
+  await controller.testGeminiProvider({ acknowledgedEgress: true });
+  assert.throws(() => controller.completeSetup({ mode: "online", provider: "gemini" }), /current provider settings are unchanged/);
+  const after = snapshot(dataDir);
+  assert.equal(after["config.toml"], before["config.toml"]);
+  assert.equal(after["setup-state.json"], before["setup-state.json"]);
+  assert.equal(secretStore.read(setup.GEMINI_SECRET_ID), "test-active-gemini-key-0000");
+  assert.deepEqual(completed, []);
+});
+
+test("getSetupState reports only whether keys are saved", () => {
+  const dataDir = tempDataDir();
+  const secretStore = activeGeminiSetup(dataDir);
+  const { controller } = controllerWithStore(dataDir, secretStore, { code: 0 });
+  const state = controller.getSetupState();
+  assert.deepEqual(state.savedKeys, { gemini: true, openai_compatible: false });
+  assert.ok(!JSON.stringify(state).includes("test-active-gemini-key"));
+});
+
+test("clipboard paste returns only a single-line key and never stores it", () => {
+  const dataDir = tempDataDir();
+  let clipboard = "  test-clipboard-key-0000\n";
+  const { controller } = controllerWithStore(dataDir, createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") }), {}, {
+    readClipboard: () => clipboard,
+  });
+  assert.deepEqual(controller.readClipboardApiKey(), { value: "test-clipboard-key-0000" });
+  for (const value of ["", "two words", "line\nbreak", "x".repeat(9000), 42]) {
+    clipboard = value;
+    assert.match(controller.readClipboardApiKey().error, /clipboard does not contain an API key/);
+  }
+  const throwing = controllerWithStore(tempDataDir(), { read: () => "", has: () => false }, {}, {
+    readClipboard: () => { throw new Error("denied test-secret"); },
+  }).controller;
+  assert.deepEqual(throwing.readClipboardApiKey(), { error: setup.clipboardApiKey("").error });
+  assert.deepEqual(fs.readdirSync(dataDir), ["python"]);
 });
 
 test("testOnlineProvider injects the key only into the checker child environment", async () => {
@@ -172,7 +363,8 @@ test("testOnlineProvider injects the key only into the checker child environment
   const [call] = spawn.calls;
   assert.equal(call.env.MEETING_WIKI_ONLINE_API_KEY, TEST_KEY);
   assert.equal(call.env.PATH, "/usr/bin");
-  assert.deepEqual(call.args, ["-m", "meeting_wiki.cli", "--config", path.join(dataDir, "config.toml"), "doctor"]);
+  assert.deepEqual(call.args.filter((_, index) => index !== 3), ["-m", "meeting_wiki.cli", "--config", "doctor"]);
+  assert.match(call.args[3], /\/\.config\.candidate\.[0-9a-f]{12}\.toml$/);
   assert.ok(!call.args.some((arg) => arg.includes(TEST_KEY)));
   assert.equal("MEETING_WIKI_ONLINE_API_KEY" in call.liveEnv, false, "key not discarded after check");
   assert.equal("MEETING_WIKI_ONLINE_API_KEY" in baseEnv, false);
@@ -235,7 +427,7 @@ test("completeSetup requires a passing online test and records completion", asyn
   assert.equal(mode(statePath), 0o600);
   assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).mode, "online");
   assert.equal(setup.needsSetup(fs, dataDir, configPath), false);
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
 });
 
 test("needsSetup treats a pre-existing hand-written config as configured", () => {
@@ -351,7 +543,10 @@ test("setup window uses the same hardening as the wiki window and loads only set
 
   const getState = setupFake.handlers.get(setup.CHANNELS.getSetupState);
   const setupUrl = require("url").pathToFileURL(path.join(__dirname, "..", "renderer", "setup.html")).href;
-  assert.deepEqual(await getState({ sender: win.webContents, senderFrame: { url: setupUrl } }), { storagePath: dataDir });
+  assert.deepEqual(await getState({ sender: win.webContents, senderFrame: { url: setupUrl } }), {
+    storagePath: dataDir,
+    savedKeys: { gemini: false, openai_compatible: false },
+  });
   assert.match((await getState({ sender: win.webContents, senderFrame: { url: "https://evil.test/" } })).error, /setup window/);
   assert.match((await getState({ sender: {}, senderFrame: { url: setupUrl } })).error, /setup window/);
 });
@@ -508,11 +703,14 @@ test("renderGeminiConfig selects gemini everywhere with the default models and o
   assert.doesNotMatch(config, /openai|MEETING_WIKI_ONLINE_API_KEY|base_url/);
 });
 
-test("saveGeminiProvider stores the key encrypted under the gemini secret and never on disk in plaintext", () => {
+test("a committed Gemini setup stores the key encrypted under the gemini secret and never in plaintext", async () => {
   const dataDir = tempDataDir();
-  const { controller } = controllerFor(dataDir);
+  const { controller } = controllerFor(dataDir, { code: 0 });
 
   assert.deepEqual(controller.saveGeminiProvider({ ...GEMINI_SETTINGS }), { ok: true });
+  assert.equal(fs.existsSync(path.join(dataDir, "secrets.json")), false, "staging must not touch the Keychain store");
+  await controller.testGeminiProvider({ acknowledgedEgress: true });
+  controller.completeSetup({ mode: "online", provider: "gemini" });
 
   const secrets = JSON.parse(fs.readFileSync(path.join(dataDir, "secrets.json"), "utf8"));
   assert.deepEqual(Object.keys(secrets), ["gemini"]);
@@ -547,7 +745,8 @@ test("testGeminiProvider runs doctor with only the Gemini key in the child envir
   const [call] = spawn.calls;
   assert.equal(call.env.MEETING_WIKI_GEMINI_API_KEY, GEMINI_KEY);
   assert.equal("MEETING_WIKI_ONLINE_API_KEY" in call.env, false, "online key leaked into Gemini check");
-  assert.deepEqual(call.args, ["-m", "meeting_wiki.cli", "--config", path.join(dataDir, "config.toml"), "doctor"]);
+  assert.deepEqual(call.args.filter((_, index) => index !== 3), ["-m", "meeting_wiki.cli", "--config", "doctor"]);
+  assert.match(call.args[3], /\/\.config\.candidate\.[0-9a-f]{12}\.toml$/);
   assert.ok(!call.args.some((arg) => arg.includes(GEMINI_KEY)));
   assert.equal("MEETING_WIKI_GEMINI_API_KEY" in call.liveEnv, false, "key not discarded after check");
   assert.equal(baseEnv.MEETING_WIKI_GEMINI_API_KEY, "inherited-gemini-value");
@@ -578,7 +777,7 @@ test("completeSetup records the Gemini provider and requires the matching provid
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
   assert.equal(saved.mode, "online");
   assert.equal(saved.provider, "gemini");
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online", provider: "gemini" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: true, openai_compatible: false }, mode: "online", provider: "gemini" });
 });
 
 test("saving the generic provider after a Gemini test invalidates the Gemini session", async () => {
@@ -592,7 +791,7 @@ test("saving the generic provider after a Gemini test invalidates the Gemini ses
   assert.deepEqual(controller.completeSetup({ mode: "online" }), { ok: true });
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "setup-state.json"), "utf8"));
   assert.equal(saved.provider, "openai_compatible");
-  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, mode: "online" });
+  assert.deepEqual(controller.getSetupState(), { storagePath: dataDir, savedKeys: { gemini: false, openai_compatible: true }, mode: "online" });
 });
 
 test("the generic OpenAI-compatible check keeps only the online key in the child environment", async () => {
