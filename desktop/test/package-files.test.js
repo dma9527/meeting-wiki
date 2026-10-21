@@ -37,11 +37,28 @@ test("build.files lists every runtime source file that must ship", () => {
     "live-sidebar-preload.js",
     "recording-session.js",
     "recording-settings.js",
+    "auto-record.js",
+    "integration-settings.js",
+    "integration-service.js",
+    "zoom-detector.js",
+    "meet-protocol.js",
+    "meet-bridge.js",
+    "meet-native-host.js",
     "renderer/**",
   ];
   for (const entry of required) {
     assert.ok(files.includes(entry), `build.files is missing ${entry}`);
   }
+});
+
+test("the Google Meet extension ships as a resource the main process can find", () => {
+  const entry = pkg.build.extraResources.find((resource) => resource.from === "browser-extension");
+  assert.ok(entry, "build.extraResources must stage the browser extension");
+  assert.equal(entry.to, "browser-extension");
+  for (const file of entry.filter) assert.ok(fs.existsSync(path.join(ROOT, "browser-extension", file)), `missing ${file}`);
+  const main = fs.readFileSync(path.join(ROOT, "main.js"), "utf8");
+  assert.match(main, /path\.join\(process\.resourcesPath, "browser-extension", "google-meet"\)/);
+  assert.ok(!pkg.build.files.some((file) => file.startsWith("browser-extension")), "the extension must not be inside app.asar");
 });
 
 test("every packaged path exists on disk", () => {

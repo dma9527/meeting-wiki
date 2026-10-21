@@ -324,6 +324,26 @@ meeting-wiki correct --meeting wiki/meetings/<page>.md --speaker "Remote partici
 
 Without `--reprocess`, `correct` prints the plan and enqueues nothing.
 
+## Automatic recording for Zoom and Google Meet
+
+Settings > Automatic recording can start a recording when you join a meeting and
+stop, save, and process it when you leave. Both integrations are off until you
+turn them on. There is no countdown; the tray recording icon and the "Recording
+started" notification show that it is recording. A meeting that ends within 10
+seconds is discarded instead of processed.
+
+- **Zoom app:** a 3-second local check of Zoom's processes, UDP sockets, and
+  display-sleep assertion with `ps`, `lsof`, and `pmset`. No Zoom windows, chat,
+  or participants are read.
+- **Google Meet:** a bundled Chromium extension
+  (`desktop/browser-extension/google-meet`, loaded once with Load unpacked)
+  reports only whether the Leave call control exists. It reaches Meeting Wiki
+  through a native messaging host pinned to the extension's ID and a private
+  folder, with no network listener.
+
+[docs/integrations.md](docs/integrations.md) lists every signal, boundary,
+supported browser, and startup constraint.
+
 ## Processing status and recovery
 
 The menubar shows whether meetings are processing or need attention. It also

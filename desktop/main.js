@@ -21,6 +21,12 @@ const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("
 const { formatSelfCheck, runSelfCheck } = require("./self-check");
 const { readMaxDurationMinutes } = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
+const { AutoRecordCoordinator, SHORT_DISCARD_NOTICE, SOURCES } = require("./auto-record");
+const { readIntegrationSettings } = require("./integration-settings");
+const { createIntegrationService } = require("./integration-service");
+const { MeetSpoolWatcher, createMeetBridge } = require("./meet-bridge");
+const { ZoomMeetingWatcher, sampleZoom } = require("./zoom-detector");
+const { atomicWriteFile } = require("./setup-window");
 const {
   IngestTracker,
   LIMIT_NOTICE,
@@ -100,6 +106,68 @@ const liveSession = new LiveSessionManager({
 const recordingSession = new RecordingSession({ onLimit: () => { void stopRecording("limit"); } });
 const ingests = new IngestTracker();
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
+
+// Auto-record integrations. Both are off unless enabled in Settings; see docs/integrations.md.
+const MEET_EXTENSION_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "browser-extension", "google-meet")
+  : path.join(__dirname, "browser-extension", "google-meet");
+const meetBridge = createMeetBridge({
+  fs,
+  dataDir: DATA_DIR,
+  homeDir: os.homedir(),
+  execPath: process.execPath,
+  hostScript: path.join(__dirname, "meet-native-host.js"),
+});
+const autoRecord = new AutoRecordCoordinator({
+  canStart: () => recordingSession.idle && !capture.active && !quitRequested,
+  start: (request) => startRecording(request),
+  stop: () => stopRecording("integration"),
+  discard: async () => {
+    await discardRecording();
+    notify(SHORT_DISCARD_NOTICE.title, SHORT_DISCARD_NOTICE.body);
+  },
+  elapsedMs: () => recordingSession.elapsedMs(),
+});
+const zoomWatcher = new ZoomMeetingWatcher({
+  sample: () => sampleZoom({ execFile }),
+  onJoin: (info) => { void autoRecord.join(SOURCES.zoom.id, info); },
+  onLeave: () => { void autoRecord.leave(SOURCES.zoom.id); },
+});
+const meetWatcher = new MeetSpoolWatcher({
+  fs,
+  spoolDir: meetBridge.paths.spoolDir,
+  onJoin: (info) => { void autoRecord.join(SOURCES.googleMeet.id, info); },
+  onLeave: () => { void autoRecord.leave(SOURCES.googleMeet.id); },
+});
+const integrations = createIntegrationService({
+  fs,
+  dataDir: DATA_DIR,
+  atomicWriteFile,
+  meetBridge,
+  extensionDir: MEET_EXTENSION_DIR,
+  mediaAccess: (type) => systemPreferences.getMediaAccessStatus(type),
+  zoomStatus: () => zoomWatcher.status(),
+  meetStatus: () => ({
+    state: !meetWatcher.running ? "off" : meetWatcher.tracker.joined ? "in-meeting" : "watching",
+    lastSeenAt: meetWatcher.lastSeenAt,
+  }),
+  revealPath: (target) => shell.showItemInFolder(path.join(target, "manifest.json")),
+  onChanged: applyIntegrationSettings,
+});
+
+// Starts or stops each watcher to match the saved opt-ins. Turning one off never stops a recording.
+function applyIntegrationSettings(values = readIntegrationSettings(fs, DATA_DIR)) {
+  if (values.zoomAutoRecord) zoomWatcher.start();
+  else {
+    zoomWatcher.stop();
+    autoRecord.release(SOURCES.zoom.id);
+  }
+  if (values.googleMeetAutoRecord) meetWatcher.start();
+  else {
+    meetWatcher.stop();
+    autoRecord.release(SOURCES.googleMeet.id);
+  }
+}
 
 let keyUnavailableNotified = false;
 
@@ -223,6 +291,7 @@ function openSettingsWindow() {
       configPath: CONFIG_PATH,
       onSaved: restartProcessing,
       onRerunSetup: openSetupWindow,
+      integrations,
     },
   );
 }
@@ -312,6 +381,7 @@ function enqueue(
   titleExplicit,
   micAudioPath = null,
   systemAudioPath = null,
+  occurredAt = null,
 ) {
   if (!pythonAvailable()) {
     notifyMissingPython();
@@ -323,6 +393,7 @@ function enqueue(
   ];
   if (micAudioPath) args.push("--mic-audio", micAudioPath);
   if (systemAudioPath) args.push("--system-audio", systemAudioPath);
+  if (occurredAt) args.push("--occurred-at", occurredAt);
   if (!titleExplicit) args.push("--title-auto");
   if (isPrivate) args.push("--private");
   const env = processingEnv();
@@ -380,24 +451,30 @@ function openRecordPanel() {
   );
 }
 
-async function startRecording({ title: requestedTitle = "", isPrivate = false } = {}) {
-  if (capture.active || !recordingSession.idle || quitRequested) return;
+// Manual starts come from the record panel; integration starts pass source and the join time.
+// Both run the same capture, limit, live view, and notification. Returns true when recording began.
+async function startRecording({ title: requestedTitle = "", isPrivate = false, source = null, occurredAt = null } = {}) {
+  if (capture.active || !recordingSession.idle || quitRequested) return false;
   const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
-  const titleExplicit = Boolean(requestedTitle);
+  // Integration titles are placeholders, so processing still names the meeting from its content.
+  const titleExplicit = Boolean(requestedTitle) && !source;
   const title = requestedTitle || `Meeting ${new Date().toLocaleString()}`;
   try {
     capture.start(timestamp());
   } catch (error) {
     notify("Recording failed", error.message);
-    return;
+    return false;
   }
+  if (source) closeRecordWindow();
   recordingSession.begin(maxDurationMinutes * 60_000);
   updateMenu();
   notify(isPrivate ? "Private recording started" : "Recording started", title);
   capture.active.title = title;
   capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
+  capture.active.occurredAt = occurredAt;
   startLiveSession(capture.active.micPath, isPrivate);
+  return true;
 }
 
 // The limit, the user, and quit share one single-flight stop; the batch path is identical for all.
@@ -407,6 +484,7 @@ function stopRecording(reason = "user") {
     const title = capture.active.title;
     const titleExplicit = capture.active.titleExplicit;
     const isPrivate = capture.active.private;
+    const occurredAt = capture.active.occurredAt || null;
     if (reason === "limit") notify(LIMIT_NOTICE.title, LIMIT_NOTICE.body);
     stopLiveSession();
     updateMenu();
@@ -419,12 +497,16 @@ function stopRecording(reason = "user") {
         titleExplicit,
         files.micAudioPath,
         files.systemAudioPath,
+        occurredAt,
       );
       notify("Recording saved", files.audioPath);
     } catch (error) {
       notify("Recording failed", error.message);
     }
-  }).finally(updateMenu);
+  }).finally(() => {
+    autoRecord.release();
+    updateMenu();
+  });
 }
 
 // Shares the single-flight guard, so a discard never races a limit, user, or quit stop.
@@ -432,7 +514,10 @@ function discardRecording() {
   return recordingSession.end("discard", async () => {
     stopLiveSession();
     await capture.discard();
-  }).finally(updateMenu);
+  }).finally(() => {
+    autoRecord.release();
+    updateMenu();
+  });
 }
 
 // Privacy is chosen per import; nothing carries over from an earlier action.
@@ -534,8 +619,22 @@ app.whenReady().then(async () => {
   if (RUNTIME.packaged && !pythonAvailable()) notifyMissingPython();
   updateMenu();
   void refreshQueueStatus();
+  startIntegrations();
   if (needsSetup(fs, DATA_DIR, CONFIG_PATH)) openSetupWindow();
 });
+
+// Re-pairs Meet so a moved or updated app keeps a valid host path, then starts enabled watchers.
+function startIntegrations() {
+  const values = readIntegrationSettings(fs, DATA_DIR);
+  if (values.googleMeetAutoRecord) {
+    try {
+      meetBridge.pair();
+    } catch (_) {
+      notify("Google Meet automatic recording needs attention", "Open Settings to check the browser connection.");
+    }
+  }
+  applyIntegrationSettings(values);
+}
 
 setInterval(() => {
   if (!tray || recordingSession.idle) return;
@@ -564,6 +663,8 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   shuttingDown = true;
+  zoomWatcher.stop();
+  meetWatcher.stop();
   globalShortcut.unregisterAll();
   closeRecordWindow();
   if (worker) worker.kill("SIGTERM");

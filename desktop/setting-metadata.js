@@ -12,6 +12,8 @@ const APPLIES = Object.freeze({
   processingAndLive:
     "Applies to meetings processed from now on and to the next recording's live captions. Processing restarts automatically.",
   nextRecording: "Applies to the next recording you start. A recording in progress keeps its current limit.",
+  integration:
+    "Applies right away. Turning it off stops watching for meetings but does not stop a recording already in progress.",
   setupFinish: "Applies when you finish setup after a passing check. Until then your current provider keeps working.",
   manualEdit:
     "Settings never change a hand-edited configuration. Your own edits apply to live captions from the next recording and to processing after you quit and reopen Meeting Wiki.",
@@ -26,6 +28,8 @@ const SETTINGS = Object.freeze({
   translationTargetLanguage: Object.freeze({ form: "gemini", applies: "liveSession" }),
   summaryContextCharacters: Object.freeze({ form: "gemini", applies: "liveSession" }),
   maxDurationMinutes: Object.freeze({ form: "recording", applies: "nextRecording" }),
+  zoomAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),
+  googleMeetAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),
   provider: Object.freeze({ form: "setup", applies: "setupFinish" }),
   apiKey: Object.freeze({ form: "setup", applies: "setupFinish" }),
 });

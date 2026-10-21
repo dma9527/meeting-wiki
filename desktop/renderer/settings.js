@@ -10,6 +10,9 @@
 //   saveGeminiSettings(values) -> { ok: true, values } | { error }
 //   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveRecordingSettings({ maxDurationMinutes }) -> { ok: true, values } | { error }
+//   getIntegrationSettings() -> { ready: true, values, readiness } | { ready: false, reason } | { error }
+//   saveIntegrationSettings({ zoomAutoRecord, googleMeetAutoRecord }) -> { ok: true, values, readiness } | { error }
+//   showMeetExtension()  -> { ok: true } | { error }
 //   rerunSetup()         -> { ok: true } | { error }
 //   getSettingMetadata() -> { settings: { [key]: { form, appliesAfter, copy } }, manualEdit }
 
@@ -89,6 +92,7 @@
     $("panel-identity-settings").hidden = true;
     $("panel-gemini-settings").hidden = true;
     $("panel-recording-settings").hidden = true;
+    $("panel-integration-settings").hidden = true;
     $("unsupported-reason").textContent = reason;
     $("panel-unsupported").hidden = false;
     $("panel-unsupported").focus();
@@ -281,6 +285,117 @@
     });
   }
 
+  const ACCESS_LABELS = Object.freeze({ granted: "allowed", denied: "denied", restricted: "restricted", "not-determined": "not asked yet" });
+  const ZOOM_DETECTOR = Object.freeze({
+    off: "Not watching for Zoom meetings.",
+    starting: "Starting to watch for Zoom meetings.",
+    "zoom-closed": "Watching. Zoom is not open.",
+    "zoom-open": "Watching. Zoom is open and not in a meeting.",
+    "in-meeting": "Watching. A Zoom meeting is in progress.",
+    unavailable: "Watching, but the last check did not finish. It retries every few seconds.",
+  });
+  const MEET_DETECTOR = Object.freeze({
+    off: "Not watching for Google Meet calls.",
+    watching: "Watching. No Google Meet call is in progress.",
+    "in-meeting": "Watching. A Google Meet call is in progress.",
+  });
+
+  function setIntegrationStatus(message, tone) {
+    const node = $("integration-status");
+    node.textContent = message;
+    node.dataset.tone = tone || "";
+  }
+
+  function fillList(id, lines) {
+    const list = $(id);
+    list.replaceChildren(...lines.map((line) => {
+      const item = document.createElement("li");
+      item.textContent = line;
+      return item;
+    }));
+  }
+
+  function accessLine(label, status, consequence) {
+    const text = ACCESS_LABELS[status] || "unknown";
+    return status === "granted" ? `${label}: allowed.` : `${label}: ${text}. ${consequence}`;
+  }
+
+  function permissionLines(permissions) {
+    const source = permissions || {};
+    return [
+      accessLine("Microphone access", source.microphone, "Recordings will be silent until it is allowed in System Settings."),
+      accessLine("Screen & System Audio Recording", source.systemAudio, "Other participants will not be recorded until it is allowed."),
+    ];
+  }
+
+  function renderReadiness(readiness) {
+    const source = readiness && typeof readiness === "object" ? readiness : {};
+    const zoom = source.zoom || {};
+    fillList("zoom-readiness", [
+      zoom.appInstalled ? "Zoom app found in Applications." : "Zoom app not found in Applications.",
+      zoom.toolsAvailable ? "macOS process tools available." : "macOS process tools are missing, so Zoom meetings cannot be detected.",
+      ZOOM_DETECTOR[zoom.detector] || ZOOM_DETECTOR.off,
+      ...permissionLines(source.permissions),
+    ]);
+    const meet = source.googleMeet || {};
+    const browsers = Array.isArray(meet.browsers) ? meet.browsers.filter((browser) => browser && browser.found) : [];
+    const seenAt = Number.isFinite(meet.extensionLastSeenAt) ? new Date(meet.extensionLastSeenAt).toLocaleTimeString() : "";
+    fillList("google-meet-readiness", [
+      meet.extensionBundled ? "Extension included with this app." : "Extension missing from this build.",
+      ...(browsers.length
+        ? browsers.map((browser) => `${String(browser.name)}: ${browser.connected ? "connection installed." : "found, connection not installed. Turn this on and save."}`)
+        : ["No supported browser found."]),
+      seenAt
+        ? `Extension last checked in at ${seenAt}.`
+        : "Extension not seen since Meeting Wiki started. After loading it, open or reload a Meet tab.",
+      MEET_DETECTOR[meet.detector] || MEET_DETECTOR.off,
+      ...permissionLines(source.permissions),
+    ]);
+  }
+
+  function showIntegrations(result) {
+    const values = result.values || {};
+    const zoom = $("zoom-auto-record");
+    const meet = $("google-meet-auto-record");
+    zoom.checked = values.zoomAutoRecord === true;
+    meet.checked = values.googleMeetAutoRecord === true;
+    let saved = { zoomAutoRecord: zoom.checked, googleMeetAutoRecord: meet.checked };
+    renderReadiness(result.readiness);
+    $("panel-integration-settings").hidden = false;
+
+    $("show-meet-extension").addEventListener("click", async () => {
+      const shown = await call("showMeetExtension");
+      const error = errorOf(shown);
+      if (error) setIntegrationStatus(error, "error");
+    });
+
+    $("integration-settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const next = { zoomAutoRecord: zoom.checked, googleMeetAutoRecord: meet.checked };
+      busy = true;
+      const button = $("integration-save");
+      button.setAttribute("aria-disabled", "true");
+      setIntegrationStatus("Saving automatic recording.", "");
+      const result = await call("saveIntegrationSettings", next);
+      busy = false;
+      button.removeAttribute("aria-disabled");
+      const saveError = errorOf(result);
+      if (saveError) {
+        zoom.checked = saved.zoomAutoRecord;
+        meet.checked = saved.googleMeetAutoRecord;
+        setIntegrationStatus(saveError, "error");
+        return;
+      }
+      const changed = Object.keys(next).filter((key) => result.values[key] !== saved[key]);
+      saved = { ...result.values };
+      zoom.checked = saved.zoomAutoRecord;
+      meet.checked = saved.googleMeetAutoRecord;
+      renderReadiness(result.readiness);
+      setIntegrationStatus(savedMessage(changed), "ok");
+    });
+  }
+
   async function rerunSetup() {
     const result = await call("rerunSetup");
     const error = errorOf(result);
@@ -289,11 +404,12 @@
 
   async function load() {
     if (!bridge) $("bridge-missing").hidden = false;
-    const [identity, result, recording, meta] = await Promise.all([
+    const [identity, result, recording, meta, integrationSettings] = await Promise.all([
       call("getIdentitySettings"),
       call("getGeminiSettings"),
       call("getRecordingSettings"),
       call("getSettingMetadata"),
+      call("getIntegrationSettings"),
     ]);
     applyMetadata(errorOf(meta) ? null : meta);
     const identityReady = !errorOf(identity) && identity.ready === true;
@@ -306,6 +422,7 @@
     $("settings-loading").hidden = true;
     if (identityReady) showIdentity(identity);
     if (recordingReady) showRecording(recording);
+    if (!errorOf(integrationSettings) && integrationSettings.ready === true) showIntegrations(integrationSettings);
     if (!geminiReady) {
       const manual = result && result.manualConfig === true && metadata.manualEdit ? ` ${metadata.manualEdit}` : "";
       $("gemini-unavailable").textContent = `${reasonOf(result)}${manual}`;

@@ -78,6 +78,8 @@ module.exports = {
   RECORDING_SETTINGS_FILE,
   RecordingSettingsError,
   readMaxDurationMinutes,
+  readSettingsDocument: readDocument,
   saveMaxDurationMinutes,
+  settingsPath,
   validateMaxDurationMinutes,
 };

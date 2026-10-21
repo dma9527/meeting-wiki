@@ -2,7 +2,7 @@
 
 // Settings window. Same lockdown as setup-window.js. It edits the [identity] section and
 // the five Gemini feature values in a setup-managed config, plus the desktop-only recording
-// limit in desktop-settings.json. It never touches the secret store.
+// limit and auto-record opt-ins in desktop-settings.json. It never touches the secret store.
 
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -31,6 +31,7 @@ const {
   saveMaxDurationMinutes,
 } = require("./recording-settings");
 const { settingMetadata } = require("./setting-metadata");
+const { IntegrationError } = require("./integration-service");
 
 const CHANNELS = Object.freeze({
   getIdentitySettings: "settings:getIdentitySettings",
@@ -39,6 +40,9 @@ const CHANNELS = Object.freeze({
   saveGeminiSettings: "settings:saveGeminiSettings",
   getRecordingSettings: "settings:getRecordingSettings",
   saveRecordingSettings: "settings:saveRecordingSettings",
+  getIntegrationSettings: "settings:getIntegrationSettings",
+  saveIntegrationSettings: "settings:saveIntegrationSettings",
+  showMeetExtension: "settings:showMeetExtension",
   rerunSetup: "settings:rerunSetup",
   getSettingMetadata: "settings:getSettingMetadata",
 });
@@ -54,6 +58,8 @@ const NOT_MANAGED =
   "Your configuration was not created by setup or was edited by hand. Run setup again to manage it here.";
 const NOT_ONLINE = "Finish setup first. Your name and aliases can be edited here once setup is complete.";
 const NOT_ONLINE_RECORDING = "Finish setup first. The recording length limit can be changed here once setup is complete.";
+const NOT_ONLINE_INTEGRATIONS = "Finish setup first. Automatic recording can be turned on here once setup is complete.";
+const NO_INTEGRATIONS = "Automatic recording is not available in this build.";
 const SAVE_FAILED = "The settings could not be saved.";
 
 // Tables a Gemini config may contain. Anything else counts as a manual edit.
@@ -121,7 +127,7 @@ function withoutIdentity(tables) {
   return JSON.stringify({ topLevel: otherTopLevel, ...rest });
 }
 
-function createSettingsController({ fs, dataDir, configPath, onSaved = () => {}, onRerunSetup = () => {} }) {
+function createSettingsController({ fs, dataDir, configPath, onSaved = () => {}, onRerunSetup = () => {}, integrations = null }) {
   // Re-read on every call so a save never trusts state rendered earlier.
   function identityReadiness() {
     const state = readSetupState(fs, dataDir);
@@ -235,6 +241,34 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       }
     },
 
+    getIntegrationSettings() {
+      if (!integrations) return { ready: false, reason: NO_INTEGRATIONS };
+      if (!recordingReady()) return { ready: false, reason: NOT_ONLINE_INTEGRATIONS };
+      return { ready: true, values: integrations.readValues(), readiness: integrations.readiness() };
+    },
+
+    // Turning Google Meet on pairs the browser connection; turning it off removes it.
+    saveIntegrationSettings(raw) {
+      if (!integrations) throw new SettingsError(NO_INTEGRATIONS);
+      if (!recordingReady()) throw new SettingsError(NOT_ONLINE_INTEGRATIONS);
+      try {
+        const values = integrations.save(raw);
+        return { ok: true, values, readiness: integrations.readiness() };
+      } catch (error) {
+        throw error instanceof IntegrationError ? new SettingsError(error.message) : error;
+      }
+    },
+
+    showMeetExtension() {
+      if (!integrations) throw new SettingsError(NO_INTEGRATIONS);
+      try {
+        integrations.showExtensionFolder();
+        return { ok: true };
+      } catch (error) {
+        throw error instanceof IntegrationError ? new SettingsError(error.message) : error;
+      }
+    },
+
     rerunSetup() {
       onRerunSetup();
       return { ok: true };
@@ -269,6 +303,9 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.saveGeminiSettings, (controller, settings) => controller.saveGeminiSettings(settings));
   handle(CHANNELS.getRecordingSettings, (controller) => controller.getRecordingSettings());
   handle(CHANNELS.saveRecordingSettings, (controller, settings) => controller.saveRecordingSettings(settings));
+  handle(CHANNELS.getIntegrationSettings, (controller) => controller.getIntegrationSettings());
+  handle(CHANNELS.saveIntegrationSettings, (controller, settings) => controller.saveIntegrationSettings(settings));
+  handle(CHANNELS.showMeetExtension, (controller) => controller.showMeetExtension());
   handle(CHANNELS.rerunSetup, (controller) => controller.rerunSetup());
   handle(CHANNELS.getSettingMetadata, (controller) => controller.getSettingMetadata());
 }
@@ -345,7 +382,9 @@ module.exports = {
   NOT_GEMINI,
   NOT_MANAGED,
   NOT_ONLINE,
+  NOT_ONLINE_INTEGRATIONS,
   NOT_ONLINE_RECORDING,
+  NO_INTEGRATIONS,
   SUMMARY_CONTEXT_BOUNDS,
   SettingsError,
   createSettingsController,

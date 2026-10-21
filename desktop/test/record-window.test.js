@@ -225,7 +225,7 @@ test("main removes implicit next-recording state and confirms every start and im
   assert.match(main, /\{ label: "Start recording\.\.\.", accelerator: "CommandOrControl\+Shift\+0", click: openRecordPanel \}/);
   assert.match(main, /else if \(recordingSession\.idle\) openRecordPanel\(\);/);
   assert.match(main, /onStart: \(request\) => \{ void startRecording\(request\); \}/);
-  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate = false \} = \{\}\)/);
+  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate = false, source = null, occurredAt = null \} = \{\}\)/);
   const importBody = main.slice(main.indexOf("async function importAudio"), main.indexOf("function updateMenu"));
   assert.match(importBody, /if \(choice\.response !== 0\) return;/);
   assert.match(importBody, /choice\.checkboxChecked === true/);

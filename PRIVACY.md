@@ -7,7 +7,10 @@ or usage data.
 ## Default local data flow
 
 1. The desktop app records microphone and system audio only after you start a
-   recording.
+   recording, or, if you turned on automatic recording for Zoom or Google Meet
+   in Settings, when you join a meeting. Both are off by default. See
+   [docs/integrations.md](docs/integrations.md) for exactly what each
+   integration inspects; neither reads meeting content or opens a network port.
 2. The configured transcription provider processes the audio.
 3. The configured LLM provider receives the transcript and returns structured
    meeting facts.

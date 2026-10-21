@@ -142,7 +142,7 @@ test("the limit, user, and quit stops share one single-flight stop with the same
 
 test("startRecording reads the limit fresh and arms it only after capture starts", () => {
   const start = functionBody("startRecording");
-  assert.match(start, /if \(capture\.active \|\| !recordingSession\.idle \|\| quitRequested\) return;/);
+  assert.match(start, /if \(capture\.active \|\| !recordingSession\.idle \|\| quitRequested\) return false;/);
   const readAt = start.indexOf("readMaxDurationMinutes(fs, DATA_DIR)");
   const captureAt = start.indexOf("capture.start(timestamp())");
   const beginAt = start.indexOf("recordingSession.begin(maxDurationMinutes * 60_000)");

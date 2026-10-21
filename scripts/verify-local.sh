@@ -77,6 +77,15 @@ node --check desktop/live-sidebar-window.js
 node --check desktop/live-sidebar-preload.js
 node --check desktop/recording-session.js
 node --check desktop/recording-settings.js
+node --check desktop/auto-record.js
+node --check desktop/integration-settings.js
+node --check desktop/integration-service.js
+node --check desktop/zoom-detector.js
+node --check desktop/meet-protocol.js
+node --check desktop/meet-bridge.js
+node --check desktop/meet-native-host.js
+node --check desktop/browser-extension/google-meet/background.js
+node --check desktop/browser-extension/google-meet/content.js
 node --check desktop/renderer/app.js
 node --check desktop/renderer/setup.js
 node --check desktop/renderer/settings.js

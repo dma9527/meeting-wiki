@@ -595,12 +595,15 @@ test("the settings bridge exposes the named actions and forwards only the named 
   assert.deepEqual(Object.keys(exposed.api).sort(), [
     "getGeminiSettings",
     "getIdentitySettings",
+    "getIntegrationSettings",
     "getRecordingSettings",
     "getSettingMetadata",
     "rerunSetup",
     "saveGeminiSettings",
     "saveIdentitySettings",
+    "saveIntegrationSettings",
     "saveRecordingSettings",
+    "showMeetExtension",
   ]);
   await exposed.api.getIdentitySettings("ignored");
   await exposed.api.saveIdentitySettings({ ...IDENTITY, aliases: [...IDENTITY.aliases, 7, null], configPath: "/etc/passwd" });
@@ -612,6 +615,9 @@ test("the settings bridge exposes the named actions and forwards only the named 
   await exposed.api.saveRecordingSettings({ maxDurationMinutes: 90, path: "/etc/passwd" });
   await exposed.api.saveRecordingSettings({ maxDurationMinutes: { nested: 1 } });
   await exposed.api.rerunSetup({ provider: "x" });
+  await exposed.api.getIntegrationSettings("ignored");
+  await exposed.api.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: "yes", path: "/etc/passwd" });
+  await exposed.api.showMeetExtension("/etc");
   assert.equal(invocations[3].args[0].aliases.length, 64);
   invocations.splice(3, 1);
   assert.deepEqual(invocations, [
@@ -624,6 +630,9 @@ test("the settings bridge exposes the named actions and forwards only the named 
     { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: 90 }] },
     { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: "" }] },
     { channel: settings.CHANNELS.rerunSetup, args: [] },
+    { channel: settings.CHANNELS.getIntegrationSettings, args: [] },
+    { channel: settings.CHANNELS.saveIntegrationSettings, args: [{ zoomAutoRecord: true, googleMeetAutoRecord: false }] },
+    { channel: settings.CHANNELS.showMeetExtension, args: [] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "settings-preload.js"), "utf8");
   assert.doesNotMatch(source, /ipcRenderer\.(send|on|sendSync)\b|exposeInMainWorld\([^)]*ipcRenderer\b|apiKey/);

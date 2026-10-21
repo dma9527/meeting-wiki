@@ -89,6 +89,59 @@
           </form>
         </section>
 
+        <section id="panel-integration-settings" class="panel" aria-labelledby="integration-settings-heading" tabindex="-1" hidden>
+          <h1 id="integration-settings-heading" class="display">Automatic recording</h1>
+          <p class="lede">
+            When turned on, Meeting Wiki starts recording as soon as you join a meeting and stops, saves, and processes
+            it when you leave. There is no countdown before it starts. The tray icon switches to the recording icon and
+            a notification appears while it records. A meeting that ends within 10 seconds is discarded, not processed.
+            Both are off until you turn them on here.
+          </p>
+
+          <form id="integration-settings-form" novalidate>
+            <h2 class="subhead">Zoom app</h2>
+            <div class="consent">
+              <input id="zoom-auto-record" name="zoomAutoRecord" type="checkbox" aria-describedby="zoom-auto-record-boundary zoom-auto-record-applies" />
+              <label for="zoom-auto-record">Record Zoom meetings automatically</label>
+            </div>
+            <p id="zoom-auto-record-boundary" class="hint">
+              Every 3 seconds Meeting Wiki checks, on this Mac only, whether the Zoom app is running, has meeting audio
+              connections open, or is keeping the display awake. It does not read Zoom windows, chat, participants,
+              or meeting titles, does not use Accessibility access, and opens no network port. Zoom in a web browser
+              is not detected.
+            </p>
+            <p id="zoom-auto-record-applies" class="hint applies" data-applies-for="zoomAutoRecord"></p>
+            <ul id="zoom-readiness" class="local-facts"></ul>
+
+            <h2 class="subhead">Google Meet in Chrome, Edge, Brave, or Chromium</h2>
+            <div class="consent">
+              <input id="google-meet-auto-record" name="googleMeetAutoRecord" type="checkbox" aria-describedby="google-meet-auto-record-boundary google-meet-auto-record-applies" />
+              <label for="google-meet-auto-record">Record Google Meet calls automatically</label>
+            </div>
+            <p id="google-meet-auto-record-boundary" class="hint">
+              Needs the Meeting Wiki for Google Meet extension. It only checks whether a meet.google.com tab shows the
+              Leave call button and sends joined or left with the meeting code. It cannot read captions, transcripts,
+              chat, participants, or browsing history. Turning this on installs a browser connection that only that
+              extension can use. Events reach Meeting Wiki through a private folder on this Mac, never a network port.
+            </p>
+            <p id="google-meet-auto-record-applies" class="hint applies" data-applies-for="googleMeetAutoRecord"></p>
+            <ul id="google-meet-readiness" class="local-facts"></ul>
+            <div class="actions">
+              <button type="button" class="button button-quiet" id="show-meet-extension">Show extension folder</button>
+            </div>
+            <p class="hint">
+              In the browser, open the extensions page, turn on Developer mode, choose Load unpacked, and pick the
+              folder that opens. This is needed once per browser.
+            </p>
+
+            <p id="integration-status" class="status" role="status" aria-live="polite"></p>
+
+            <div class="actions">
+              <button type="submit" class="button button-primary" id="integration-save">Save automatic recording</button>
+            </div>
+          </form>
+        </section>
+
         <section id="panel-gemini-settings" class="panel" aria-labelledby="gemini-settings-heading" tabindex="-1" hidden>
           <h1 id="gemini-settings-heading" class="display">Gemini features</h1>
           <p class="lede">
