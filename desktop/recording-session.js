@@ -106,7 +106,6 @@ class IngestTracker {
     if (this.pending.size === 0) return Promise.resolve(true);
     return new Promise((resolve) => {
       const timer = setTimer(() => resolve(false), timeoutMs);
-      if (timer && typeof timer.unref === "function") timer.unref();
       Promise.all([...this.pending]).then(() => {
         clearTimer(timer);
         resolve(true);
