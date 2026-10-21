@@ -217,3 +217,14 @@ test("parseReadyLine and sanitizeLiveEvent accept only known shapes", () => {
   assert.equal(long.text.length, 2000);
   assert.equal(sanitizeLiveEvent({ type: "transcript", payload: { sequence: 3, text: "   " } }), null);
 });
+
+test("sanitizeLiveEvent keeps provider renewal and expiry as distinct fixed issues", () => {
+  assert.deepEqual(
+    sanitizeLiveEvent({ type: "state", payload: { phase: "listening", issue: "provider_session_renewing" } }),
+    { type: "state", phase: "listening", private: false, issue: "provider_session_renewing" },
+  );
+  assert.deepEqual(
+    sanitizeLiveEvent({ type: "state", payload: { phase: "unavailable", issue: "provider_session_expired" } }),
+    { type: "state", phase: "unavailable", private: false, issue: "provider_session_expired" },
+  );
+});

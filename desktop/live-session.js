@@ -21,6 +21,8 @@ const ISSUES = new Set([
   "provider_unavailable",
   "transcription_error",
   "language_error",
+  "provider_session_renewing",
+  "provider_session_expired",
   "startup_failed",
   "connection_lost",
 ]);

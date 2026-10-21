@@ -23,6 +23,8 @@
     provider_unavailable: "The live provider is not ready. Check system health in the menu.",
     transcription_error: "Live transcription skipped a moment of audio.",
     language_error: "Translation or summary is temporarily unavailable.",
+    provider_session_renewing: "Renewing the live provider session. Recording continues normally.",
+    provider_session_expired: "The live provider session expired and could not be renewed.",
     startup_failed: "Live view could not start.",
     connection_lost: "Live view lost its connection.",
   });

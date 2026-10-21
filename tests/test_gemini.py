@@ -13,6 +13,9 @@ from meeting_wiki.models import MeetingType
 from meeting_wiki.providers import gemini as gemini_module
 from meeting_wiki.providers.base import (
     LiveLanguageProvider,
+    LiveSessionExpiredError,
+    LiveSessionStatus,
+    LiveSessionStatusCode,
     LiveSessionTranscriptionProvider,
     LiveTranscriptEvent,
     LiveTranscriptionProvider,
@@ -423,6 +426,14 @@ async def stream_all(provider, chunks, language=None):
         return [event async for event in session.events()]
 
 
+def live_config(transcription, handle=None):
+    return {
+        "input_audio_transcription": transcription,
+        "session_resumption": {"handle": handle} if handle else {},
+        "context_window_compression": {"sliding_window": {}},
+    }
+
+
 def test_live_transcriber_satisfies_session_protocol():
     provider = live_provider()
 
@@ -439,7 +450,7 @@ def test_live_session_sends_pcm_then_stream_end_and_closes(fake_sdk_types):
     events = asyncio.run(stream_all(live_provider(client), [PCM_CHUNK, PCM_CHUNK * 2], "en"))
 
     assert client.aio.live.calls == [
-        {"model": LIVE_MODEL, "config": {"input_audio_transcription": {"language_codes": ["en"]}}}
+        {"model": LIVE_MODEL, "config": live_config({"language_codes": ["en"]})}
     ]
     assert sdk_session.sent == [
         {"audio": FakeBlob(data=PCM_CHUNK, mime_type="audio/pcm;rate=16000")},
@@ -459,7 +470,7 @@ def test_live_session_omits_language_hint_when_unset(fake_sdk_types):
 
     asyncio.run(stream_all(live_provider(client), []))
 
-    assert client.aio.live.calls[0]["config"] == {"input_audio_transcription": {}}
+    assert client.aio.live.calls[0]["config"] == live_config({})
 
 
 def test_live_events_classify_by_field_not_text_and_skip_noise(fake_sdk_types):
@@ -614,6 +625,282 @@ def test_live_health_is_local_and_sends_nothing(monkeypatch):
     assert live_provider(api_key="").health() == (False, "Gemini API key is not set")
 
 
+# ---- Live connection renewal (provider expiry) ----
+
+FINISH = object()
+CHUNK_A = b"\x01\x00" * 4
+CHUNK_B = b"\x02\x00" * 4
+CHUNK_C = b"\x03\x00" * 4
+
+
+def audio(chunk):
+    return {"audio": FakeBlob(data=chunk, mime_type="audio/pcm;rate=16000")}
+
+
+def handle_message(handle, resumable=True):
+    update = SimpleNamespace(new_handle=handle, resumable=resumable)
+    return SimpleNamespace(server_content=None, session_resumption_update=update)
+
+
+def go_away_message():
+    return SimpleNamespace(server_content=None, go_away=SimpleNamespace(time_left="5s"))
+
+
+def final(text):
+    return live_message(final=text)
+
+
+async def settle():
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+class ScriptedLiveSession:
+    """Receives scripted messages one at a time; FINISH ends the stream cleanly."""
+
+    def __init__(self, on_stream_end=(), abort_on_audio_send=None):
+        self.inbox: asyncio.Queue = asyncio.Queue()
+        self.on_stream_end = list(on_stream_end)
+        self.abort_on_audio_send = abort_on_audio_send
+        self.audio_sends = 0
+        self.sent = []
+        self.close_calls = 0
+
+    def feed(self, *items):
+        for item in items:
+            self.inbox.put_nowait(item)
+
+    async def send_realtime_input(self, **kwargs):
+        if "audio" in kwargs:
+            self.audio_sends += 1
+            if self.audio_sends == self.abort_on_audio_send:
+                self.feed(go_away_message())
+                await settle()
+                raise ConnectionError(LEAK)
+        self.sent.append(kwargs)
+        if kwargs.get("audio_stream_end"):
+            self.feed(*self.on_stream_end)
+
+    async def receive(self):
+        item = await self.inbox.get()
+        if item is FINISH:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        yield item
+
+    async def close(self):
+        self.close_calls += 1
+
+
+class ScriptedLive:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.configs = []
+        self.exited = 0
+
+    @asynccontextmanager
+    async def connect(self, *, model, config):
+        assert model == LIVE_MODEL
+        self.configs.append(config)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        try:
+            yield outcome
+        finally:
+            self.exited += 1
+
+
+def renewing_provider(live, **options):
+    client = SimpleNamespace(aio=SimpleNamespace(live=live))
+    options.setdefault("drain_seconds", 1.0)
+    return GeminiLiveTranscriber(LIVE_MODEL, TEST_KEY, 30, client_factory=lambda: client, **options)
+
+
+async def collect(session):
+    return [event async for event in session.events()]
+
+
+EN = {"language_codes": ["en"]}
+RENEWING = LiveSessionStatus(LiveSessionStatusCode.RENEWING)
+RESUMED = LiveSessionStatus(LiveSessionStatusCode.RESUMED)
+RESTARTED = LiveSessionStatus(LiveSessionStatusCode.RESTARTED)
+
+
+def test_go_away_resumes_with_latest_handle_in_order_without_audio_loss(fake_sdk_types):
+    first = ScriptedLiveSession(on_stream_end=[final("two"), FINISH])
+    second = ScriptedLiveSession()
+    live = ScriptedLive([first, second])
+
+    async def run():
+        async with renewing_provider(live).open_session("en") as session:
+            first.feed(
+                handle_message("handle-1"),
+                final("one"),
+                handle_message("handle-2"),
+                handle_message("", resumable=False),
+                go_away_message(),
+            )
+            await session.send_audio(CHUNK_A)
+            await settle()
+            await session.send_audio(CHUNK_B)
+            second.feed(final("three"), FINISH)
+            return await collect(session)
+
+    events = asyncio.run(run())
+
+    assert events == [
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "one"),
+        RENEWING,
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "two"),
+        RESUMED,
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "three"),
+    ]
+    assert live.configs == [live_config(EN), live_config(EN, handle="handle-2")]
+    assert first.sent == [audio(CHUNK_A), {"audio_stream_end": True}]
+    assert second.sent == [audio(CHUNK_B)]
+    assert (first.close_calls, second.close_calls, live.exited) == (1, 1, 2)
+
+
+def test_resume_failure_falls_back_to_fresh_connection(fake_sdk_types):
+    first = ScriptedLiveSession(on_stream_end=[FINISH])
+    fresh = ScriptedLiveSession()
+    live = ScriptedLive([first, ConnectionError(LEAK), fresh])
+
+    async def run():
+        async with renewing_provider(live).open_session("en") as session:
+            first.feed(handle_message("stale-handle"), go_away_message())
+            await settle()
+            await session.send_audio(CHUNK_A)
+            fresh.feed(final("after restart"), FINISH)
+            return await collect(session)
+
+    events = asyncio.run(run())
+
+    assert events == [
+        RENEWING,
+        RESTARTED,
+        LiveTranscriptEvent(LiveTranscriptKind.FINAL, "after restart"),
+    ]
+    assert live.configs == [
+        live_config(EN),
+        live_config(EN, handle="stale-handle"),
+        live_config(EN),
+    ]
+    assert first.sent == [{"audio_stream_end": True}]
+    assert fresh.sent == [audio(CHUNK_A)]
+
+
+def test_renewal_failure_raises_fixed_safe_expiry_and_keeps_drained_events(fake_sdk_types):
+    first = ScriptedLiveSession(on_stream_end=[final("last words"), FINISH])
+    live = ScriptedLive([first, ConnectionError(LEAK), ConnectionError(LEAK)])
+
+    async def run():
+        async with renewing_provider(live).open_session() as session:
+            first.feed(handle_message("handle-1"), go_away_message())
+            await settle()
+            with pytest.raises(LiveSessionExpiredError) as raised:
+                await session.send_audio(CHUNK_A)
+            with pytest.raises(LiveSessionExpiredError):
+                await session.send_audio(CHUNK_B)
+            return raised.value, await collect(session)
+
+    error, events = asyncio.run(run())
+
+    assert str(error) == "Live provider session expired and could not be renewed"
+    assert error.__cause__ is None
+    for secret in (TEST_KEY, "capture.pcm", "secret transcript"):
+        assert secret not in str(error)
+    assert events == [RENEWING, LiveTranscriptEvent(LiveTranscriptKind.FINAL, "last words")]
+    assert first.close_calls == 1
+    assert len(live.configs) == 3
+
+
+def test_connection_rolls_over_proactively_before_provider_deadline(fake_sdk_types):
+    now = [0.0]
+    first = ScriptedLiveSession(on_stream_end=[FINISH])
+    second = ScriptedLiveSession()
+    live = ScriptedLive([first, second])
+    provider = renewing_provider(live, max_connection_seconds=540.0, clock=lambda: now[0])
+
+    async def run():
+        async with provider.open_session() as session:
+            first.feed(handle_message("handle-1"))
+            await session.send_audio(CHUNK_A)
+            await settle()
+            now[0] = 539.9
+            await session.send_audio(CHUNK_B)
+            assert len(live.configs) == 1
+            now[0] = 540.0
+            await session.send_audio(CHUNK_C)
+            second.feed(FINISH)
+            return await collect(session)
+
+    events = asyncio.run(run())
+
+    assert events == [RENEWING, RESUMED]
+    assert live.configs[1] == live_config({}, handle="handle-1")
+    assert first.sent == [audio(CHUNK_A), audio(CHUNK_B), {"audio_stream_end": True}]
+    assert second.sent == [audio(CHUNK_C)]
+
+
+def test_chunk_rejected_by_expiring_connection_is_resent_once(fake_sdk_types):
+    first = ScriptedLiveSession(on_stream_end=[FINISH], abort_on_audio_send=2)
+    second = ScriptedLiveSession()
+    live = ScriptedLive([first, second])
+
+    async def run():
+        async with renewing_provider(live).open_session() as session:
+            await session.send_audio(CHUNK_A)
+            await session.send_audio(CHUNK_B)
+            await session.send_audio(CHUNK_C)
+            second.feed(FINISH)
+            return await collect(session)
+
+    events = asyncio.run(run())
+
+    assert events == [RENEWING, RESTARTED]
+    assert first.sent == [audio(CHUNK_A), {"audio_stream_end": True}]
+    assert second.sent == [audio(CHUNK_B), audio(CHUNK_C)]
+
+
+def test_abort_after_go_away_is_expected_but_abort_without_it_is_a_failure(fake_sdk_types):
+    expiring = ScriptedLiveSession(on_stream_end=[FINISH])
+    renewed = ScriptedLiveSession()
+    expected = ScriptedLive([expiring, renewed])
+
+    async def renew_after_abort():
+        async with renewing_provider(expected).open_session() as session:
+            expiring.feed(go_away_message(), ConnectionError(LEAK))
+            await settle()
+            await session.send_audio(CHUNK_A)
+            renewed.feed(FINISH)
+            return await collect(session)
+
+    assert asyncio.run(renew_after_abort()) == [RENEWING, RESTARTED]
+    assert renewed.sent == [audio(CHUNK_A)]
+
+    broken = ScriptedLiveSession()
+    failing = ScriptedLive([broken, ScriptedLiveSession()])
+
+    async def real_failure():
+        async with renewing_provider(failing).open_session() as session:
+            broken.feed(final("kept"), ConnectionError(LEAK))
+            seen = []
+            with pytest.raises(RuntimeError) as raised:
+                async for event in session.events():
+                    seen.append(event)
+            return seen, raised.value
+
+    seen, error = asyncio.run(real_failure())
+    assert seen == [LiveTranscriptEvent(LiveTranscriptKind.FINAL, "kept")]
+    assert str(error).startswith("Gemini live receive failed")
+    assert not isinstance(error, LiveSessionExpiredError)
+    assert TEST_KEY not in str(error)
+    assert len(failing.configs) == 1
+
+
 def live_gemini_config(**providers):
     return AppConfig.model_validate(
         {
@@ -661,6 +948,18 @@ def test_live_payloads_validate_against_installed_sdk_types():
 
     config = sdk_types.LiveConnectConfig(**client.aio.live.calls[0]["config"])
     assert config.input_audio_transcription.language_codes == ["en"]
+    assert config.session_resumption == sdk_types.SessionResumptionConfig()
+    assert config.context_window_compression.sliding_window == sdk_types.SlidingWindow()
+    resumed = sdk_types.LiveConnectConfig(**live_config({}, handle="handle-2"))
+    assert resumed.session_resumption.handle == "handle-2"
+    update = sdk_types.LiveServerMessage(
+        session_resumption_update=sdk_types.LiveServerSessionResumptionUpdate(
+            new_handle="handle-3", resumable=True
+        ),
+        go_away=sdk_types.LiveServerGoAway(time_left="5s"),
+    )
+    assert gemini_module._resumption_handle(update) == "handle-3"
+    assert update.go_away is not None
     blob = sdk_session.sent[0]["audio"]
     assert isinstance(blob, sdk_types.Blob)
     assert (blob.data, blob.mime_type) == (PCM_CHUNK, "audio/pcm;rate=16000")

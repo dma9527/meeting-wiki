@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import mimetypes
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -15,6 +19,9 @@ from ..diagnostics import SafeProviderError
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
     EmptyTranscriptError,
+    LiveSessionExpiredError,
+    LiveSessionStatus,
+    LiveSessionStatusCode,
     LiveTranscriptEvent,
     LiveTranscriptKind,
     TranscriptionCapabilities,
@@ -288,18 +295,129 @@ def _transcript_events(message: Any) -> list[LiveTranscriptEvent]:
     return events
 
 
+
+# Gemini Live connections last about 10 minutes; roll over before the server aborts.
+_MAX_CONNECTION_SECONDS = 540.0
+_DRAIN_SECONDS = 2.0
+_END = object()
+
+ConnectFactory = Callable[[dict[str, Any]], Any]
+
+
+def _resumption_handle(message: Any) -> str | None:
+    update = getattr(message, "session_resumption_update", None)
+    if update is None or getattr(update, "resumable", None) is not True:
+        return None
+    handle = getattr(update, "new_handle", None)
+    return handle if isinstance(handle, str) and handle else None
+
+
+@dataclass
+class _Connection:
+    context: Any
+    session: Any
+    opened_at: float
+    queue: asyncio.Queue[Any] = field(default_factory=asyncio.Queue)
+    receiver: asyncio.Task[None] | None = None
+    closing: bool = False
+
+
 class _GeminiLiveSession:
-    def __init__(self, sdk_session: Any, blob_type: Any):
-        self._session = sdk_session
+    """One logical live session that renews its provider connection before expiry.
+
+    Renewal uses SDK session resumption (latest resumable handle) and falls back to a fresh
+    connection. Events from each connection are yielded in connection order.
+    """
+
+    def __init__(
+        self,
+        connect: ConnectFactory,
+        blob_type: Any,
+        transcription: dict[str, Any],
+        *,
+        max_connection_seconds: float,
+        drain_seconds: float,
+        clock: Callable[[], float],
+    ):
+        self._connect = connect
         self._blob_type = blob_type
+        self._transcription = transcription
+        self._max_connection_seconds = max_connection_seconds
+        self._drain_seconds = drain_seconds
+        self._clock = clock
+        self._lock = asyncio.Lock()
+        self._changed = asyncio.Event()
+        self._connections: list[_Connection] = []
+        self._current: _Connection | None = None
+        self._handle: str | None = None
+        self._expiring = False
+        self._renewing = False
+        self._finished = False
         self._audio_ended = False
         self._closed = False
+
+    def _config(self, handle: str | None) -> dict[str, Any]:
+        return {
+            "input_audio_transcription": self._transcription,
+            "session_resumption": {"handle": handle} if handle else {},
+            "context_window_compression": {"sliding_window": {}},
+        }
+
+    async def start(self) -> None:
+        await self._open(None, first=None)
+
+    async def _open(self, handle: str | None, first: LiveSessionStatus | None) -> None:
+        context = self._connect(self._config(handle))
+        sdk_session = await context.__aenter__()
+        connection = _Connection(context, sdk_session, self._clock())
+        if first is not None:
+            connection.queue.put_nowait(first)
+        connection.receiver = asyncio.create_task(self._receive(connection))
+        self._connections.append(connection)
+        self._current = connection
+        self._changed.set()
+
+    def _observe(self, connection: _Connection, message: Any) -> None:
+        handle = _resumption_handle(message)
+        if handle is not None:
+            self._handle = handle
+        if getattr(message, "go_away", None) is not None and connection is self._current:
+            self._expiring = True
+
+    async def _receive(self, connection: _Connection) -> None:
+        # SDK receive() stops after each completed turn; re-enter until a pass yields nothing.
+        try:
+            while True:
+                received = False
+                async for message in connection.session.receive():
+                    received = True
+                    self._observe(connection, message)
+                    for event in _transcript_events(message):
+                        connection.queue.put_nowait(event)
+                if not received:
+                    break
+        except Exception as error:
+            # After go_away or during renewal the server closing the socket is expected.
+            if not (connection.closing or self._expiring):
+                connection.queue.put_nowait(_redacted("receive", error))
+        finally:
+            # A renewing connection is ended by _close_connection so late notices stay in order.
+            if not (connection.closing or self._expiring or self._renewing):
+                self._finished = True
+                connection.queue.put_nowait(_END)
+            self._changed.set()
 
     def _require_accepting_audio(self) -> None:
         if self._closed:
             raise RuntimeError("Gemini live session is closed")
         if self._audio_ended:
             raise RuntimeError("Gemini live audio stream has ended")
+        if self._finished and self._current is None:
+            raise LiveSessionExpiredError()
+
+    def _renewal_due(self, connection: _Connection) -> bool:
+        age = self._clock() - connection.opened_at
+        return self._expiring or age >= self._max_connection_seconds
 
     async def send_audio(self, pcm: bytes) -> None:
         self._require_accepting_audio()
@@ -310,41 +428,113 @@ class _GeminiLiveSession:
         if len(pcm) % 2:
             raise ValueError("Live audio must be 16-bit PCM with an even byte length")
         blob = self._blob_type(data=pcm, mime_type=_LIVE_PCM_MIME_TYPE)
+        async with self._lock:
+            self._require_accepting_audio()
+            connection = self._require_current()
+            if self._renewal_due(connection):
+                connection = await self._renew(connection)
+            try:
+                await connection.session.send_realtime_input(audio=blob)
+                return
+            except Exception as error:
+                if not self._expiring:
+                    raise _redacted("audio send", error) from None
+            # The expiring connection rejected this chunk, so it was not consumed: resend it.
+            connection = await self._renew(connection)
+            try:
+                await connection.session.send_realtime_input(audio=blob)
+            except Exception as error:
+                raise _redacted("audio send", error) from None
+
+    def _require_current(self) -> _Connection:
+        if self._current is None:
+            raise LiveSessionExpiredError()
+        return self._current
+
+    async def _renew(self, old: _Connection) -> _Connection:
+        self._renewing = True
+        old.queue.put_nowait(LiveSessionStatus(LiveSessionStatusCode.RENEWING))
+        old.closing = True
+        # Flush audio already sent so its final transcription arrives before the swap.
+        with contextlib.suppress(Exception):
+            await old.session.send_realtime_input(audio_stream_end=True)
+        if old.receiver is not None:
+            await asyncio.wait({old.receiver}, timeout=self._drain_seconds)
+        await self._close_connection(old, suppress_errors=True)
+        self._current = None
+        self._expiring = False
+        handle, self._handle = self._handle, None
         try:
-            await self._session.send_realtime_input(audio=blob)
-        except Exception as error:
-            raise _redacted("audio send", error) from None
+            if handle is not None:
+                with contextlib.suppress(Exception):
+                    await self._open(handle, LiveSessionStatus(LiveSessionStatusCode.RESUMED))
+            if self._current is None:
+                await self._open(None, LiveSessionStatus(LiveSessionStatusCode.RESTARTED))
+        except Exception:
+            self._finished = True
+            raise LiveSessionExpiredError() from None
+        finally:
+            self._renewing = False
+            self._changed.set()
+        return self._require_current()
 
     async def end_audio(self) -> None:
         self._require_accepting_audio()
-        try:
-            await self._session.send_realtime_input(audio_stream_end=True)
-        except Exception as error:
-            raise _redacted("audio send", error) from None
+        async with self._lock:
+            connection = self._require_current()
+            try:
+                await connection.session.send_realtime_input(audio_stream_end=True)
+            except Exception as error:
+                raise _redacted("audio send", error) from None
         self._audio_ended = True
 
-    async def events(self) -> AsyncIterator[LiveTranscriptEvent]:
-        # SDK receive() stops after each completed turn; re-enter until a pass yields nothing.
-        while not self._closed:
-            received = False
-            try:
-                async for message in self._session.receive():
-                    received = True
-                    for event in _transcript_events(message):
-                        yield event
-            except Exception as error:
-                raise _redacted("receive", error) from None
-            if not received:
-                return
+    async def events(self) -> AsyncIterator[LiveTranscriptEvent | LiveSessionStatus]:
+        index = 0
+        while True:
+            while index >= len(self._connections):
+                if self._finished or self._closed:
+                    return
+                self._changed.clear()
+                if index < len(self._connections) or self._finished or self._closed:
+                    continue
+                await self._changed.wait()
+            connection = self._connections[index]
+            while (item := await connection.queue.get()) is not _END:
+                if isinstance(item, BaseException):
+                    raise item from None
+                yield item
+            index += 1
+
+    async def _close_connection(self, connection: _Connection, suppress_errors: bool) -> None:
+        connection.closing = True
+        if connection.receiver is not None and not connection.receiver.done():
+            connection.receiver.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await connection.receiver
+        failure: RuntimeError | None = None
+        try:
+            await connection.session.close()
+        except Exception as error:
+            failure = _redacted("close", error)
+        try:
+            await connection.context.__aexit__(None, None, None)
+        except Exception as error:
+            failure = failure or _redacted("close", error)
+        connection.queue.put_nowait(_END)
+        self._changed.set()
+        if failure is not None and not suppress_errors:
+            raise failure from None
 
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        try:
-            await self._session.close()
-        except Exception as error:
-            raise _redacted("close", error) from None
+        self._finished = True
+        current, self._current = self._current, None
+        if current is None:
+            self._changed.set()
+            return
+        await self._close_connection(current, suppress_errors=False)
 
 
 class GeminiLiveTranscriber(_GeminiClientMixin):
@@ -356,11 +546,18 @@ class GeminiLiveTranscriber(_GeminiClientMixin):
         api_key: str,
         timeout_seconds: float,
         client_factory: ClientFactory | None = None,
+        *,
+        max_connection_seconds: float = _MAX_CONNECTION_SECONDS,
+        drain_seconds: float = _DRAIN_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.model = model
         self.api_key = api_key
         self.timeout = timeout_seconds
         self._client_factory = client_factory
+        self.max_connection_seconds = max_connection_seconds
+        self.drain_seconds = drain_seconds
+        self._clock = clock
 
     @asynccontextmanager
     async def open_session(self, language: str | None = None) -> AsyncIterator[_GeminiLiveSession]:
@@ -369,15 +566,18 @@ class GeminiLiveTranscriber(_GeminiClientMixin):
             sdk_types = _import_genai_types()
         except ImportError as error:
             raise RuntimeError(_INSTALL_ERROR) from error
-        transcription = {"language_codes": [language]} if language else {}
-        connection = client.aio.live.connect(
-            model=self.model, config={"input_audio_transcription": transcription}
+        session = _GeminiLiveSession(
+            lambda config: client.aio.live.connect(model=self.model, config=config),
+            sdk_types.Blob,
+            {"language_codes": [language]} if language else {},
+            max_connection_seconds=self.max_connection_seconds,
+            drain_seconds=self.drain_seconds,
+            clock=self._clock,
         )
         try:
-            sdk_session = await connection.__aenter__()
+            await session.start()
         except Exception as error:
             raise _redacted("connection", error) from None
-        session = _GeminiLiveSession(sdk_session, sdk_types.Blob)
         body_failed = False
         try:
             yield session
@@ -385,23 +585,11 @@ class GeminiLiveTranscriber(_GeminiClientMixin):
             body_failed = True
             raise
         finally:
-            await self._shutdown(connection, session, suppress_errors=body_failed)
-
-    @staticmethod
-    async def _shutdown(
-        connection: Any, session: _GeminiLiveSession, suppress_errors: bool
-    ) -> None:
-        failure: RuntimeError | None = None
-        try:
-            await session.close()
-        except RuntimeError as error:
-            failure = error
-        try:
-            await connection.__aexit__(None, None, None)
-        except Exception as error:
-            failure = failure or _redacted("close", error)
-        if failure is not None and not suppress_errors:
-            raise failure from None
+            try:
+                await session.close()
+            except RuntimeError:
+                if not body_failed:
+                    raise
 
     def health(self) -> tuple[bool, str]:
         return _sdk_health(self.api_key, self.model)

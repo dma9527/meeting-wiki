@@ -85,6 +85,28 @@ class LiveTranscriptEvent:
         return self.kind is LiveTranscriptKind.FINAL
 
 
+class LiveSessionStatusCode(StrEnum):
+    """Fixed, content-free provider connection notices."""
+
+    RENEWING = "renewing"
+    RESUMED = "resumed"
+    RESTARTED = "restarted"
+
+
+@dataclass(frozen=True)
+class LiveSessionStatus:
+    """Provider connection notice, yielded in order with transcript events."""
+
+    code: LiveSessionStatusCode
+
+
+class LiveSessionExpiredError(RuntimeError):
+    """The provider ended its connection and the session could not be renewed."""
+
+    def __init__(self) -> None:
+        super().__init__("Live provider session expired and could not be renewed")
+
+
 @runtime_checkable
 class LiveTranscriptionSession(Protocol):
     """One open streaming session fed raw 16-bit mono PCM at 16 kHz."""
@@ -93,7 +115,7 @@ class LiveTranscriptionSession(Protocol):
 
     async def end_audio(self) -> None: ...
 
-    def events(self) -> AsyncIterator[LiveTranscriptEvent]: ...
+    def events(self) -> AsyncIterator[LiveTranscriptEvent | LiveSessionStatus]: ...
 
     async def close(self) -> None: ...
 

@@ -24,6 +24,9 @@ from .models import TranscriptSegment
 from .providers.base import (
     EmptyTranscriptError,
     LiveLanguageProvider,
+    LiveSessionExpiredError,
+    LiveSessionStatus,
+    LiveSessionStatusCode,
     LiveSessionTranscriptionProvider,
     LiveTranscriptionProvider,
     LiveTranscriptRequest,
@@ -313,6 +316,9 @@ class LiveRuntime:
         except LiveAudioError:
             await self.state("unavailable", "audio_unsupported")
             return
+        except LiveSessionExpiredError:
+            await self.state("unavailable", "provider_session_expired")
+            return
         except Exception:
             await self.state("unavailable", "transcription_error")
             return
@@ -404,12 +410,21 @@ class LiveRuntime:
     async def _consume_session(self, session) -> None:
         try:
             async for event in session.events():
-                if event.is_final and event.text.strip():
+                if isinstance(event, LiveSessionStatus):
+                    await self._session_status(event.code)
+                elif event.is_final and event.text.strip():
                     await self._accept_segments([TranscriptSegment(text=event.text)], 0.0)
         except asyncio.CancelledError:
             raise
         except Exception:
             await self.state("listening", "transcription_error")
+
+    async def _session_status(self, code: LiveSessionStatusCode) -> None:
+        # Renewal keeps the runtime, so sequences, finals, and language context continue.
+        if code is LiveSessionStatusCode.RENEWING:
+            await self.state("listening", "provider_session_renewing")
+        else:
+            await self.state("listening")
 
     async def _emit_final(self, text: str) -> None:
         self._sequence += 1
