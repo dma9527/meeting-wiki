@@ -12,6 +12,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import plistlib
 import struct
 import subprocess
 import sys
@@ -25,8 +26,16 @@ SCHEMA_VERSION = 1
 MODES = ("release", "candidate")
 TAG_PREFIX = "v"
 EXTENSION_MANIFEST = "browser-extension/google-meet/manifest.json"
+EXTENSION_FILES = (
+    EXTENSION_MANIFEST,
+    "browser-extension/google-meet/background.js",
+    "browser-extension/google-meet/content.js",
+)
 SKILL_PATH = "skills/meeting-wiki-memory/SKILL.md"
+CLI_INSTALLER_PATH = "cli-installer.js"
 NOTICE_FILES = ("LICENSE", "NOTICE")
+RUNTIME_TOOLS = ("python", "rec", "sox")
+MINIMUM_MACOS = (14, 2)
 ASAR_NAME = "app.asar"
 IGNORED_NAMES = frozenset({".DS_Store"})
 
@@ -183,10 +192,17 @@ def declared_extra_resources(desktop: Path, resources: list[dict]) -> list[tuple
     """Return (source path relative to desktop, destination under Resources) pairs."""
     pairs: list[tuple[str, str]] = []
     for resource in resources:
-        source_dir = desktop / resource["from"]
-        if not source_dir.is_dir():
-            raise IntegrityError(f"extraResources source {resource['from']}/ does not exist")
-        files = source_files(source_dir)
+        source = desktop / resource["from"]
+        if source.is_file():
+            if resource.get("filter"):
+                raise IntegrityError(
+                    f"extraResources file {resource['from']} must not declare a filter"
+                )
+            pairs.append((resource["from"], resource["to"]))
+            continue
+        if not source.is_dir():
+            raise IntegrityError(f"extraResources source {resource['from']} does not exist")
+        files = source_files(source)
         filters = resource.get("filter", ["**/*"])
         selected = [
             path
@@ -215,6 +231,96 @@ def _same_content(source: Path, packaged: Path) -> bool:
         # Signing may rewrite Mach-O signatures; presence and executability are what matter.
         return os.access(packaged, os.X_OK) == os.access(source, os.X_OK)
     return sha256_file(source) == sha256_file(packaged)
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in value.split("."))
+    except ValueError:
+        return ()
+
+
+def _check_info_plist(app: Path, mac: dict, errors: list[str]) -> None:
+    info_path = app / "Contents/Info.plist"
+    if not info_path.is_file():
+        errors.append("Contents/Info.plist is missing")
+        return
+    with info_path.open("rb") as source:
+        info = plistlib.load(source)
+
+    minimum = str(info.get("LSMinimumSystemVersion", ""))
+    configured_minimum = str(mac.get("minimumSystemVersion", ""))
+    if minimum != configured_minimum:
+        errors.append(
+            f"Info.plist minimum macOS {minimum or 'missing'} differs from configured "
+            f"{configured_minimum or 'missing'}"
+        )
+    if _version_tuple(minimum) < MINIMUM_MACOS:
+        errors.append("Info.plist must require macOS 14.2 or later")
+
+    extend_info = mac.get("extendInfo", {})
+    for key in (
+        "NSMicrophoneUsageDescription",
+        "NSScreenCaptureUsageDescription",
+        "NSAudioCaptureUsageDescription",
+    ):
+        expected = extend_info.get(key)
+        if not expected or info.get(key) != expected:
+            errors.append(f"Info.plist {key} does not match desktop/package.json")
+
+    configured_icon = Path(mac.get("icon", "")).name
+    packaged_icon = str(info.get("CFBundleIconFile", ""))
+    if (
+        not configured_icon
+        or packaged_icon != configured_icon
+        or "electron" in packaged_icon.lower()
+    ):
+        errors.append("Info.plist does not use the configured Meeting Wiki icon")
+    elif not (app / "Contents/Resources" / packaged_icon).is_file():
+        errors.append(f"Contents/Resources/{packaged_icon} is missing")
+
+
+def _check_runtime(runtime_dir: Path, errors: list[str]) -> tuple[str | None, str | None]:
+    manifest_path = runtime_dir / "manifest.json"
+    if not manifest_path.is_file():
+        errors.append("Resources/runtime/manifest.json is missing")
+        return None, None
+    manifest = json.loads(manifest_path.read_text())
+    recorded = manifest.get("tree_sha256")
+    if not recorded:
+        errors.append("Resources/runtime/manifest.json has no tree_sha256")
+
+    for tool in RUNTIME_TOOLS:
+        path = runtime_dir / "bin" / tool
+        if not path.exists() or not os.access(path, os.X_OK):
+            errors.append(f"Resources/runtime/bin/{tool} is missing or not executable")
+    python_version = str(manifest.get("python", {}).get("version", ""))
+    python_minor = ".".join(python_version.split(".")[:2])
+    python_license = runtime_dir / "lib" / f"python{python_minor}" / "LICENSE.txt"
+    if not python_minor or not python_license.is_file():
+        errors.append("Resources/runtime is missing the CPython license")
+    if not (runtime_dir / "licenses/SOURCE-OFFER.txt").is_file():
+        errors.append("Resources/runtime/licenses/SOURCE-OFFER.txt is missing")
+
+    site_packages = runtime_dir / "lib" / f"python{python_minor}" / "site-packages"
+    for package in manifest.get("packages", []):
+        license_files = package.get("license_files", [])
+        if not license_files:
+            errors.append(f"runtime package {package.get('name', 'unknown')} has no license file")
+            continue
+        for relative in license_files:
+            if not (site_packages / relative).is_file():
+                errors.append(f"runtime package license is missing: {relative}")
+
+    for component in manifest.get("audio_tools", {}).get("components", []):
+        formula = component.get("formula", "")
+        version = component.get("version", "")
+        for name in component.get("license_files", []):
+            relative = f"licenses/{formula}-{version}/{name}"
+            if not (runtime_dir / relative).is_file():
+                errors.append(f"runtime audio license is missing: {relative}")
+
+    return recorded, runtime_manifest.tree_digest(runtime_dir)
 
 
 def inventory(app: Path, desktop: Path) -> dict:
@@ -253,28 +359,31 @@ def inventory(app: Path, desktop: Path) -> dict:
             if f"{top}/{relative}" not in declared:
                 errors.append(f"Resources/{top}/{relative} is not a declared resource")
 
-    skill = packed.get(SKILL_PATH)
-    extension = resources_dir / EXTENSION_MANIFEST
+    for required in (CLI_INSTALLER_PATH, SKILL_PATH):
+        if required not in packed:
+            errors.append(f"app.asar is missing {required}")
+
     extension_version = None
+    for relative in EXTENSION_FILES:
+        if not (resources_dir / relative).is_file():
+            errors.append(f"Resources/{relative} is missing")
+    extension = resources_dir / EXTENSION_MANIFEST
     if extension.is_file():
         extension_version = json.loads(extension.read_text()).get("version")
         if not extension_version:
             errors.append("Google Meet extension manifest has no version")
-    else:
-        errors.append(f"Resources/{EXTENSION_MANIFEST} is missing")
-    if skill is None:
-        errors.append(f"app.asar is missing the Claude skill {SKILL_PATH}")
 
-    runtime_dir = resources_dir / "runtime"
-    runtime_tree = None
-    runtime_recorded = None
-    if (runtime_dir / "manifest.json").is_file():
-        runtime_recorded = json.loads((runtime_dir / "manifest.json").read_text()).get(
-            "tree_sha256"
-        )
-        runtime_tree = runtime_manifest.tree_digest(runtime_dir)
-    else:
-        errors.append("Resources/runtime/manifest.json is missing")
+    for name in NOTICE_FILES:
+        packaged_notice = resources_dir / name
+        source_notice = desktop.parent / name
+        if not packaged_notice.is_file():
+            errors.append(f"Resources/{name} is missing")
+        elif sha256_file(packaged_notice) != sha256_file(source_notice):
+            errors.append(f"Resources/{name} differs from the committed source")
+
+    _check_info_plist(app, build.get("mac", {}), errors)
+    runtime_recorded, runtime_tree = _check_runtime(resources_dir / "runtime", errors)
+    skill = packed.get(SKILL_PATH)
 
     return {
         "errors": list(dict.fromkeys(errors)),

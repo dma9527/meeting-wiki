@@ -21,7 +21,7 @@ SCHEMA_VERSION = 1
 EXIT_BLOCKED = 3
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
 CELLAR_RE = re.compile(r"^(?P<prefix>.+)/Cellar/(?P<formula>[^/]+)/(?P<version>[^/]+)/")
-LICENSE_FILE_RE = re.compile(r"^(COPYING|LICENSE|COPYRIGHT)([._-].*)?$", re.IGNORECASE)
+LICENSE_FILE_RE = re.compile(r"^(COPYING|LICENSE|COPYRIGHT|NOTICE)([._-].*)?$", re.IGNORECASE)
 COPYLEFT_PREFIXES = ("GPL-", "LGPL-", "AGPL-")
 PERMISSIVE_LICENSES = frozenset(
     {
@@ -171,9 +171,7 @@ def plan_audio_tools(
     for name in AUDIO_TOOLS:
         raw = tool_paths.get(name) or ""
         if not raw:
-            blockers.append(
-                f"{name} not found; install SoX or set MEETING_WIKI_{name.upper()}_BIN"
-            )
+            blockers.append(f"{name} not found; install SoX or set MEETING_WIKI_{name.upper()}_BIN")
             continue
         real = os.path.realpath(raw)
         if not os.path.isfile(real) or not os.access(real, os.X_OK):
@@ -250,9 +248,9 @@ def plan_audio_tools(
             }
         )
 
-    offer_ok = bool(source_offer) and os.path.isfile(source_offer) and os.path.getsize(
-        source_offer
-    ) > 0
+    offer_ok = (
+        bool(source_offer) and os.path.isfile(source_offer) and os.path.getsize(source_offer) > 0
+    )
     if copyleft and not offer_ok:
         blockers.append(
             "copyleft components "
@@ -380,9 +378,7 @@ def scan_runtime(runtime: Path, forbidden_paths: list[str]) -> list[str]:
             findings.append(f"user data directory: {relative}")
         name = path.name
         credential_file = (
-            path.is_file()
-            and "credentials" in name.lower()
-            and not name.endswith(CODE_SUFFIXES)
+            path.is_file() and "credentials" in name.lower() and not name.endswith(CODE_SUFFIXES)
         )
         if name in FORBIDDEN_NAMES or name.startswith(".env.") or credential_file:
             findings.append(f"private file: {relative}")
@@ -464,11 +460,17 @@ def installed_packages(site_packages: Path) -> list[dict]:
                 break
             key, _, value = line.partition(": ")
             fields.setdefault(key, value.strip())
+        license_files = sorted(
+            path.relative_to(site_packages).as_posix()
+            for path in dist_info.rglob("*")
+            if path.is_file() and LICENSE_FILE_RE.match(path.name)
+        )
         packages.append(
             {
                 "name": fields.get("Name", dist_info.name),
                 "version": fields.get("Version", ""),
                 "license": fields.get("License-Expression") or fields.get("License") or None,
+                "license_files": license_files,
             }
         )
     return sorted(packages, key=lambda item: item["name"].lower())
@@ -490,9 +492,7 @@ def build_manifest(runtime: Path, plan: dict, python_version: str, lock: Path) -
         "packages": installed_packages(site_packages),
         "audio_tools": {
             "status": plan["status"],
-            "tools": {
-                name: f"bin/{name}" for name in AUDIO_TOOLS if name in plan.get("tools", {})
-            },
+            "tools": {name: f"bin/{name}" for name in AUDIO_TOOLS if name in plan.get("tools", {})},
             "libraries": [f"lib/{entry['name']}" for entry in plan.get("libraries", [])],
             "components": [
                 {key: value for key, value in component.items() if key != "keg"}

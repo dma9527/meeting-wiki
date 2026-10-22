@@ -43,12 +43,18 @@ def test_shared_preview_enumerates_every_artifact_and_changes_nothing(populated)
         assert kinds[kind][0]["effect"] == "delete"
         assert kinds[kind][0]["exists"] is True
     assert {item["key"] for item in kinds["person_timeline"]} == {
-        "wiki/people/alex.md", "wiki/people/sam.md"
+        "wiki/people/alex.md",
+        "wiki/people/sam.md",
     }
     assert kinds["action_item_rows"][0]["effect"] == "edit"
     assert kinds["audio"] == [
-        {"kind": "audio", "key": "audio/meeting.wav", "location": "local", "effect": "delete",
-         "exists": True}
+        {
+            "kind": "audio",
+            "key": "audio/meeting.wav",
+            "location": "local",
+            "effect": "delete",
+            "exists": True,
+        }
     ]
     assert {item["effect"] for item in kinds["index"]} == {"rebuild"}
     assert result["jobs"][0]["state"] == "done"
@@ -89,8 +95,13 @@ def test_plan_digest_is_stable_for_unchanged_data(populated):
 
 @pytest.mark.parametrize(
     "key",
-    ["../etc/passwd.md", "wiki/meetings/index.md", "wiki/people/alex.md", "transcripts/x.txt",
-     "wiki/meetings/missing.md"],
+    [
+        "../etc/passwd.md",
+        "wiki/meetings/index.md",
+        "wiki/people/alex.md",
+        "transcripts/x.txt",
+        "wiki/meetings/missing.md",
+    ],
 )
 def test_invalid_or_missing_keys_are_refused(populated, key):
     with pytest.raises(DeletionPreviewError):
@@ -106,16 +117,26 @@ def test_shared_tree_page_claiming_private_is_refused(populated):
 
 def test_cli_delete_preview_reports_preview_only(populated, capsys):
     code = cli.main(
-        ["--config", str(populated.config_path), "delete-preview", "--meeting",
-         populated.private_key]
+        [
+            "--config",
+            str(populated.config_path),
+            "delete-preview",
+            "--meeting",
+            populated.private_key,
+        ]
     )
     assert code == 1
     assert json.loads(capsys.readouterr().out)["error"] == (
         "private_meeting_requires_allow_private"
     )
     code = cli.main(
-        ["--config", str(populated.config_path), "delete-preview", "--meeting",
-         populated.shared_key]
+        [
+            "--config",
+            str(populated.config_path),
+            "delete-preview",
+            "--meeting",
+            populated.shared_key,
+        ]
     )
     assert code == 0
     assert json.loads(capsys.readouterr().out)["deleted"] is False

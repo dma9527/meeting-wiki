@@ -18,9 +18,7 @@ _DAY = 86400.0
 def _regular_files(directory: Path) -> list[Path]:
     if directory.is_symlink() or not directory.is_dir():
         return []
-    return sorted(
-        path for path in directory.iterdir() if path.is_file() and not path.is_symlink()
-    )
+    return sorted(path for path in directory.iterdir() if path.is_file() and not path.is_symlink())
 
 
 def _size(path: Path) -> int:

@@ -470,9 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_resource.add_argument("--url", required=True, help="https URL without credentials")
     add_resource.add_argument("--title", required=True)
     add_resource.add_argument("--summary", default="")
-    add_resource.add_argument(
-        "--relation", choices=sorted(RESOURCE_RELATIONS), default="reference"
-    )
+    add_resource.add_argument("--relation", choices=sorted(RESOURCE_RELATIONS), default="reference")
     add_resource.add_argument(
         "--allow-private", action="store_true", help="Allow attaching to a private meeting"
     )

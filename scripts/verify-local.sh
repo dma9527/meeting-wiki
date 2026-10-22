@@ -13,7 +13,8 @@ for script in scripts/*.sh; do
 done
 
 echo "== Python lint =="
-"$RUFF" check meeting_wiki tests scripts/release_integrity.py
+"$RUFF" check meeting_wiki tests scripts/release_integrity.py scripts/runtime_manifest.py
+"$RUFF" format --check meeting_wiki tests scripts/release_integrity.py scripts/runtime_manifest.py
 echo "== Python tests =="
 "$PY" -m pytest
 echo "== Package build =="

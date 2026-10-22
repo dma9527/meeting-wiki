@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 SCRIPTS = Path(__file__).parents[1] / "scripts"
@@ -28,11 +29,11 @@ def test_release_script_prepares_runtime_before_electron_builder_and_asserts_aft
     builder = script.index("npx electron-builder --mac dir")
     app_exists = script.index('[ -d "$APP" ] || fail')
     assertion = script.index('scripts/assert-packaged-runtime.sh" "$APP"')
-    first_codesign = script.index("codesign --verify")
+    signature_verification = script.index('verify_signed_app "$APP"', assertion)
     notarize = script.index("xcrun notarytool submit")
 
     assert check_only_exit < verification < prepare < builder
-    assert builder < app_exists < assertion < first_codesign < notarize
+    assert builder < app_exists < assertion < signature_verification < notarize
     assert script.count("prepare-runtime-macos.sh") == 1
 
 
@@ -75,18 +76,61 @@ def test_prepare_runtime_never_reads_user_data_or_models():
     assert "exit 3" in script
 
 
-def test_build_scripts_resign_the_app_after_electron_builder():
+def test_build_script_resigns_local_app_after_electron_builder():
     root = Path(__file__).parents[1]
     build_script = (root / "scripts" / "build-macos.sh").read_text()
-    release_script = (root / "scripts" / "release-macos.sh").read_text()
 
     build_after_builder = build_script.index("npm run build")
     build_resign = build_script.index('codesign --force --deep --sign - "$APP"')
     assert build_after_builder < build_resign
 
-    release_after_builder = release_script.index("npx electron-builder --mac dir")
-    release_resign = release_script.index('codesign --force --deep --sign "$IDENTITY" "$APP"')
-    assert release_after_builder < release_resign
+
+def test_release_signs_runtime_inside_out_with_hardened_timestamped_signatures():
+    script = _script("release-macos.sh")
+
+    builder = script.index("npx electron-builder --mac dir")
+    runtime_sign = script.index('sign_runtime "$APP"')
+    outer_sign = script.index(
+        "codesign --force --options runtime --timestamp --entitlements", runtime_sign
+    )
+    verification = script.index('verify_signed_app "$APP"')
+
+    assert builder < runtime_sign < outer_sign < verification
+    assert 'codesign --force --deep --sign "$IDENTITY" "$APP"' not in script
+    assert 'codesign --force --options runtime --timestamp --sign "$IDENTITY" "$binary"' in script
+    assert "codesign --verify --deep --strict" in script
+    assert 'codesign -d --entitlements :- "$code"' in script
+    assert '"$DESKTOP/entitlements.audio-tool.plist" --sign "$IDENTITY" "$binary"' in script
+    assert '[ "$binary" = "$runtime/bin/sox" ] || [ "$binary" = "$runtime/bin/rec" ]' in script
+    assert 'verify_entitlements "$app/Contents/Resources/runtime/bin/sox"' in script
+    assert 'verify_entitlements "$app/Contents/Resources/runtime/bin/rec"' in script
+
+
+def test_release_signature_check_matches_codesign_runtime_metadata():
+    script = _script("release-macos.sh")
+    pattern = r"^CodeDirectory .* flags=0x[0-9a-fA-F]+\([^)]*runtime[^)]*\)"
+    metadata = (
+        "CodeDirectory v=20500 size=334 flags=0x10000(runtime) hashes=3+7 location=embedded\n"
+    )
+
+    assert pattern in script
+    result = subprocess.run(["grep", "-Eq", pattern], input=metadata, text=True, check=False)
+
+    assert result.returncode == 0
+    for invalid in (
+        "CodeDirectory v=20400 size=304 flags=0x2(adhoc) hashes=3+3 location=embedded\n",
+        "CodeDirectory v=20500 size=334 flags=0x0(none) hashes=3+7 location=embedded\n",
+    ):
+        rejected = subprocess.run(["grep", "-Eq", pattern], input=invalid, text=True, check=False)
+        assert rejected.returncode == 1
+
+
+def test_release_passes_unprefixed_identity_to_electron_builder():
+    script = _script("release-macos.sh")
+
+    assert 'BUILDER_IDENTITY="${IDENTITY#Developer ID Application: }"' in script
+    assert 'CSC_NAME="$BUILDER_IDENTITY" npx electron-builder --mac dir' in script
+    assert 'CSC_NAME="$IDENTITY" npx electron-builder --mac dir' not in script
 
 
 def test_release_preflight_gates_run_before_check_only_exit():
@@ -107,6 +151,20 @@ def test_release_defaults_to_tagged_mode_and_candidate_is_explicit():
     assert "MODE=release\n" in script
     assert "--candidate) MODE=candidate ;;" in script
     assert '*) echo "usage:' in script
+
+
+def test_release_signs_and_assesses_the_dmg_before_publication():
+    script = _script("release-macos.sh")
+
+    created = script.index("hdiutil create \\\n")
+    signed = script.index('codesign --force --timestamp --sign "$IDENTITY" "$FINAL_DMG"')
+    notarized = script.index('xcrun notarytool submit "$FINAL_DMG"')
+    stapled = script.index('xcrun stapler staple "$FINAL_DMG"')
+    assessed = script.index(
+        "spctl --assess --type open --context context:primary-signature --verbose=4"
+    )
+
+    assert created < signed < notarized < stapled < assessed
 
 
 def test_release_inspects_build_zip_and_dmg_before_checksums():

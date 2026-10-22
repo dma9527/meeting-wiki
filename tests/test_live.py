@@ -539,8 +539,12 @@ def test_session_runtime_keeps_sequence_and_context_across_provider_renewal(tmp_
     assert "Before renewal" in language.contexts[-1]
     assert "After renewal" in language.contexts[-1]
     states = publisher.of("state")
-    renewing = {"phase": "listening", "private": True, "scope": "external",
-                "issue": "provider_session_renewing"}
+    renewing = {
+        "phase": "listening",
+        "private": True,
+        "scope": "external",
+        "issue": "provider_session_renewing",
+    }
     index = states.index(renewing)
     assert states[index + 1] == {"phase": "listening", "private": True, "scope": "external"}
     assert "transcription_error" not in [state.get("issue") for state in states]

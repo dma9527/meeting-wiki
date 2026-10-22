@@ -24,10 +24,13 @@ Open blockers are tracked in `docs/known-issues.md`.
       published or otherwise available as the offer states.
 - [ ] script: `MEETING_WIKI_GPL_SOURCE_OFFER` is a non-empty file, and the
       packaged `runtime/licenses/SOURCE-OFFER.txt` matches it.
-- [ ] `NOTICE` matches the runtime that is actually bundled (Python, Python
-      packages, SoX and its libraries). See known issue KI-1.
-- [ ] Runtime license texts cover every bundled component listed in
-      `Resources/runtime/manifest.json`. See known issue KI-2.
+- [ ] script: project `LICENSE` and `NOTICE` are packaged and match the
+      committed files.
+- [ ] `NOTICE` accurately identifies CPython, Python distributions, SoX, and
+      its linked audio libraries.
+- [ ] script: CPython's license, every Python distribution's retained license
+      or notice, and every audio component license named by the runtime
+      manifest are present in the app.
 
 ## 3. Credentials
 
@@ -39,9 +42,15 @@ Open blockers are tracked in `docs/known-issues.md`.
 ## 4. Artifact contents
 
 - [ ] script: every `build.files` entry is in `app.asar` with committed
-      content, including `skills/meeting-wiki-memory/SKILL.md`.
-- [ ] script: every `build.extraResources` file is in `Resources`, including
-      the Google Meet extension and the runtime, with no undeclared extras.
+      content. The package contract independently requires
+      `cli-installer.js` and `skills/meeting-wiki-memory/SKILL.md`.
+- [ ] script: every `build.extraResources` file is in `Resources`, with no
+      undeclared extras. The package contract independently requires all
+      Google Meet extension files, runtime tools, runtime licenses, project
+      notices, and the configured app icon.
+- [ ] script: `Info.plist` requires macOS 14.2 or later and contains the exact
+      microphone, screen-capture, and audio-capture descriptions from
+      `desktop/package.json`.
 - [ ] script: the build `.app`, the extracted ZIP, and the mounted DMG pass the
       privacy scan (no user data, secret-shaped content, or build host path).
 - [ ] script: the DMG contains only `Meeting Wiki.app` and `Applications`.
@@ -50,9 +59,13 @@ Open blockers are tracked in `docs/known-issues.md`.
 
 ## 5. Signing and Gatekeeper
 
-- [ ] script: `codesign --verify --deep --strict` passes and the hardened
-      runtime flag is present.
-- [ ] script: the app and DMG are notarized, stapled, and validated.
+- [ ] script: `codesign --verify --deep --strict` passes.
+- [ ] script: the outer app and every runtime Mach-O file use the same
+      Developer ID team, hardened runtime, and secure timestamp.
+- [ ] script: the outer app retains the expected JIT and audio-input
+      entitlements, and both runtime audio entry points retain audio-input.
+- [ ] script: the app and DMG are signed, notarized, stapled, and validated.
+- [ ] script: the DMG passes the primary-signature Gatekeeper assessment.
 - [ ] script: `spctl --assess` accepts the build app and both unpacked copies.
 - [ ] On a second Mac without the developer certificate, the DMG installs and
       opens without removing quarantine or any Gatekeeper bypass.

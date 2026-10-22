@@ -185,8 +185,7 @@ class EventJournal:
                 "SELECT * FROM events ORDER BY id DESC LIMIT ?", (bounded,)
             ).fetchall()
         return [
-            {key: row[key] for key in _COLUMNS if row[key] is not None}
-            for row in reversed(rows)
+            {key: row[key] for key in _COLUMNS if row[key] is not None} for row in reversed(rows)
         ]
 
 

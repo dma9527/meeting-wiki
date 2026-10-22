@@ -13,20 +13,6 @@ certificate and notarization credentials are installed. Until then only local
 development builds from `scripts/build-macos.sh` exist, and those must not be
 published. See `docs/releasing-macos.md`.
 
-### KI-1: NOTICE does not describe the bundled runtime
-
-`NOTICE` states that SoX is not bundled. The packaged app bundles SoX, its
-GPL and LGPL libraries, a CPython runtime, and Python packages under
-`Resources/runtime`. The release owner must reconcile `NOTICE` with
-`Resources/runtime/manifest.json` before publishing.
-
-### KI-2: Runtime license texts cover only the audio tools
-
-`Resources/runtime/licenses` contains license files from the Homebrew SoX
-closure and the source offer. License texts for CPython and the bundled Python
-packages are recorded by name in `runtime/manifest.json` but not copied into
-`licenses/`.
-
 ### KI-3: No corresponding-source decision for bundled GPL and LGPL tools
 
 The bundled SoX closure includes GPL and LGPL components. The release owner
@@ -34,20 +20,17 @@ must choose and complete one of the paths in `docs/portable-runtime.md`
 ("Audio tool redistribution blocker"). The release script requires
 `MEETING_WIKI_GPL_SOURCE_OFFER` but cannot verify that the offer is honored.
 
-### KI-4: Signing of nested runtime binaries is unverified
+### KI-4: Credentialed signing and notarization remain unverified
 
-`scripts/release-macos.sh` re-signs the app with
-`codesign --force --deep --sign` after electron-builder. This has not run with
-a Developer ID identity. Two risks need verification on the first credentialed
-run:
+`scripts/release-macos.sh` now signs every Mach-O file under
+`Resources/runtime` before sealing the outer app. It requires hardened runtime,
+a secure timestamp, one Developer ID team across the app and runtime, and the
+expected outer-app entitlements. The script also verifies the extracted ZIP
+and mounted DMG copies.
 
-- Re-signing without `--options runtime` may drop the hardened runtime flag, in
-  which case the script's hardened-runtime check fails.
-- `Resources/runtime` Mach-O files (`python`, `sox`, dylibs) are ad-hoc signed
-  during staging. Apple notarization requires every executable to carry a
-  Developer ID signature with hardened runtime and a secure timestamp.
-
-The script fails closed on both, but no notarized build exists yet.
+No build has passed these checks with a real Developer ID identity and
+notarization credentials. A credentialed candidate must pass the full script
+and second-Mac installation test before publication.
 
 ## Product limitations
 

@@ -16,6 +16,7 @@ desktop/dist/
 desktop/out/
 desktop/runtime/
 desktop/runtime.blocked.json
+desktop/runtime.previous.*/
 
 # Local data and secrets
 .meeting-wiki/

@@ -94,6 +94,7 @@ class Worker:
                 self.queue.freeze_payload(
                     job.id, meeting.model_dump(mode="json"), claim_token=token
                 )
+
             def progress(stage: JobStage) -> None:
                 nonlocal current_stage
                 current_stage = stage

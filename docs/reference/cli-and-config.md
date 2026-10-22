@@ -33,7 +33,7 @@ See [architecture.md](../architecture.md).
 
 ## CLI quick start
 
-Prerequisites: macOS 14+, Apple Silicon, Python 3.11+, Node.js 20+, SoX,
+Prerequisites: macOS 14.2 or later, Apple Silicon, Python 3.11+, Node.js 20+, SoX,
 Ollama, and an Ollama model.
 
 ```bash

@@ -234,8 +234,18 @@ def test_cli_add_and_list_resources(archive, tmp_path, capsys, no_network):  # n
     capsys.readouterr()
     shared = meeting_id(archive["shared_id"])
     base = ["--config", str(config), "memory-add-resource", f"--meeting={shared}"]
-    assert main([*base, "--url=https://example.com/spec", "--title=Rollout spec",
-                 "--summary=Canary plan", "--relation=design_doc"]) == 0
+    assert (
+        main(
+            [
+                *base,
+                "--url=https://example.com/spec",
+                "--title=Rollout spec",
+                "--summary=Canary plan",
+                "--relation=design_doc",
+            ]
+        )
+        == 0
+    )
     output = json.loads(capsys.readouterr().out)
     assert output["added"] is True and output["resource"]["url"] == "https://example.com/spec"
 
@@ -252,8 +262,19 @@ def test_cli_add_and_list_resources(archive, tmp_path, capsys, no_network):  # n
     assert main([*base, "--url=http://localhost:3000/x", "--title=Dev", "--allow-loopback"]) == 0
     capsys.readouterr()
     private = meeting_id(archive["private_id"])
-    assert main(["--config", str(config), "memory-add-resource", f"--meeting={private}",
-                 "--url=https://example.com/p", "--title=Secret"]) == 1
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "memory-add-resource",
+                f"--meeting={private}",
+                "--url=https://example.com/p",
+                "--title=Secret",
+            ]
+        )
+        == 1
+    )
     assert json.loads(capsys.readouterr().out) == {"error": "meeting_unavailable"}
     with pytest.raises(SystemExit):
         main([*base, "--url=https://example.com/", "--title=x", "--relation=owns"])

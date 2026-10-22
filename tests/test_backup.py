@@ -39,7 +39,13 @@ def make_backup(populated, tmp_path, passphrase=PASSPHRASE):
 def test_backup_round_trip_restores_every_category_and_verifies(populated, tmp_path):
     report = make_backup(populated, tmp_path)
     assert set(report.categories) == {
-        "analysis", "audio", "config", "databases", "integration_state", "transcripts", "wiki"
+        "analysis",
+        "audio",
+        "config",
+        "databases",
+        "integration_state",
+        "transcripts",
+        "wiki",
     }
     assert report.skipped["secret_store"] == 1
     assert report.skipped["secret_like_file"] == 1
@@ -55,7 +61,10 @@ def test_backup_round_trip_restores_every_category_and_verifies(populated, tmp_p
     target = tmp_path / "restored"
     restored = restore_backup(report.archive, target, PASSPHRASE)
     assert restored.databases == {
-        "events.db": "ok", "jobs.db": "ok", "memory.db": "ok", "outbox.db": "ok"
+        "events.db": "ok",
+        "jobs.db": "ok",
+        "memory.db": "ok",
+        "outbox.db": "ok",
     }
     assert (target / populated.shared_key).read_bytes() == (
         populated.data_dir / populated.shared_key
@@ -102,7 +111,9 @@ def test_tampered_or_truncated_archive_fails_verification(populated, tmp_path, d
         verify_backup(report.archive, PASSPHRASE)
     # A small archive is one frame, where tampering and a wrong key are indistinguishable.
     assert error.value.code in {
-        "archive_corrupt", "archive_truncated", "wrong_passphrase_or_corrupt"
+        "archive_corrupt",
+        "archive_truncated",
+        "wrong_passphrase_or_corrupt",
     }
 
 
@@ -170,8 +181,12 @@ def test_cli_reads_passphrase_from_stdin_and_never_prints_it(
     monkeypatch.setattr("sys.stdin", io.StringIO(PASSPHRASE + "\n"))
     code = cli.main(
         [
-            "--config", str(populated.config_path),
-            "backup-create", "--output", str(archive), "--passphrase-stdin",
+            "--config",
+            str(populated.config_path),
+            "backup-create",
+            "--output",
+            str(archive),
+            "--passphrase-stdin",
         ]
     )
     output = capsys.readouterr().out
@@ -188,8 +203,7 @@ def test_cli_reads_passphrase_from_stdin_and_never_prints_it(
     monkeypatch.setattr("sys.stdin", io.StringIO(PASSPHRASE + "\n"))
     target = tmp_path / "cli-restore"
     code = cli.main(
-        ["backup-restore", "--archive", str(archive), "--target", str(target),
-         "--passphrase-stdin"]
+        ["backup-restore", "--archive", str(archive), "--target", str(target), "--passphrase-stdin"]
     )
     result = json.loads(capsys.readouterr().out)
     assert code == 0

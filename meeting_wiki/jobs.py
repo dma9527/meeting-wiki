@@ -262,9 +262,7 @@ class JobQueue:
             )
             return cursor.rowcount == 1
 
-    def set_stage(
-        self, job_id: int, stage: JobStage, *, claim_token: str | None = None
-    ) -> None:
+    def set_stage(self, job_id: int, stage: JobStage, *, claim_token: str | None = None) -> None:
         if stage in {JobStage.QUEUED, JobStage.DONE}:
             raise ValueError(f"Worker cannot set terminal stage: {stage.value}")
         owned, params = _claim_clause(claim_token)

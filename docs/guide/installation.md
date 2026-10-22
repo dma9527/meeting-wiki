@@ -2,7 +2,7 @@
 
 [English](installation.md) | [简体中文](../zh-CN/guide/installation.md)
 
-Requirements: Apple Silicon Mac (M1 or newer) with macOS 14 or later. Intel
+Requirements: Apple Silicon Mac (M1 or newer) with macOS 14.2 or later. Intel
 Macs are not supported.
 
 There is no signed release. Every current build is an unsigned local test

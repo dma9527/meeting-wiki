@@ -2,7 +2,7 @@
 
 [English](../../guide/installation.md) | [简体中文](installation.md)
 
-要求：Apple Silicon Mac（M1 或更新），macOS 14 或更新。不支持 Intel Mac。
+要求：Apple Silicon Mac（M1 或更新），macOS 14.2 或更新。不支持 Intel Mac。
 
 目前没有签名发布版，所有构建都是未签名的本地测试产物。只在你自己控制的 Mac 上安装，不要再分发。
 

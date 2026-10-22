@@ -106,36 +106,45 @@ def _job(tmp_path, payload, job_type=JobType.INGEST):
 
 
 def test_recovery_label_never_shows_private_or_unclassified_titles(tmp_path):
-    private = _job(tmp_path, {
-        "title": "Career talk with Sam",
-        "private": True,
-        "audio_path": "/tmp/a.wav",
-        "recording_started_at": "2026-09-04T15:05:00+00:00",
-    })
+    private = _job(
+        tmp_path,
+        {
+            "title": "Career talk with Sam",
+            "private": True,
+            "audio_path": "/tmp/a.wav",
+            "recording_started_at": "2026-09-04T15:05:00+00:00",
+        },
+    )
     record = redacted_job_record(private)
     assert record["label"] == "Private recording"
     assert record["captured_at"] == "2026-09-04T15:05:00+00:00"
     assert "Career" not in json.dumps(record)
 
-    unfrozen = _job(tmp_path, {
-        "title": "Budget review",
-        "private": False,
-        "audio_path": "/tmp/b.wav",
-        "recording_started_at": "2026-09-04T16:05:00+00:00",
-    })
+    unfrozen = _job(
+        tmp_path,
+        {
+            "title": "Budget review",
+            "private": False,
+            "audio_path": "/tmp/b.wav",
+            "recording_started_at": "2026-09-04T16:05:00+00:00",
+        },
+    )
     assert redacted_job_record(unfrozen)["label"] == "Recording"
     assert "Budget" not in json.dumps(redacted_job_record(unfrozen))
 
 
 def test_recovery_label_shows_a_frozen_shared_title_and_imports(tmp_path):
-    shared = _job(tmp_path, {
-        "title": "Architecture sync\nwith\tteam " + "x" * 200,
-        "private": False,
-        "classification_frozen": True,
-        "audio_path": "/tmp/c.wav",
-        "occurred_at": "2026-09-04T17:00:00+00:00",
-        "occurred_at_explicit": True,
-    })
+    shared = _job(
+        tmp_path,
+        {
+            "title": "Architecture sync\nwith\tteam " + "x" * 200,
+            "private": False,
+            "classification_frozen": True,
+            "audio_path": "/tmp/c.wav",
+            "occurred_at": "2026-09-04T17:00:00+00:00",
+            "occurred_at_explicit": True,
+        },
+    )
     record = redacted_job_record(shared)
     assert record["label"].startswith("Architecture sync with team ")
     assert len(record["label"]) <= 80

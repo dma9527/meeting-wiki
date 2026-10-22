@@ -16,15 +16,37 @@ MAX_SUMMARY_LENGTH = 2000
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _TLD = re.compile(r"[a-z]{2,63}|xn--[a-z0-9-]{1,59}")
 _SPECIAL_USE_SUFFIXES = (
-    "localhost", "local", "internal", "lan", "home.arpa", "test", "invalid", "onion", "intranet",
+    "localhost",
+    "local",
+    "internal",
+    "lan",
+    "home.arpa",
+    "test",
+    "invalid",
+    "onion",
+    "intranet",
 )
 _LOOPBACK_NAMES = frozenset({"localhost"})
 # Query names that usually carry bearer secrets or signatures (signed URLs, OAuth codes).
 _SECRET_QUERY_NAMES = frozenset(
     {
-        "access_token", "api_key", "apikey", "auth", "client_secret", "id_token", "passwd",
-        "password", "refresh_token", "secret", "sig", "signature", "token",
-        "x-amz-credential", "x-amz-security-token", "x-amz-signature", "x-goog-signature",
+        "access_token",
+        "api_key",
+        "apikey",
+        "auth",
+        "client_secret",
+        "id_token",
+        "passwd",
+        "password",
+        "refresh_token",
+        "secret",
+        "sig",
+        "signature",
+        "token",
+        "x-amz-credential",
+        "x-amz-security-token",
+        "x-amz-signature",
+        "x-goog-signature",
     }
 )
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -84,7 +106,7 @@ def validate_url(raw: object, *, allow_loopback: bool = False) -> str:
         raise ResourceValidationError("invalid_url")
     if not raw or len(raw) > MAX_URL_LENGTH or raw != raw.strip():
         raise ResourceValidationError("invalid_url")
-    if not raw.isascii() or _CONTROL.search(raw) or any(ch in raw for ch in " \\<>\"`{}|^"):
+    if not raw.isascii() or _CONTROL.search(raw) or any(ch in raw for ch in ' \\<>"`{}|^'):
         raise ResourceValidationError("invalid_url")
     if "#" in raw:
         raise ResourceValidationError("fragment_not_allowed")

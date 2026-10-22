@@ -131,27 +131,35 @@ The build then performs these gates:
 2. Stages the bundled runtime with `scripts/prepare-runtime-macos.sh`
    (see `docs/portable-runtime.md`).
 3. Installs exact desktop dependencies with `npm ci` and runs desktop tests.
-4. Builds the `.app` with the Developer ID Application identity and checks
-   `Resources/runtime/bin/{python,rec,sox}` with
+4. Builds the `.app` with the Developer ID Application identity, signs every
+   Mach-O file in `Resources/runtime` with hardened runtime and a secure
+   timestamp, then signs the outer app with the expected entitlements.
+5. Checks `Resources/runtime/bin/{python,rec,sox}` with
    `scripts/assert-packaged-runtime.sh`.
-5. Inspects the `.app` with `scripts/release_integrity.py`: every
-   `build.files` entry is in `app.asar` with the committed content (including
-   the Claude skill `skills/meeting-wiki-memory/SKILL.md`), every
-   `build.extraResources` file is in `Resources` (including the Google Meet
-   extension and the runtime), no undeclared file appears under those
-   resources, no user data, secret-shaped content, or build host path is
-   present, and the packaged source offer matches
-   `MEETING_WIKI_GPL_SOURCE_OFFER`.
-6. Verifies the signature and hardened runtime.
-7. Notarizes, staples, and validates the `.app`.
-8. Creates the final ZIP and DMG from the stapled app, then notarizes,
-   staples, and validates the DMG.
-9. Runs Gatekeeper assessment with `spctl`.
-10. Extracts the final ZIP and attaches the final DMG read-only, repeats the
-    step 5 inspection and Gatekeeper assessment on each copy, and checks the
-    DMG contains only `Meeting Wiki.app` and the `Applications` link.
-11. Re-runs the source preflight and writes `release-manifest.json`.
-12. Writes `SHA256SUMS` for the DMG, ZIP, and release manifest.
+6. Inspects the `.app` with `scripts/release_integrity.py`: every
+   `build.files` entry is in `app.asar` with the committed content; the CLI
+   installer and Claude skill are present; every `build.extraResources` file
+   is in `Resources`; project notices, the Google Meet extension, runtime
+   tools, CPython and package licenses, audio licenses, and the product icon
+   are present; `Info.plist` requires macOS 14.2 or later and has the expected
+   privacy descriptions; no undeclared resource, user data, secret-shaped
+   content, or build host path is present; and the packaged source offer
+   matches `MEETING_WIKI_GPL_SOURCE_OFFER`.
+7. Verifies the app seal and confirms that the outer app and every runtime
+   Mach-O file share the Developer ID team, hardened-runtime flag, and secure
+   timestamp. It also verifies the expected outer-app entitlements and the
+   audio-input entitlement on both `runtime/bin/sox` and `runtime/bin/rec`.
+8. Notarizes, staples, and validates the `.app`.
+9. Creates the final ZIP and DMG from the stapled app, signs the DMG with
+   the same Developer ID identity, then notarizes, staples, validates, and
+   runs the primary-signature Gatekeeper assessment on the DMG.
+10. Runs Gatekeeper assessment with `spctl`.
+11. Extracts the final ZIP and attaches the final DMG read-only, repeats the
+    content and nested-signature inspections on each copy, runs Gatekeeper on
+    each copy, and checks the DMG contains only `Meeting Wiki.app` and the
+    `Applications` link.
+12. Re-runs the source preflight and writes `release-manifest.json`.
+13. Writes `SHA256SUMS` for the DMG, ZIP, and release manifest.
 
 `release-manifest.json` records the source commit, tag, mode, app version,
 staged and packaged runtime tree hashes, Python and dependency lock hashes,

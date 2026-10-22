@@ -23,12 +23,15 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns",
+      "minimumSystemVersion": "14.2",
       "hardenedRuntime": true,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Meeting Wiki records your microphone only when you start a recording.",
-        "NSScreenCaptureUsageDescription": "Meeting Wiki captures system audio only when you start a recording."
+        "NSScreenCaptureUsageDescription": "Meeting Wiki captures system audio only when you start a recording.",
+        "NSAudioCaptureUsageDescription": "Meeting Wiki captures system audio only when you start recording or enable automatic recording."
       }
     },
     "files": [
@@ -83,6 +86,14 @@
         "from": "browser-extension",
         "to": "browser-extension",
         "filter": ["google-meet/manifest.json", "google-meet/background.js", "google-meet/content.js"]
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../NOTICE",
+        "to": "NOTICE"
       }
     ]
   }

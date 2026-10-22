@@ -12,7 +12,7 @@
 
 ## 平台
 
-- 仅支持 Apple Silicon 上的 macOS 14 及以上，不支持 Intel Mac。
+- 仅支持 Apple Silicon 上的 macOS 14.2 及以上，不支持 Intel Mac。
 - 未签名构建在构建机以外的 Mac 上需要移除隔离标记。
 
 ## 产品不足

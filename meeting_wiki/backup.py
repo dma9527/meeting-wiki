@@ -374,9 +374,7 @@ def _config_has_credentials(path: Path) -> bool:
     return False
 
 
-def collect_members(
-    data_dir: Path, config_path: Path | None
-) -> tuple[list[_Member], Counter[str]]:
+def collect_members(data_dir: Path, config_path: Path | None) -> tuple[list[_Member], Counter[str]]:
     """Return regular, non-secret files to archive. Databases are snapshotted separately."""
     root = data_dir.expanduser().resolve()
     skipped: Counter[str] = Counter()
@@ -704,13 +702,13 @@ def _process_archive(
             target: Path | None = None
             out = None
             if staging is not None:
-                target = staging.joinpath(*name.parts[1:]) if name.parts[0] == "data" else (
-                    staging / "config.toml"
+                target = (
+                    staging.joinpath(*name.parts[1:])
+                    if name.parts[0] == "data"
+                    else (staging / "config.toml")
                 )
                 target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                out = os.fdopen(
-                    os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
-                )
+                out = os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
             try:
                 while chunk := extracted.read(_CHUNK_SIZE):
                     digest.update(chunk)

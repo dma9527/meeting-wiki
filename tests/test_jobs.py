@@ -286,9 +286,7 @@ def test_stale_claim_cannot_complete_fail_or_touch_a_newer_claim(tmp_path):
     with pytest.raises(ClaimLost):
         queue.set_stage(job_id, JobStage.ANALYZING, claim_token=stale.claim_token)
     with pytest.raises(ClaimLost):
-        queue.freeze_payload(
-            job_id, {"classification_frozen": True}, claim_token=stale.claim_token
-        )
+        queue.freeze_payload(job_id, {"classification_frozen": True}, claim_token=stale.claim_token)
     with pytest.raises(ClaimLost):
         queue.save_analysis_snapshot(job_id, "{}", claim_token=stale.claim_token)
     assert queue.heartbeat(job_id, claim_token=stale.claim_token) is False

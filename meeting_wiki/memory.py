@@ -224,9 +224,7 @@ class MemoryStore:
             ),
         )
         people = {
-            participant.name
-            for participant in analysis.participants
-            if participant.name.strip()
+            participant.name for participant in analysis.participants if participant.name.strip()
         }
         people.update(segment.speaker for segment in transcript.segments if segment.speaker)
         for name in sorted(people):
@@ -262,9 +260,7 @@ class MemoryStore:
             )
             self._link(connection, segment_id, meeting_node_id, "part_of", source_id)
             if segment.speaker:
-                person_id = self._entity_node_id(
-                    "person", segment.speaker, privacy, source_id
-                )
+                person_id = self._entity_node_id("person", segment.speaker, privacy, source_id)
                 self._link(connection, segment_id, person_id, "attributed_to", source_id)
         for topic in analysis.topics:
             topic_id = self._entity_node_id("topic", topic.topic, privacy, source_id)
@@ -295,9 +291,7 @@ class MemoryStore:
             )
             self._link(connection, decision_id, meeting_node_id, "decided_in", source_id)
             if decision.owner:
-                owner_id = self._entity_node_id(
-                    "person", decision.owner, privacy, source_id
-                )
+                owner_id = self._entity_node_id("person", decision.owner, privacy, source_id)
                 self._link(connection, decision_id, owner_id, "owned_by", source_id)
         for index, action in enumerate(analysis.action_items):
             action_id = self._node_id("action", source_id, str(index), action.action)
@@ -349,7 +343,10 @@ class MemoryStore:
                 metadata=self._metadata(url=row["url"], relation=row["relation"]),
             )
             self._link(
-                connection, row["resource_id"], meeting_node_id, row["relation"],
+                connection,
+                row["resource_id"],
+                meeting_node_id,
+                row["relation"],
                 meeting["source_id"],
             )
 
@@ -365,9 +362,7 @@ class MemoryStore:
         allow_private: bool = False,
     ) -> dict[str, object]:
         """Attach validated resource fields to a canonical meeting. Nothing is fetched."""
-        if not isinstance(meeting_node_id, str) or not _MEETING_NODE_ID.fullmatch(
-            meeting_node_id
-        ):
+        if not isinstance(meeting_node_id, str) or not _MEETING_NODE_ID.fullmatch(meeting_node_id):
             raise ResourceError("meeting_unavailable")
         resource_id = self._node_id("resource", meeting_node_id, url)
         with closing(self._connect()) as connection:

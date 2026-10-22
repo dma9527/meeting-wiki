@@ -59,7 +59,21 @@ grep -q '"redistribution": "copyleft' "$OUT/manifest.json" || fail "manifest lac
 grep -q '"name": "meeting-wiki"' "$OUT/manifest.json" || fail "manifest lacks meeting-wiki"
 grep -q '"name": "google-genai"' "$OUT/manifest.json" || fail "manifest lacks online provider deps"
 [ -s "$OUT/licenses/SOURCE-OFFER.txt" ] || fail "source offer not shipped"
+[ -s "$OUT/lib/python3.12/LICENSE.txt" ] || fail "CPython license not shipped"
 [ -n "$(find "$OUT/licenses" -path '*sox-*' -name 'LICENSE.GPL')" ] || fail "SoX GPL text not shipped"
+"$OUT/bin/python" -I -B - "$OUT" <<'PY' || fail "Python package license files are incomplete"
+import json
+import pathlib
+import sys
+
+runtime = pathlib.Path(sys.argv[1])
+manifest = json.loads((runtime / "manifest.json").read_text())
+site_packages = runtime / "lib/python3.12/site-packages"
+for package in manifest["packages"]:
+    files = package.get("license_files", [])
+    if not files or any(not (site_packages / relative).is_file() for relative in files):
+        raise SystemExit(f"missing license files for {package['name']}")
+PY
 if grep -q "$HOME" "$OUT/manifest.json"; then fail "manifest leaks the home path"; fi
 pass "runtime layout, licenses, and manifest"
 

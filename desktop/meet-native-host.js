@@ -34,14 +34,28 @@ function spoolReady(fsImpl, spoolDir, uid) {
   }
 }
 
-function writeEvent(fsImpl, spoolDir, event, now) {
+function writeEvent(fsImpl, spoolDir, event, now, orderAt = null, sequence = 0) {
   if (fsImpl.readdirSync(spoolDir).length >= MAX_SPOOL_FILES) return false;
   const at = now();
-  const name = `${at}-${crypto.randomBytes(8).toString("hex")}.json`;
+  const sortAt = orderAt === null ? at : orderAt;
+  const sequenceHex = sequence.toString(16).padStart(8, "0");
+  const name = `${sortAt}-${sequenceHex}${crypto.randomBytes(4).toString("hex")}.json`;
   const temp = path.join(spoolDir, `.tmp-${crypto.randomBytes(8).toString("hex")}`);
   fsImpl.writeFileSync(temp, JSON.stringify({ v: 1, ...event, at }), { mode: 0o600, flag: "wx" });
   fsImpl.renameSync(temp, path.join(spoolDir, name));
   return true;
+}
+
+function createEventWriter(fsImpl, spoolDir, now) {
+  let lastOrderAt = -1;
+  let sequence = 0;
+  return (event) => {
+    const at = now();
+    const orderAt = Math.max(at, lastOrderAt);
+    sequence = orderAt === lastOrderAt ? sequence + 1 : 0;
+    lastOrderAt = orderAt;
+    return writeEvent(fsImpl, spoolDir, event, () => at, orderAt, sequence);
+  };
 }
 
 // Native messaging frames: a 4-byte little-endian length, then UTF-8 JSON.
@@ -83,12 +97,13 @@ function runHost({
     exit(1);
     return;
   }
+  const write = createEventWriter(fsImpl, spoolDir, now);
   const read = createFrameReader(
     (message) => {
       const event = validateExtensionMessage(message);
       if (!event || !spoolReady(fsImpl, spoolDir, uid)) return;
       try {
-        writeEvent(fsImpl, spoolDir, event, now);
+        write(event);
       } catch (_) {}
     },
     () => exit(1),
@@ -99,4 +114,12 @@ function runHost({
 
 if (require.main === module) runHost();
 
-module.exports = { MAX_SPOOL_FILES, createFrameReader, parseArgs, runHost, spoolReady, writeEvent };
+module.exports = {
+  MAX_SPOOL_FILES,
+  createEventWriter,
+  createFrameReader,
+  parseArgs,
+  runHost,
+  spoolReady,
+  writeEvent,
+};

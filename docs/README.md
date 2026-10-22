@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](zh-CN/README.md)
 
-Meeting Wiki is an early alpha for macOS 14+ on Apple Silicon. There is no
+Meeting Wiki is an early alpha for macOS 14.2 or later on Apple Silicon. There is no
 signed release; current builds are unsigned local test artifacts.
 
 ## User guides

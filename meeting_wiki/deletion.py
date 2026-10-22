@@ -46,8 +46,14 @@ def _normalize_key(meeting_key: str) -> tuple[str, bool]:
 
 
 def _artifact(kind: str, key: str, location: str, effect: str, exists: bool, **extra: object):
-    return {"kind": kind, "key": key, "location": location, "effect": effect,
-            "exists": exists, **extra}
+    return {
+        "kind": kind,
+        "key": key,
+        "location": location,
+        "effect": effect,
+        "exists": exists,
+        **extra,
+    }
 
 
 def _open(path: Path) -> sqlite3.Connection | None:
@@ -78,9 +84,7 @@ def _linked_pages(
         text = storage.read_text(key) or ""
         occurrences = text.count(needle)
         if occurrences:
-            found.append(
-                _artifact(kind, key, storage.name, effect, True, references=occurrences)
-            )
+            found.append(_artifact(kind, key, storage.name, effect, True, references=occurrences))
     return found
 
 
@@ -178,9 +182,7 @@ def preview_meeting_deletion(
             if decision_fields.get("source") == f"meetings/{page_stem}":
                 decision_keys.append(decision_key)
                 artifacts.append(_artifact("decision", decision_key, location, "delete", True))
-        superseded_refs = {
-            f"decisions/{PurePosixPath(item).stem}" for item in decision_keys
-        }
+        superseded_refs = {f"decisions/{PurePosixPath(item).stem}" for item in decision_keys}
         for decision_key in storage.list_keys("wiki/decisions/"):
             if decision_key in decision_keys or not decision_key.endswith(".md"):
                 continue
@@ -205,9 +207,7 @@ def preview_meeting_deletion(
     connection = _open(root / "jobs.db")
     if connection is not None:
         with closing(connection):
-            for row in connection.execute(
-                "SELECT id, state, stage, payload FROM jobs ORDER BY id"
-            ):
+            for row in connection.execute("SELECT id, state, stage, payload FROM jobs ORDER BY id"):
                 try:
                     payload = json.loads(str(row["payload"]))
                 except json.JSONDecodeError:
@@ -216,13 +216,21 @@ def preview_meeting_deletion(
                     continue
                 job_rows.append(row)
                 jobs.append(
-                    {"job_id": row["id"], "state": row["state"], "stage": row["stage"],
-                     "effect": "delete"}
+                    {
+                        "job_id": row["id"],
+                        "state": row["state"],
+                        "stage": row["stage"],
+                        "effect": "delete",
+                    }
                 )
     artifacts += _job_audio(root, job_rows, private, stem)
 
-    memory: dict[str, object] = {"nodes": {}, "edges": 0, "resources": [],
-                                 "shared_entities_effect": "retain"}
+    memory: dict[str, object] = {
+        "nodes": {},
+        "edges": 0,
+        "resources": [],
+        "shared_entities_effect": "retain",
+    }
     connection = _open(root / "memory.db")
     if connection is not None:
         privacy = "private" if private else "shared"
@@ -240,8 +248,11 @@ def preview_meeting_deletion(
             ).fetchone()[0]
             meeting_node = f"meeting:{stable_id(ingest_id)}"
             resources = [
-                {"resource_id": row["resource_id"], "host": _external_host(row["url"]),
-                 "effect": "delete"}
+                {
+                    "resource_id": row["resource_id"],
+                    "host": _external_host(row["url"]),
+                    "effect": "delete",
+                }
                 for row in connection.execute(
                     "SELECT resource_id, url FROM memory_resources WHERE meeting_node_id=? "
                     "ORDER BY resource_id",
@@ -249,8 +260,12 @@ def preview_meeting_deletion(
                 )
             ]
         memory.update(
-            {"nodes": nodes, "edges": int(edges), "resources": resources,
-             "meeting_node_id": meeting_node}
+            {
+                "nodes": nodes,
+                "edges": int(edges),
+                "resources": resources,
+                "meeting_node_id": meeting_node,
+            }
         )
 
     tasks: list[dict[str, object]] = []
@@ -270,8 +285,9 @@ def preview_meeting_deletion(
                         "state": row["state"],
                         "external_host": host,
                         "local_effect": "delete",
-                        "external_effect": "retain_external" if host or row["state"] in {
-                            "delivered", "sending"} else "none",
+                        "external_effect": "retain_external"
+                        if host or row["state"] in {"delivered", "sending"}
+                        else "none",
                     }
                 )
 

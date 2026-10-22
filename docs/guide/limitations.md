@@ -17,7 +17,7 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 
 ## Platform
 
-- macOS 14 or later on Apple Silicon only. Intel Macs are not supported.
+- macOS 14.2 or later on Apple Silicon only. Intel Macs are not supported.
 - Unsigned builds need the quarantine flag removed on any Mac other than the
   one that built them.
 

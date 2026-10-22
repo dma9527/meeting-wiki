@@ -149,9 +149,7 @@ def test_concurrent_change_to_read_key_raises_conflict_and_keeps_winner():
     client = FakeS3Client()
     first, second = make_storage(client), make_storage(client)
     first.write_text("wiki/action-items/active.md", "base")
-    client.before_manifest_put = lambda: second.write_text(
-        "wiki/action-items/active.md", "winner"
-    )
+    client.before_manifest_put = lambda: second.write_text("wiki/action-items/active.md", "winner")
     with pytest.raises(StorageRevisionConflict), first.revision():
         existing = first.read_text("wiki/action-items/active.md")
         first.write_text("wiki/action-items/active.md", f"{existing} + loser")
@@ -306,8 +304,11 @@ def test_ingest_publishes_transcript_then_meeting_as_atomic_revisions(
     }
     published = set(meeting_revision["objects"])
     assert {result.analysis_key, result.render.meeting_key, "wiki/index.md"} <= published
-    assert all(entry["revision"] == 2 for key, entry in meeting_revision["objects"].items()
-               if key not in transcript_revision["objects"])
+    assert all(
+        entry["revision"] == 2
+        for key, entry in meeting_revision["objects"].items()
+        if key not in transcript_revision["objects"]
+    )
     assert reader.read_text(result.render.meeting_key)
 
 

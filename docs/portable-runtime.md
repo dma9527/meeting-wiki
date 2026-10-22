@@ -16,11 +16,12 @@ Builds `desktop/runtime/` on Apple Silicon:
 | Path | Contents |
 |------|----------|
 | `bin/python` | uv-managed CPython 3.12.12 (python-build-standalone), relocatable |
-| `lib/python3.12/site-packages` | `meeting-wiki` wheel plus online provider dependencies (`.[gemini]`, httpx, mcp, pydantic) from `scripts/runtime-requirements.txt` (sha256-pinned, binary wheels only) |
+| `lib/python3.12/site-packages` | `meeting-wiki` wheel plus online provider dependencies (`.[gemini]`, httpx, mcp, pydantic) from `scripts/runtime-requirements.txt` (sha256-pinned, binary wheels only), including each distribution's retained license or notice files |
+| `lib/python3.12/LICENSE.txt` | CPython license text |
 | `bin/sox`, `bin/rec` | SoX from the local Homebrew keg, `rec` is a symlink to `sox` |
-| `lib/*.dylib` | SoX dylib closure, rewritten to `@loader_path` and ad-hoc re-signed |
-| `licenses/` | License texts from each Homebrew keg, plus `SOURCE-OFFER.txt` |
-| `manifest.json` | Python version, package list, per-component license and redistribution note, lock hash, `tree_sha256` |
+| `lib/*.dylib` | SoX dylib closure, rewritten to `@loader_path` and ad-hoc re-signed during staging |
+| `licenses/` | License texts from each Homebrew audio keg, plus `SOURCE-OFFER.txt` |
+| `manifest.json` | Python version, package list with license-file paths, per-component license and redistribution note, lock hash, `tree_sha256` |
 
 Determinism: pinned interpreter and hash-locked wheels, hash-based `.pyc`
 (`unchecked-hash`, so Python never writes into the signed bundle), stripped

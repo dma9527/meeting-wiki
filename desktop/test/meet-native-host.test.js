@@ -65,6 +65,16 @@ test("the host writes one private file per valid message and prints nothing", as
   ]);
 });
 
+test("same-millisecond events keep native-message order in the spool", () => {
+  const { spool } = privateSpool();
+  const write = host.createEventWriter(fs, spool, () => 1_700_000_000_000);
+
+  assert.equal(write({ type: "joined", session: "11111111-2222-3333-4444-555555555555" }), true);
+  assert.equal(write({ type: "left", session: "11111111-2222-3333-4444-555555555555" }), true);
+
+  assert.deepEqual(spoolEvents(spool).map(({ type }) => type), ["joined", "left"]);
+});
+
 test("the host refuses any caller other than the paired extension", async () => {
   const { spool } = privateSpool();
   const result = await runHostProcess(["--spool", spool, "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"], [

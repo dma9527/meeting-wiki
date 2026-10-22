@@ -69,7 +69,7 @@ guide.
 
 ```text
 Apple Silicon Mac
-macOS 14 or later
+macOS 14.2 or later
 Microphone permission
 Screen & System Audio Recording permission
 ```

@@ -6,7 +6,7 @@ Meeting Wiki 是一个本地优先的 macOS 会议记忆工具。它录下会议
 
 ## 当前状态
 
-**早期 alpha 版本（0.1.x），仅支持 Apple Silicon 上的 macOS 14 及以上。**
+**早期 alpha 版本（0.1.x），仅支持 Apple Silicon 上的 macOS 14.2 及以上。**
 
 目前没有签名发布版。所有构建都是未签名的**本地测试产物**，只供维护者自己的 Mac 使用。不要把它们作为 GitHub Release 发布，也不要发给其他人。公开发布需要 Developer ID 签名、公证，以及确定内置音频工具的许可证方案。详见[已知限制](guide/limitations.md)。
 

@@ -260,9 +260,7 @@ def test_private_meeting_never_touches_outbox(tmp_path, meeting, transcript, ana
     from meeting_wiki.engine import MeetingEngine
 
     providers, _, tasks = bundle(tmp_path, transcript, analysis)
-    private = meeting.model_copy(
-        update={"private": True, "meeting_type": MeetingType.ONE_ON_ONE}
-    )
+    private = meeting.model_copy(update={"private": True, "meeting_type": MeetingType.ONE_ON_ONE})
     audio = tmp_path / "private.wav"
     audio.write_bytes(b"fake")
     MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(

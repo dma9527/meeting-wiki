@@ -23,7 +23,7 @@ fail() {
   exit 1
 }
 
-for command in node npm python3 uv git security codesign xcrun ditto hdiutil spctl shasum; do
+for command in node npm python3 uv git security codesign xcrun ditto hdiutil spctl shasum file; do
   command -v "$command" >/dev/null || fail "$command is required"
 done
 
@@ -44,9 +44,10 @@ if [ -z "$IDENTITY" ]; then
 fi
 [ -n "$IDENTITY" ] || fail "install a Developer ID Application certificate and private key"
 case "$IDENTITY" in
-  "Developer ID Application:"*) ;;
+  "Developer ID Application: "*) ;;
   *) fail "CSC_NAME must be a Developer ID Application identity" ;;
 esac
+BUILDER_IDENTITY="${IDENTITY#Developer ID Application: }"
 security find-identity -v -p codesigning 2>/dev/null \
   | grep -Fq "\"$IDENTITY\"" \
   || fail "Developer ID identity is not valid in the current keychain"
@@ -106,20 +107,106 @@ inspect_app() {
     || fail "$app source offer does not match MEETING_WIKI_GPL_SOURCE_OFFER"
 }
 
+sign_runtime() {
+  local app="$1"
+  local runtime="$app/Contents/Resources/runtime"
+  local count=0
+  local binary
+  while IFS= read -r -d '' binary; do
+    if file -b "$binary" | grep -q 'Mach-O'; then
+      if [ "$binary" = "$runtime/bin/sox" ] || [ "$binary" = "$runtime/bin/rec" ]; then
+        codesign --force --options runtime --timestamp --entitlements \
+          "$DESKTOP/entitlements.audio-tool.plist" --sign "$IDENTITY" "$binary"
+      else
+        codesign --force --options runtime --timestamp --sign "$IDENTITY" "$binary"
+      fi
+      count=$((count + 1))
+    fi
+  done < <(find "$runtime" -type f -print0)
+  [ "$count" -gt 0 ] || fail "packaged runtime contains no Mach-O files to sign"
+}
+
+verify_signed_code() {
+  local code="$1"
+  local team_id="$2"
+  local metadata
+  metadata="$(codesign -d --verbose=4 "$code" 2>&1)" || fail "cannot inspect signature for $code"
+  grep -q '^Authority=Developer ID Application:' <<<"$metadata" \
+    || fail "$code is not signed with Developer ID Application"
+  grep -q "^TeamIdentifier=$team_id$" <<<"$metadata" \
+    || fail "$code is signed by a different team"
+  grep -Eq '^CodeDirectory .* flags=0x[0-9a-fA-F]+\([^)]*runtime[^)]*\)' <<<"$metadata" \
+    || fail "$code lacks hardened runtime"
+  grep -q '^Timestamp=' <<<"$metadata" || fail "$code lacks a secure timestamp"
+}
+
+verify_entitlements() {
+  local code="$1"
+  shift
+  local entitlements
+  entitlements="$(mktemp "${TMPDIR:-/tmp}/meeting-wiki-entitlements.XXXXXX")"
+  if ! codesign -d --entitlements :- "$code" >"$entitlements" 2>/dev/null; then
+    rm -f "$entitlements"
+    fail "cannot extract entitlements for $code"
+  fi
+  if ! python3 - "$entitlements" "$@" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as source:
+    entitlements = plistlib.load(source)
+for key in sys.argv[2:]:
+    if entitlements.get(key) is not True:
+        raise SystemExit(f"missing entitlement: {key}")
+PY
+  then
+    rm -f "$entitlements"
+    fail "$code entitlements are incomplete"
+  fi
+  rm -f "$entitlements"
+}
+
+verify_signed_app() {
+  local app="$1"
+  local metadata
+  local team_id
+  local binary
+  local count=0
+  codesign --verify --deep --strict --verbose=2 "$app"
+  metadata="$(codesign -d --verbose=4 "$app" 2>&1)" || fail "cannot inspect app signature"
+  team_id="$(sed -n 's/^TeamIdentifier=//p' <<<"$metadata")"
+  [ -n "$team_id" ] && [ "$team_id" != "not set" ] || fail "app signature has no team identifier"
+  verify_signed_code "$app" "$team_id"
+  while IFS= read -r -d '' binary; do
+    if file -b "$binary" | grep -q 'Mach-O'; then
+      verify_signed_code "$binary" "$team_id"
+      count=$((count + 1))
+    fi
+  done < <(find "$app/Contents/Resources/runtime" -type f -print0)
+  [ "$count" -gt 0 ] || fail "packaged runtime contains no signed Mach-O files"
+
+  verify_entitlements "$app" \
+    "com.apple.security.cs.allow-jit" \
+    "com.apple.security.device.audio-input"
+  verify_entitlements "$app/Contents/Resources/runtime/bin/sox" \
+    "com.apple.security.device.audio-input"
+  verify_entitlements "$app/Contents/Resources/runtime/bin/rec" \
+    "com.apple.security.device.audio-input"
+}
+
 npm ci
 npm test
-CSC_NAME="$IDENTITY" npx electron-builder --mac dir
+CSC_NAME="$BUILDER_IDENTITY" npx electron-builder --mac dir
 [ -d "$APP" ] || fail "electron-builder did not create $APP"
 
-# extraResources are copied after Electron Builder assembles the bundle, so
-# sign the final resource tree before verification and notarization.
-codesign --force --deep --sign "$IDENTITY" "$APP"
+# Sign runtime Mach-O leaves first, then seal the outer app. Electron Builder signs its own
+# frameworks and helpers before this point; signing with --deep here would replace that work.
+sign_runtime "$APP"
+codesign --force --options runtime --timestamp --entitlements \
+  "$DESKTOP/entitlements.mac.plist" --sign "$IDENTITY" "$APP"
 bash "$ROOT/scripts/assert-packaged-runtime.sh" "$APP"
 inspect_app "$APP"
-
-codesign --verify --deep --strict --verbose=2 "$APP"
-codesign -d --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime' \
-  || fail "hardened runtime is not present"
+verify_signed_app "$APP"
 
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$SUBMISSION_ZIP"
 xcrun notarytool submit "$SUBMISSION_ZIP" "${NOTARY_ARGS[@]}" --wait
@@ -137,10 +224,13 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$FINAL_DMG" >/dev/null
+codesign --force --timestamp --sign "$IDENTITY" "$FINAL_DMG"
+codesign --verify --verbose=2 "$FINAL_DMG"
 
 xcrun notarytool submit "$FINAL_DMG" "${NOTARY_ARGS[@]}" --wait
 xcrun stapler staple "$FINAL_DMG"
 xcrun stapler validate "$FINAL_DMG"
+spctl --assess --type open --context context:primary-signature --verbose=4 "$FINAL_DMG"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 spctl --assess --type execute --verbose=4 "$APP"
@@ -149,6 +239,7 @@ spctl --assess --type execute --verbose=4 "$APP"
 mkdir -p "$INSPECT_DIR/zip" "$INSPECT_DIR/dmg"
 ditto -x -k "$FINAL_ZIP" "$INSPECT_DIR/zip"
 inspect_app "$INSPECT_DIR/zip/Meeting Wiki.app"
+verify_signed_app "$INSPECT_DIR/zip/Meeting Wiki.app"
 spctl --assess --type execute --verbose=4 "$INSPECT_DIR/zip/Meeting Wiki.app"
 hdiutil attach -readonly -nobrowse -mountpoint "$INSPECT_DIR/dmg" "$FINAL_DMG" >/dev/null
 trap 'hdiutil detach "$INSPECT_DIR/dmg" >/dev/null 2>&1 || true' EXIT
@@ -156,6 +247,7 @@ DMG_ENTRIES="$(ls -A "$INSPECT_DIR/dmg" | grep -v '^\.' | sort | tr '\n' ',')"
 [ "$DMG_ENTRIES" = "Applications,Meeting Wiki.app," ] \
   || fail "DMG has unexpected top-level entries: $DMG_ENTRIES"
 inspect_app "$INSPECT_DIR/dmg/Meeting Wiki.app"
+verify_signed_app "$INSPECT_DIR/dmg/Meeting Wiki.app"
 spctl --assess --type execute --verbose=4 "$INSPECT_DIR/dmg/Meeting Wiki.app"
 hdiutil detach "$INSPECT_DIR/dmg" >/dev/null
 trap - EXIT

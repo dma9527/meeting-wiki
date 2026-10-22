@@ -295,7 +295,6 @@ def _transcript_events(message: Any) -> list[LiveTranscriptEvent]:
     return events
 
 
-
 # Gemini Live connections last about 10 minutes; roll over before the server aborts.
 _MAX_CONNECTION_SECONDS = 540.0
 _DRAIN_SECONDS = 2.0

@@ -15,8 +15,19 @@ This product includes or depends on open-source software:
 - AWS SDK for Python (boto3/botocore), Apache License 2.0 (optional).
 - icalendar, BSD-2-Clause License (optional).
 
-SoX is invoked as a separately installed system executable and is not bundled
-or redistributed by Meeting Wiki.
+Packaged macOS builds include CPython 3.12 under the Python Software
+Foundation License and the Python distributions listed in
+Resources/runtime/manifest.json. Their retained license and notice files are
+stored with each distribution under Resources/runtime/lib/python3.12.
+
+Packaged macOS builds also include SoX and its linked audio libraries. Exact
+versions, licenses, redistribution notes, and included license files are listed
+in Resources/runtime/manifest.json and Resources/runtime/licenses.
+
+A distributable build must include the matching corresponding-source materials
+or an offer that the release owner can honor for every bundled GPL or LGPL
+component. Resources/runtime/licenses/SOURCE-OFFER.txt records the offer for a
+specific build. Its presence alone does not make a build publishable.
 
 Model weights are downloaded separately by the selected provider and retain
 their own licenses. Users are responsible for reviewing the license of any

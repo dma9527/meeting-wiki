@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import plistlib
 import struct
 import subprocess
 import sys
@@ -169,6 +170,7 @@ def _write_asar(path: Path, files: dict[str, bytes]) -> None:
 
 APP_FILES = {
     "main.js": b"main\n",
+    "cli-installer.js": b"cli\n",
     "renderer/index.html": b"<html></html>\n",
     "skills/meeting-wiki-memory/SKILL.md": b"# skill\n",
 }
@@ -178,8 +180,22 @@ EXTENSION_FILES = {
     "google-meet/content.js": b"content\n",
 }
 RUNTIME_FILES = {
-    "manifest.json": json.dumps({"tree_sha256": "abc"}).encode(),
+    "bin/python": b"python\n",
+    "bin/rec": b"rec\n",
+    "bin/sox": b"sox\n",
+    "lib/python3.12/LICENSE.txt": b"Python license\n",
+    "lib/python3.12/site-packages/demo-1.0.dist-info/licenses/LICENSE.txt": b"MIT\n",
     "licenses/SOURCE-OFFER.txt": b"offer\n",
+    "licenses/sox-1.0/LICENSE.GPL": b"GPL\n",
+}
+MAC_CONFIG = {
+    "icon": "assets/icon.icns",
+    "minimumSystemVersion": "14.2",
+    "extendInfo": {
+        "NSMicrophoneUsageDescription": "Meeting Wiki microphone",
+        "NSScreenCaptureUsageDescription": "Meeting Wiki system audio",
+        "NSAudioCaptureUsageDescription": "Meeting Wiki automatic recording",
+    },
 }
 
 
@@ -187,7 +203,13 @@ RUNTIME_FILES = {
 def packaged(tmp_path):
     desktop = tmp_path / "desktop"
     build = {
-        "files": ["main.js", "skills/meeting-wiki-memory/SKILL.md", "renderer/**"],
+        "mac": MAC_CONFIG,
+        "files": [
+            "main.js",
+            "cli-installer.js",
+            "skills/meeting-wiki-memory/SKILL.md",
+            "renderer/**",
+        ],
         "extraResources": [
             {"from": "runtime", "to": "runtime", "filter": ["**/*"]},
             {
@@ -195,28 +217,76 @@ def packaged(tmp_path):
                 "to": "browser-extension",
                 "filter": sorted(EXTENSION_FILES),
             },
+            {"from": "../LICENSE", "to": "LICENSE"},
+            {"from": "../NOTICE", "to": "NOTICE"},
         ],
     }
-    for relative, data in {
+    source_files = {
         **APP_FILES,
         **{f"browser-extension/{key}": value for key, value in EXTENSION_FILES.items()},
         **{f"runtime/{key}": value for key, value in RUNTIME_FILES.items()},
+        "assets/icon.icns": b"icns product icon\n",
         "browser-extension/google-meet/README.dev.md": b"not shipped\n",
-    }.items():
+    }
+    for relative, data in source_files.items():
         target = desktop / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+    for tool in release_integrity.RUNTIME_TOOLS:
+        (desktop / "runtime/bin" / tool).chmod(0o755)
+
+    runtime_manifest_data = {
+        "tree_sha256": release_integrity.runtime_manifest.tree_digest(desktop / "runtime"),
+        "python": {"version": "3.12.12"},
+        "packages": [
+            {
+                "name": "demo",
+                "version": "1.0",
+                "license_files": ["demo-1.0.dist-info/licenses/LICENSE.txt"],
+            }
+        ],
+        "audio_tools": {
+            "components": [
+                {
+                    "formula": "sox",
+                    "version": "1.0",
+                    "license_files": ["LICENSE.GPL"],
+                }
+            ]
+        },
+    }
+    manifest = json.dumps(runtime_manifest_data).encode()
+    (desktop / "runtime/manifest.json").write_bytes(manifest)
     (desktop / "package.json").write_text(json.dumps({"build": build}))
+    (tmp_path / "LICENSE").write_bytes(b"Apache\n")
+    (tmp_path / "NOTICE").write_bytes(b"Notice\n")
 
     app = tmp_path / "Meeting Wiki.app"
-    resources = app / "Contents" / "Resources"
+    contents = app / "Contents"
+    resources = contents / "Resources"
     resources.mkdir(parents=True)
     _write_asar(resources / "app.asar", APP_FILES)
-    for prefix, files in (("browser-extension", EXTENSION_FILES), ("runtime", RUNTIME_FILES)):
-        for relative, data in files.items():
-            target = resources / prefix / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
+    packaged_files = {
+        **{f"browser-extension/{key}": value for key, value in EXTENSION_FILES.items()},
+        **{f"runtime/{key}": value for key, value in RUNTIME_FILES.items()},
+        "runtime/manifest.json": manifest,
+        "LICENSE": b"Apache\n",
+        "NOTICE": b"Notice\n",
+        "icon.icns": b"icns product icon\n",
+    }
+    for relative, data in packaged_files.items():
+        target = resources / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    for tool in release_integrity.RUNTIME_TOOLS:
+        (resources / "runtime/bin" / tool).chmod(0o755)
+    info = {
+        "LSMinimumSystemVersion": "14.2",
+        "CFBundleIconFile": "icon.icns",
+        **MAC_CONFIG["extendInfo"],
+    }
+    with (contents / "Info.plist").open("wb") as output:
+        plistlib.dump(info, output)
     return desktop, app
 
 
@@ -228,7 +298,7 @@ def test_inventory_passes_and_reports_extension_skill_and_runtime(packaged):
     assert result["errors"] == []
     assert result["extension_version"] == "0.4.2"
     assert result["skill_sha256"] == _sha(APP_FILES["skills/meeting-wiki-memory/SKILL.md"])
-    assert result["runtime_recorded_tree_sha256"] == "abc"
+    assert result["runtime_recorded_tree_sha256"] == result["runtime_packaged_tree_sha256"]
     assert result["runtime_packaged_tree_sha256"]
 
 
@@ -249,7 +319,6 @@ def test_inventory_fails_when_claude_skill_is_missing_from_asar(packaged):
     errors = release_integrity.inventory(app, desktop)["errors"]
 
     assert "app.asar is missing skills/meeting-wiki-memory/SKILL.md" in errors
-    assert any("Claude skill" in error for error in errors)
 
 
 def test_inventory_fails_when_packaged_source_is_stale(packaged):
@@ -279,6 +348,71 @@ def test_inventory_rejects_build_files_entry_that_matches_nothing(packaged):
 
     with pytest.raises(release_integrity.IntegrityError, match="main.js"):
         release_integrity.inventory(app, desktop)
+
+
+def test_inventory_fails_when_cli_installer_is_missing_from_asar(packaged):
+    desktop, app = packaged
+    files = {key: value for key, value in APP_FILES.items() if key != "cli-installer.js"}
+    _write_asar(app / "Contents/Resources/app.asar", files)
+
+    errors = release_integrity.inventory(app, desktop)["errors"]
+
+    assert "app.asar is missing cli-installer.js" in errors
+
+
+@pytest.mark.parametrize("name", ["LICENSE", "NOTICE"])
+def test_inventory_requires_packaged_project_notices(packaged, name):
+    desktop, app = packaged
+    (app / "Contents/Resources" / name).unlink()
+
+    errors = release_integrity.inventory(app, desktop)["errors"]
+
+    assert f"Resources/{name} is missing" in errors
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("bin/python", "Resources/runtime/bin/python is missing or not executable"),
+        ("bin/rec", "Resources/runtime/bin/rec is missing or not executable"),
+        ("bin/sox", "Resources/runtime/bin/sox is missing or not executable"),
+        ("lib/python3.12/LICENSE.txt", "Resources/runtime is missing the CPython license"),
+        (
+            "lib/python3.12/site-packages/demo-1.0.dist-info/licenses/LICENSE.txt",
+            "runtime package license is missing: demo-1.0.dist-info/licenses/LICENSE.txt",
+        ),
+        ("licenses/SOURCE-OFFER.txt", "Resources/runtime/licenses/SOURCE-OFFER.txt is missing"),
+        (
+            "licenses/sox-1.0/LICENSE.GPL",
+            "runtime audio license is missing: licenses/sox-1.0/LICENSE.GPL",
+        ),
+    ],
+)
+def test_inventory_requires_runtime_tools_and_licenses(packaged, relative, expected):
+    desktop, app = packaged
+    (app / "Contents/Resources/runtime" / relative).unlink()
+
+    errors = release_integrity.inventory(app, desktop)["errors"]
+
+    assert expected in errors
+
+
+def test_inventory_requires_release_metadata_and_product_icon(packaged):
+    desktop, app = packaged
+    info_path = app / "Contents/Info.plist"
+    with info_path.open("rb") as source:
+        info = plistlib.load(source)
+    info["LSMinimumSystemVersion"] = "12.0"
+    info["NSAudioCaptureUsageDescription"] = "This app needs access to audio capture"
+    info["CFBundleIconFile"] = "electron.icns"
+    with info_path.open("wb") as output:
+        plistlib.dump(info, output)
+
+    errors = release_integrity.inventory(app, desktop)["errors"]
+
+    assert "Info.plist must require macOS 14.2 or later" in errors
+    assert "Info.plist NSAudioCaptureUsageDescription does not match desktop/package.json" in errors
+    assert "Info.plist does not use the configured Meeting Wiki icon" in errors
 
 
 def test_scan_finds_host_path_secret_and_private_names_inside_asar(packaged, tmp_path):

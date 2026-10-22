@@ -95,6 +95,24 @@ def test_normalize_dist_info_drops_pruned_records_and_installer_cache(tmp_path):
     assert (dist / "RECORD").read_text() == "demo.py,sha256=abc,0\ndemo-1.0.dist-info/RECORD,,\n"
 
 
+def test_installed_packages_records_retained_license_files(tmp_path):
+    site = tmp_path / "site-packages"
+    dist = site / "demo-1.0.dist-info"
+    licenses = dist / "licenses"
+    licenses.mkdir(parents=True)
+    (dist / "METADATA").write_text("Name: demo\nVersion: 1.0\nLicense-Expression: MIT\n\n")
+    (licenses / "LICENSE.txt").write_text("license\n")
+
+    assert runtime_manifest.installed_packages(site) == [
+        {
+            "name": "demo",
+            "version": "1.0",
+            "license": "MIT",
+            "license_files": ["demo-1.0.dist-info/licenses/LICENSE.txt"],
+        }
+    ]
+
+
 def test_tree_digest_ignores_manifest_and_mtimes_but_tracks_content(tmp_path):
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin" / "tool").write_text("one")

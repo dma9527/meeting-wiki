@@ -160,6 +160,7 @@ def test_memory_probe_fails_on_corrupt_file_with_stale_wal(tmp_path, monkeypatch
     finally:
         held.close()
 
+
 def test_cli_prints_json_and_exit_code_reflects_readiness(tmp_path, monkeypatch, capsys):
     use_data_dir(tmp_path, monkeypatch)
     monkeypatch.delenv("MEETING_WIKI_GEMINI_API_KEY", raising=False)

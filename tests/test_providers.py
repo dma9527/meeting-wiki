@@ -115,8 +115,7 @@ def test_calendar_match_requires_one_non_all_day_candidate(tmp_path, monkeypatch
 def _write_ics(path, *events):
     body = "".join(f"BEGIN:VEVENT\r\n{event}END:VEVENT\r\n" for event in events)
     path.write_text(
-        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//test//EN\r\n"
-        f"{body}END:VCALENDAR\r\n"
+        f"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//test//EN\r\n{body}END:VCALENDAR\r\n"
     )
     return path
 
@@ -172,8 +171,7 @@ def test_ics_duration_and_missing_dtend_are_safe(tmp_path):
     pytest.importorskip("icalendar")
     path = _write_ics(
         tmp_path / "calendar.ics",
-        "UID:with-duration\r\nSUMMARY:Long review\r\n"
-        "DTSTART:20260910T150000Z\r\nDURATION:PT2H\r\n",
+        "UID:with-duration\r\nSUMMARY:Long review\r\nDTSTART:20260910T150000Z\r\nDURATION:PT2H\r\n",
         "UID:no-end\r\nSUMMARY:Quick chat\r\nDTSTART:20260911T150000Z\r\n",
         "UID:all-day-no-end\r\nSUMMARY:Offsite\r\nDTSTART;VALUE=DATE:20260912\r\n",
     )
@@ -210,8 +208,7 @@ def test_ics_private_hint_uses_configured_privacy_terms(tmp_path):
 
     custom = PrivacyConfig(private_terms=["mentoring"])
     configured = {
-        event.event_id: event.private_hint
-        for event in ICSCalendarProvider(path, custom)._events()
+        event.event_id: event.private_hint for event in ICSCalendarProvider(path, custom)._events()
     }
     # Explicit 1:1 phrasing stays private; configured terms replace the defaults.
     assert configured == {"mentoring": True, "skip-level": False, "planning": False}

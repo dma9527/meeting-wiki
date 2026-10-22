@@ -272,10 +272,20 @@ def test_cli_reindex_and_memory_search_default_to_shared(archive, tmp_path, caps
     shared = json.loads(capsys.readouterr().out)
     assert shared["count"] > 0
     assert {item["privacy"] for item in shared["items"]} == {"shared"}
-    assert main(
-        ["--config", str(config), "memory-search", "--query=canary", "--type=topic",
-         "--type=decision", "--include-private"]
-    ) == 0
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "memory-search",
+                "--query=canary",
+                "--type=topic",
+                "--type=decision",
+                "--include-private",
+            ]
+        )
+        == 0
+    )
     both = json.loads(capsys.readouterr().out)
     assert {item["privacy"] for item in both["items"]} == {"shared", "private"}
     assert {item["node_type"] for item in both["items"]} <= {"topic", "decision"}

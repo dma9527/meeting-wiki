@@ -529,7 +529,10 @@ def test_correction_reprocess_suppresses_tasks_and_plan_reports_retained_tasks(
     assert "Finish the migration" not in json.dumps(plan)
 
     result = apply_correction(
-        storage, worker.queue, meeting_key, {"Remote participant": "Sam Rivera"},
+        storage,
+        worker.queue,
+        meeting_key,
+        {"Remote participant": "Sam Rivera"},
         outbox_path=outbox,
     )
     assert result["queued"] is True
@@ -630,8 +633,14 @@ def test_cli_reprocess_exits_nonzero_when_no_work_is_queued(tmp_path, monkeypatc
     config_path.write_text(f'data_dir = "{config_obj.data_dir}"\n')
     meeting_key = _only_meeting_key(storage)
     args = [
-        "--config", str(config_path), "correct", "--meeting", meeting_key,
-        "--speaker", "Remote participant=Sam Rivera", "--reprocess",
+        "--config",
+        str(config_path),
+        "correct",
+        "--meeting",
+        meeting_key,
+        "--speaker",
+        "Remote participant=Sam Rivera",
+        "--reprocess",
     ]
     capsys.readouterr()  # discard the worker's completion output
     assert main(args) == 0
