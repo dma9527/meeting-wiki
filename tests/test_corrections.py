@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 
 import pytest
@@ -466,3 +467,183 @@ def test_cli_correct_rejects_bad_mapping(tmp_path, monkeypatch, capsys):
     )
     assert exit_code == 1
     assert json.loads(capsys.readouterr().out)["error"] == "invalid_mapping"
+
+
+class _CountingLLM(_FakeLLM):
+    def __init__(self, result):
+        super().__init__(result)
+        self.calls = 0
+
+    def analyze(self, meeting, transcript):
+        self.calls += 1
+        return self.result.model_copy(update={"summary": [f"Generation {self.calls}"]})
+
+
+class _UrlTask:
+    name = "fake"
+
+    def __init__(self):
+        self.calls = 0
+
+    def propose(self, item, meeting_key, *, action_key=None):
+        self.calls += 1
+        return "https://tasks.example/proposal/0000"
+
+
+def _shared_bundle(tmp_path, monkeypatch):
+    storage = LocalFileStorage(tmp_path)
+    providers = ProviderBundle(
+        transcription=_FakeTranscriber(_transcript()),
+        llm=_CountingLLM(_analysis()),
+        storage=storage,
+        private_storage=storage,
+        calendar=_FakeCalendar(),
+        notification=_FakeNotification(),
+        task=_UrlTask(),
+    )
+    monkeypatch.setattr(worker_module, "build_providers", lambda _config: providers)
+    config = AppConfig(data_dir=tmp_path)
+    enqueue_meeting(config, _meeting(tmp_path))
+    worker = Worker(config)
+    assert worker.run_once() is True
+    return config, storage, worker, providers
+
+
+def test_correction_reprocess_suppresses_tasks_and_plan_reports_retained_tasks(
+    tmp_path, monkeypatch, capsys
+):
+    config, storage, worker, providers = _shared_bundle(tmp_path, monkeypatch)
+    assert providers.task.calls == 1
+    meeting_key = _only_meeting_key(storage)
+    outbox = tmp_path / "outbox.db"
+
+    plan = plan_correction(
+        storage, meeting_key, {"Remote participant": "Sam Rivera"}, outbox_path=outbox
+    ).to_dict()
+    assert plan["task_delivery"] == "suppressed"
+    assert plan["retained_external_tasks"] == {
+        "count": 1,
+        "hosts": ["https://tasks.example"],
+    }
+    assert "proposal/0000" not in json.dumps(plan)
+    assert "Finish the migration" not in json.dumps(plan)
+
+    result = apply_correction(
+        storage, worker.queue, meeting_key, {"Remote participant": "Sam Rivera"},
+        outbox_path=outbox,
+    )
+    assert result["queued"] is True
+    assert worker.queue.get(int(result["job_id"])).payload["suppress_task_delivery"] is True
+    assert worker.run_once() is True
+
+    assert providers.task.calls == 1
+    codes = [event["code"] for event in worker.journal.recent()]
+    assert "engine.tasks_suppressed" in codes
+
+
+def test_correction_creates_a_new_generation_reused_across_its_own_retries(
+    tmp_path, monkeypatch, capsys
+):
+    config, storage, worker, providers = _shared_bundle(tmp_path, monkeypatch)
+    assert providers.llm.calls == 1
+    meeting_key = _only_meeting_key(storage)
+    result = apply_correction(
+        storage, worker.queue, meeting_key, {"Remote participant": "Sam Rivera"}
+    )
+    job_id = int(result["job_id"])
+
+    import meeting_wiki.engine as engine_module
+
+    original = engine_module.WikiRenderer.apply
+    state = {"failed": False}
+
+    def fail_once(self, *args, **kwargs):
+        if not state["failed"]:
+            state["failed"] = True
+            raise RuntimeError("transient render failure")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(engine_module.WikiRenderer, "apply", fail_once)
+    assert worker.run_once() is True
+    assert providers.llm.calls == 2
+    worker.queue.retry(job_id)
+    assert worker.run_once() is True
+
+    assert providers.llm.calls == 2
+    analysis_keys = [key for key in storage.list_keys("analysis/") if key.endswith(".json")]
+    assert json.loads(storage.read_text(analysis_keys[0]))["summary"] == ["Generation 2"]
+
+
+@pytest.mark.parametrize("terminal", ["dead", "dismissed", "done"])
+def test_reapplying_a_correction_whose_job_will_not_run_is_not_reported_queued(
+    tmp_path, monkeypatch, capsys, terminal
+):
+    config, storage, worker, providers = _shared_bundle(tmp_path, monkeypatch)
+    meeting_key = _only_meeting_key(storage)
+    mapping = {"Remote participant": "Sam Rivera"}
+    first = apply_correction(storage, worker.queue, meeting_key, mapping)
+    job_id = int(first["job_id"])
+    job = worker.queue.claim()
+    assert job.id == job_id
+    if terminal == "done":
+        worker.queue.complete(job_id, claim_token=job.claim_token)
+        # The correction ran, so the label left the inbox; restore the original record.
+        apply_storage = _RecordedStorage(storage)
+    else:
+        with sqlite3.connect(worker.queue.path) as connection:
+            connection.execute("UPDATE jobs SET attempts=max_attempts WHERE id=?", (job_id,))
+        worker.queue.fail(job_id, "failed", claim_token=job.claim_token)
+        if terminal == "dismissed":
+            worker.queue.dismiss(job_id)
+        apply_storage = storage
+
+    again = apply_correction(apply_storage, worker.queue, meeting_key, mapping)
+
+    assert again["queued"] is False
+    assert again["job_id"] == job_id
+    assert again["job_state"] == terminal
+    assert again["error"] == (
+        "correction_already_applied" if terminal == "done" else "correction_job_inactive"
+    )
+    assert worker.queue.get(job_id).state.value == terminal
+
+
+class _RecordedStorage:
+    """Serves the pre-correction transcript record so the same mapping validates again."""
+
+    def __init__(self, storage):
+        self.storage = storage
+        self.name = storage.name
+
+    def read_text(self, key):
+        if key.startswith("transcript-data/"):
+            return _transcript().model_dump_json()
+        return self.storage.read_text(key)
+
+    def list_keys(self, prefix):
+        return self.storage.list_keys(prefix)
+
+
+def test_cli_reprocess_exits_nonzero_when_no_work_is_queued(tmp_path, monkeypatch, capsys):
+    config_obj, storage, worker, _providers = _shared_bundle(tmp_path, monkeypatch)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(f'data_dir = "{config_obj.data_dir}"\n')
+    meeting_key = _only_meeting_key(storage)
+    args = [
+        "--config", str(config_path), "correct", "--meeting", meeting_key,
+        "--speaker", "Remote participant=Sam Rivera", "--reprocess",
+    ]
+    capsys.readouterr()  # discard the worker's completion output
+    assert main(args) == 0
+    job_id = json.loads(capsys.readouterr().out)["job_id"]
+    queue = JobQueue(config_obj.data_dir / "jobs.db")
+    job = queue.claim()
+    assert job.id == job_id
+    with sqlite3.connect(queue.path) as connection:
+        connection.execute("UPDATE jobs SET attempts=max_attempts WHERE id=?", (job_id,))
+    queue.fail(job_id, "failed", claim_token=job.claim_token)
+
+    assert main(args) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["queued"] is False
+    assert output["error"] == "correction_job_inactive"

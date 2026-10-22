@@ -9,9 +9,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
+
+from pydantic import ValidationError
 
 from .config import AppConfig
-from .events import EventJournal
+from .events import Component, EventCode, EventJournal
 from .memory import MemoryStore
 from .models import (
     JobStage,
@@ -27,6 +30,14 @@ from .providers.base import EmptyTranscriptError, TranscriptionContext, storage_
 from .providers.registry import ProviderBundle
 from .providers.transcription import TextImportTranscriber
 from .wiki import RenderResult, WikiRenderer, stable_id
+
+
+class AnalysisSnapshot(Protocol):
+    """Job-scoped store for the first successful analysis of one job."""
+
+    def load(self) -> str | None: ...
+
+    def save(self, snapshot: str) -> None: ...
 
 
 @dataclass
@@ -56,6 +67,7 @@ class MeetingEngine:
         meeting: MeetingInput,
         progress: Callable[[JobStage], None] | None = None,
         job_id: int | None = None,
+        analysis_snapshot: AnalysisSnapshot | None = None,
     ) -> IngestResult:
         report = progress or (lambda _stage: None)
         meeting = self.resolve(meeting)
@@ -97,8 +109,8 @@ class MeetingEngine:
             )
 
         report(JobStage.ANALYZING)
-        analysis = self.providers.llm.analyze(meeting, transcript).model_copy(
-            update={"meeting_type": meeting_type, "private": private}
+        analysis = self._analyze(
+            meeting, transcript, meeting_type, private, analysis_snapshot, job_id
         )
         analysis_key = (
             f"private/analysis/{date}-{source_id}.json"
@@ -121,7 +133,10 @@ class MeetingEngine:
         report(JobStage.INTEGRATING)
         task_urls: list[str] = []
         # Private meetings never reach the outbox or a task provider.
-        if not private and self.providers.task.name != "none":
+        if meeting.suppress_task_delivery and not private:
+            # Correction re-analysis keeps previously delivered tasks; it never re-proposes.
+            self._event(EventCode.ENGINE_TASKS_SUPPRESSED, job_id, outcome="correction")
+        elif not private and self.providers.task.name != "none":
             outbox = TaskOutbox(self.config.data_dir / "outbox.db", self.journal)
             keys = outbox.plan(
                 source_id,
@@ -132,18 +147,27 @@ class MeetingEngine:
             )
             task_urls = outbox.deliver(keys, self.providers.task, job_id).delivered_urls
 
-        if private:
-            self.providers.notification.notify(
-                "Private meeting processed",
-                "Private notes were stored locally.",
+        # Core artifacts are committed; notification and relocation are best effort.
+        try:
+            if private:
+                self.providers.notification.notify(
+                    "Private meeting processed",
+                    "Private notes were stored locally.",
+                )
+            else:
+                self.providers.notification.notify(
+                    "Meeting wiki updated",
+                    f"{analysis.title}\n{render.meeting_key}",
+                )
+        except Exception as error:
+            self._event(
+                EventCode.ENGINE_NOTIFY_FAILED,
+                job_id,
+                outcome="skipped",
+                error_type=type(error).__name__,
             )
-        else:
-            self.providers.notification.notify(
-                "Meeting wiki updated",
-                f"{analysis.title}\n{render.meeting_key}",
-            )
         if private:
-            self._relocate_private_audio(meeting, date, source_id)
+            self._relocate_private_audio(meeting, date, source_id, job_id)
         return IngestResult(
             transcript_key=transcript_key,
             transcript_data_key=transcript_data_key,
@@ -153,6 +177,37 @@ class MeetingEngine:
             transcript=transcript,
             task_urls=task_urls,
         )
+
+    def _event(self, code: EventCode, job_id: int | None, **fields: object) -> None:
+        if self.journal is not None:
+            self.journal.record(code, Component.ENGINE, job_id=job_id, **fields)
+
+    def _analyze(
+        self,
+        meeting: MeetingInput,
+        transcript: TranscriptResult,
+        meeting_type: MeetingType,
+        private: bool,
+        snapshot: AnalysisSnapshot | None,
+        job_id: int | None,
+    ) -> MeetingAnalysis:
+        """Analyze once per job; retries reuse the persisted generation."""
+        if snapshot is not None:
+            raw = snapshot.load()
+            if raw:
+                try:
+                    stored = MeetingAnalysis.model_validate_json(raw)
+                except ValidationError:
+                    stored = None
+                if stored is not None and stored.private == private:
+                    self._event(EventCode.ENGINE_ANALYSIS_REUSED, job_id, outcome="reused")
+                    return stored.model_copy(update={"meeting_type": meeting_type})
+        analysis = self.providers.llm.analyze(meeting, transcript).model_copy(
+            update={"meeting_type": meeting_type, "private": private}
+        )
+        if snapshot is not None:
+            snapshot.save(analysis.model_dump_json())
+        return analysis
 
     def resolve(self, meeting: MeetingInput) -> MeetingInput:
         """Resolve calendar identity and privacy once; frozen meetings are returned unchanged."""
@@ -196,6 +251,7 @@ class MeetingEngine:
         meeting: MeetingInput,
         date: str,
         source_id: str,
+        job_id: int | None = None,
     ) -> None:
         managed_audio = (self.config.data_dir / "audio").resolve()
         destination_dir = self.config.data_dir / "private" / "audio"
@@ -215,13 +271,23 @@ class MeetingEngine:
             except ValueError:
                 # Imported user files are never moved or deleted.
                 continue
-            destination_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(destination_dir, 0o700)
             destination = destination_dir / (
                 f"{date}-{source_id}-{label}{audio_path.suffix.lower()}"
             )
-            shutil.move(str(audio_path), destination)
-            os.chmod(destination, 0o600)
+            try:
+                destination_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.chmod(destination_dir, 0o700)
+                shutil.move(str(audio_path), destination)
+                os.chmod(destination, 0o600)
+            except Exception as error:
+                # The managed copy stays in place; deletion preview still lists it.
+                self._event(
+                    EventCode.ENGINE_AUDIO_RELOCATE_FAILED,
+                    job_id,
+                    outcome=label,
+                    error_type=type(error).__name__,
+                )
+                continue
             moved.add(resolved)
 
     def _transcribe(self, meeting: MeetingInput) -> TranscriptResult:

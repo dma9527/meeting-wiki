@@ -421,6 +421,16 @@ function renderCorrectionCard(entry) {
       reprocess.disabled = false;
       return;
     }
+    if (result && result.error === "correction_already_applied") {
+      toast("This correction was already applied; nothing new was queued.");
+      reprocess.disabled = false;
+      return;
+    }
+    if (result && result.error === "correction_job_inactive") {
+      toast(`This correction's job ${result.job_id} is ${result.job_state}; retry it from Processing recovery.`);
+      reprocess.disabled = false;
+      return;
+    }
     if (failed(result)) {
       reprocess.disabled = false;
       return;
@@ -443,6 +453,16 @@ function renderPlan(box, plan) {
     clean.appendChild(el("li", { text: `Rewrite ${key} with the corrected names.` }));
   }
   box.appendChild(clean);
+  const retained = (plan.retained_external_tasks && plan.retained_external_tasks.count) || 0;
+  if (retained > 0) {
+    box.appendChild(
+      el("p", {
+        text:
+          `No new tasks are proposed. ${retained} task${retained === 1 ? " was" : "s were"} ` +
+          "already sent and keep the old label in the task system.",
+      }),
+    );
+  }
   const limitation = el("div", { class: "limitation" }, [
     el("strong", { text: "Limitation: " }),
     el("span", {

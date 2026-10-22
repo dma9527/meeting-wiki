@@ -125,6 +125,8 @@ class MeetingInput(BaseModel):
     # durable job; retries reuse that decision instead of re-reading the calendar.
     classification_frozen: bool = False
     speaker_corrections: dict[str, str] = Field(default_factory=dict)
+    # Set on correction reprocess jobs: re-analysis must not propose external tasks again.
+    suppress_task_delivery: bool = False
     notes: str = ""
     # Enrichment-invariant identity: computed once at construction from the raw
     # source and preserved across model_copy. Calendar enrichment rewrites
@@ -189,6 +191,7 @@ class JobRecord(BaseModel):
     dedupe_key: str
     stage: JobStage = JobStage.QUEUED
     lease_expires_at: float | None = None
+    claim_token: str | None = None
     last_error: str | None = None
     created_at: float
     updated_at: float

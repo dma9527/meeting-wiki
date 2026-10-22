@@ -9,7 +9,9 @@ review-before-reprocess flow:
   that keep the old label because the deterministic renderer never deletes
   content it did not load. Re-analysis is LLM-driven and non-deterministic.
 - ``apply_correction`` re-enqueues the meeting's original ingest job with an
-  exact OLD=NEW mapping merged in, preserving meeting identity.
+  exact OLD=NEW mapping merged in, preserving meeting identity. The reprocess
+  job never proposes external tasks; tasks delivered earlier stay as they are
+  and the plan reports them by count and host only.
 
 Neither phase returns transcript text, analysis bodies, or job payloads to
 callers; only labels, counts, and surface keys cross the boundary.
@@ -19,11 +21,14 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 from .jobs import JobQueue
-from .models import JobType, MeetingInput
+from .models import JobState, JobType, MeetingInput
 from .providers.base import StorageProvider
 from .wiki import slugify, stable_id
 
@@ -147,6 +152,10 @@ class CorrectionPlan:
     stale_surfaces: list[dict[str, object]] = field(default_factory=list)
     reanalysis_nondeterministic: bool = True
     requires_original_source: bool = True
+    task_delivery: str = "suppressed"
+    retained_external_tasks: dict[str, object] = field(
+        default_factory=lambda: {"count": 0, "hosts": []}
+    )
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -247,13 +256,45 @@ def _stale_surfaces(
     return surfaces
 
 
+def _retained_external_tasks(outbox_path: Path | None, source_id: str) -> dict[str, object]:
+    """Count tasks already sent for this meeting; hosts only, never URLs or text."""
+    retained: dict[str, object] = {"count": 0, "hosts": []}
+    if outbox_path is None or not outbox_path.is_file():
+        return retained
+    try:
+        connection = sqlite3.connect(f"{outbox_path.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return retained
+    hosts: set[str] = set()
+    count = 0
+    with closing(connection):
+        try:
+            rows = connection.execute(
+                "SELECT external_url FROM task_outbox WHERE source_id=? "
+                "AND state IN ('delivered', 'sending')",
+                (source_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return retained
+    for (url,) in rows:
+        count += 1
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if parsed is not None and parsed.hostname:
+            hosts.add(f"{parsed.scheme}://{parsed.hostname}")
+    return {"count": count, "hosts": sorted(hosts)}
+
+
 def plan_correction(
-    storage: StorageProvider, meeting_key: str, mapping: dict[str, str]
+    storage: StorageProvider,
+    meeting_key: str,
+    mapping: dict[str, str],
+    *,
+    outbox_path: Path | None = None,
 ) -> CorrectionPlan:
     """Validate a mapping against shared records and describe reprocess effects."""
     if not mapping:
         raise ValueError("at least one OLD=NEW mapping is required")
-    normalized_key, _stem, _ingest_id, transcript_data_key, analysis_key = _resolve_shared_records(
+    normalized_key, stem, _ingest_id, transcript_data_key, analysis_key = _resolve_shared_records(
         storage, meeting_key
     )
     present = {
@@ -274,6 +315,8 @@ def plan_correction(
         mapping=validated,
         clean_surfaces=[normalized_key],
         stale_surfaces=stale,
+        # The outbox keys tasks by the engine source id, the stem after its date.
+        retained_external_tasks=_retained_external_tasks(outbox_path, stem[11:]),
     )
 
 
@@ -333,9 +376,11 @@ def apply_correction(
     queue: JobQueue,
     meeting_key: str,
     mapping: dict[str, str],
+    *,
+    outbox_path: Path | None = None,
 ) -> dict[str, object]:
     """Re-enqueue the meeting's original ingest job with the OLD=NEW mapping merged in."""
-    plan = plan_correction(storage, meeting_key, mapping)
+    plan = plan_correction(storage, meeting_key, mapping, outbox_path=outbox_path)
     _key, stem, ingest_id, _transcript_data_key, _analysis_key = _resolve_shared_records(
         storage, meeting_key
     )
@@ -348,9 +393,30 @@ def apply_correction(
         # would fail. Report a distinct status instead of a misleading success.
         return {"error": "original_source_unavailable", "plan": plan.to_dict()}
     merged = {**meeting.speaker_corrections, **plan.mapping}
-    corrected = meeting.model_copy(update={"speaker_corrections": merged})
+    corrected = meeting.model_copy(
+        update={"speaker_corrections": merged, "suppress_task_delivery": True}
+    )
     source = str(corrected.audio_path or corrected.transcript_path or corrected.title)
     base = f"ingest:{corrected.occurred_at.isoformat()}:{source}"
     dedupe = f"{base}:correct:{stable_id(json.dumps(merged, sort_keys=True))}"
     new_job_id = queue.enqueue(JobType.INGEST, corrected.model_dump(mode="json"), dedupe)
+    # The same mapping dedupes to an existing job, which may never run again.
+    job = queue.get(new_job_id)
+    state = job.state if job is not None else JobState.DEAD
+    if state is JobState.DONE:
+        return {
+            "error": "correction_already_applied",
+            "job_id": new_job_id,
+            "job_state": state.value,
+            "queued": False,
+            "plan": plan.to_dict(),
+        }
+    if state in {JobState.DEAD, JobState.DISMISSED}:
+        return {
+            "error": "correction_job_inactive",
+            "job_id": new_job_id,
+            "job_state": state.value,
+            "queued": False,
+            "plan": plan.to_dict(),
+        }
     return {"job_id": new_job_id, "queued": True, "plan": plan.to_dict()}

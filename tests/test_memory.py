@@ -323,3 +323,91 @@ def test_mcp_memory_search_stays_shared_after_reindex(archive):
             assert '"private"' not in payload
 
     asyncio.run(run())
+
+
+def _private_entity_rows(data_dir: Path, label: str) -> tuple[int, int]:
+    with sqlite3.connect(data_dir / "memory.db") as connection:
+        nodes = connection.execute(
+            "SELECT COUNT(*) FROM memory_nodes WHERE privacy='private' AND label=? "
+            "AND node_type IN ('person','topic')",
+            (label,),
+        ).fetchone()[0]
+        fts = connection.execute(
+            "SELECT COUNT(*) FROM memory_fts WHERE label=? "
+            "AND (node_id LIKE 'person:%' OR node_id LIKE 'topic:%') "
+            "AND node_id NOT IN (SELECT node_id FROM memory_nodes WHERE privacy='shared')",
+            (label,),
+        ).fetchone()[0]
+    return nodes, fts
+
+
+def test_reprocessing_a_private_meeting_removes_its_stale_people_and_topics(tmp_path):
+    data_dir = tmp_path / "data"
+    store = memory(data_dir)
+    meeting = make_meeting("Career chat", 5, private=True)
+    first = make_analysis("Career chat", "Promotion packet", "Confidential", private=True)
+    first = first.model_copy(update={"participants": [Participant(name="Pat Example")]})
+    store.index_meeting(meeting, first, make_transcript(("Pat Example", "Hi.")), "private/m.md")
+    assert _private_entity_rows(data_dir, "Pat Example") == (1, 1)
+
+    second = make_analysis("Career chat", "Team goals", "Updated", private=True)
+    store.index_meeting(meeting, second, make_transcript(("Alex", "Hi.")), "private/m.md")
+
+    assert _private_entity_rows(data_dir, "Pat Example") == (0, 0)
+    assert _private_entity_rows(data_dir, "Promotion packet") == (0, 0)
+    assert _private_entity_rows(data_dir, "Team goals") == (1, 1)
+    assert store.search("Promotion", include_private=True) == []
+
+
+def test_reprocessing_removes_legacy_unscoped_private_entities_but_keeps_shared(tmp_path):
+    data_dir = tmp_path / "data"
+    store = memory(data_dir)
+    shared = make_meeting("Platform sync", 4)
+    store.index_meeting(
+        shared,
+        make_analysis("Platform sync", "Rollout", "Ship it"),
+        make_transcript(("Alex", "Ship it.")),
+        "wiki/meetings/a.md",
+    )
+    private = make_meeting("Career chat", 5, private=True)
+    analysis = make_analysis("Career chat", "Promotion packet", "Confidential", private=True)
+    store.index_meeting(private, analysis, make_transcript(("Alex", "Hi.")), "private/m.md")
+    # Rows written before entity scoping carried no meeting source.
+    with sqlite3.connect(data_dir / "memory.db") as connection:
+        connection.execute(
+            "UPDATE memory_nodes SET source_id='' WHERE privacy='private' "
+            "AND node_type IN ('person','topic')"
+        )
+
+    store.index_meeting(
+        private,
+        analysis.model_copy(update={"topics": [TopicInsight(topic="Goals", insight="New")]}),
+        make_transcript(("Alex", "Hi.")),
+        "private/m.md",
+    )
+
+    assert _private_entity_rows(data_dir, "Promotion packet") == (0, 0)
+    assert _private_entity_rows(data_dir, "Alex") == (1, 1)
+    shared_people = [item for item in store.search("Alex", node_type="person")]
+    assert [item["privacy"] for item in shared_people] == ["shared"]
+    assert shared_people[0]["source_id"] == ""
+
+
+def test_private_deletion_preview_counts_meeting_scoped_people_and_topics(archive):
+    from meeting_wiki.deletion import preview_meeting_deletion
+
+    reindex_memory(archive["data_dir"])
+    plan = preview_meeting_deletion(
+        archive["data_dir"],
+        LocalFileStorage(archive["data_dir"]),
+        archive["private_key"],
+        allow_private=True,
+    )
+    assert plan["memory"]["nodes"]["person"] == 1
+    assert plan["memory"]["nodes"]["topic"] == 1
+
+    shared = preview_meeting_deletion(
+        archive["data_dir"], LocalFileStorage(archive["data_dir"]), archive["shared_key"]
+    )
+    assert "person" not in shared["memory"]["nodes"]
+    assert "topic" not in shared["memory"]["nodes"]

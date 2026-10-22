@@ -576,7 +576,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if not args.reprocess:
             try:
-                plan = plan_correction(storage, args.meeting, mapping)
+                plan = plan_correction(
+                    storage, args.meeting, mapping, outbox_path=config.data_dir / "outbox.db"
+                )
             except ValueError as error:
                 print(json.dumps({"error": "invalid_correction", "message": str(error)}))
                 return 1
@@ -589,12 +591,18 @@ def main(argv: list[str] | None = None) -> int:
             visibility_timeout_seconds=config.jobs.visibility_timeout_seconds,
         )
         try:
-            result = apply_correction(storage, queue, args.meeting, mapping)
+            result = apply_correction(
+                storage,
+                queue,
+                args.meeting,
+                mapping,
+                outbox_path=config.data_dir / "outbox.db",
+            )
         except ValueError as error:
             print(json.dumps({"error": "invalid_correction", "message": str(error)}))
             return 1
         print(json.dumps(result, indent=2))
-        return 0 if "job_id" in result else 1
+        return 0 if result.get("queued") is True else 1
     if args.command == "events":
         journal = open_journal(config.data_dir)
         print(json.dumps({"events": journal.recent(args.limit) if journal else []}, indent=2))

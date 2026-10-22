@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 
 from .diagnostics import decode_diagnostic
@@ -26,11 +27,24 @@ CREATE TABLE IF NOT EXISTS jobs (
     claimed_at REAL,
     stage TEXT NOT NULL DEFAULT 'queued',
     lease_expires_at REAL,
+    claim_token TEXT,
+    analysis_snapshot TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs(state, not_before, id);
 """
+
+
+class ClaimLost(ValueError):
+    """The job is no longer running under the caller's claim; a newer claim owns it."""
+
+
+def _claim_clause(claim_token: str | None) -> tuple[str, tuple[object, ...]]:
+    # Without a token the caller is an operator path that predates claim ownership.
+    if claim_token is None:
+        return "", ()
+    return " AND claim_token=?", (claim_token,)
 
 
 class JobQueue:
@@ -75,6 +89,10 @@ class JobQueue:
                 )
             if "lease_expires_at" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN lease_expires_at REAL")
+            if "claim_token" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN claim_token TEXT")
+            if "analysis_snapshot" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN analysis_snapshot TEXT")
             if added_stage:
                 connection.execute(
                     """UPDATE jobs SET stage=CASE
@@ -114,7 +132,8 @@ class JobQueue:
             cursor = connection.execute(
                 """UPDATE jobs
                 SET state=CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'pending' END,
-                    stage='queued', claimed_at=NULL, lease_expires_at=NULL, updated_at=?
+                    stage='queued', claimed_at=NULL, lease_expires_at=NULL,
+                    claim_token=NULL, updated_at=?
                 WHERE state='running' AND (
                     (lease_expires_at IS NOT NULL AND lease_expires_at < ?)
                     OR (lease_expires_at IS NULL AND claimed_at < ?)
@@ -142,10 +161,12 @@ class JobQueue:
                 connection.execute("COMMIT")
                 return None
             lease_expires_at = now + self.visibility_timeout_seconds
+            claim_token = uuid.uuid4().hex
             connection.execute(
                 """UPDATE jobs SET state='running', attempts=attempts+1,
-                   claimed_at=?, lease_expires_at=?, updated_at=? WHERE id=?""",
-                (now, lease_expires_at, now, row["id"]),
+                   claimed_at=?, lease_expires_at=?, claim_token=?, updated_at=?
+                   WHERE id=?""",
+                (now, lease_expires_at, claim_token, now, row["id"]),
             )
             connection.execute("COMMIT")
             self._event(
@@ -159,6 +180,7 @@ class JobQueue:
                 state="running",
                 attempts=row["attempts"] + 1,
                 lease_expires_at=lease_expires_at,
+                claim_token=claim_token,
                 updated_at=now,
             )
             return self._record(updated)
@@ -168,39 +190,52 @@ class JobQueue:
         finally:
             connection.close()
 
-    def complete(self, job_id: int) -> None:
+    @staticmethod
+    def _not_running(job_id: int, claim_token: str | None) -> ValueError:
+        if claim_token is None:
+            return ValueError(f"Job {job_id} is not running")
+        return ClaimLost(f"Job {job_id} is not running under this claim")
+
+    def complete(self, job_id: int, *, claim_token: str | None = None) -> None:
+        owned, params = _claim_clause(claim_token)
         with self._connect() as connection:
+            # A finished job keeps no analysis content at rest.
             cursor = connection.execute(
-                """UPDATE jobs SET state='done', stage='done', last_error=NULL,
-                   claimed_at=NULL, lease_expires_at=NULL, updated_at=?
-                   WHERE id=? AND state='running'""",
-                (time.time(), job_id),
+                f"""UPDATE jobs SET state='done', stage='done', last_error=NULL,
+                   claimed_at=NULL, lease_expires_at=NULL, claim_token=NULL,
+                   analysis_snapshot=NULL, updated_at=?
+                   WHERE id=? AND state='running'{owned}""",
+                (time.time(), job_id, *params),
             )
             if cursor.rowcount != 1:
-                raise ValueError(f"Job {job_id} is not running")
+                raise self._not_running(job_id, claim_token)
         self._event(EventCode.JOB_COMPLETED, job_id=job_id, stage_to=JobStage.DONE.value)
 
-    def fail(self, job_id: int, error: str) -> JobState:
+    def fail(self, job_id: int, error: str, *, claim_token: str | None = None) -> JobState:
         now = time.time()
+        owned, params = _claim_clause(claim_token)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT state, attempts, max_attempts FROM jobs WHERE id=?", (job_id,)
+                "SELECT state, attempts, max_attempts, claim_token FROM jobs WHERE id=?",
+                (job_id,),
             ).fetchone()
             if row is None:
                 raise KeyError(job_id)
-            if JobState(str(row["state"])) is not JobState.RUNNING:
-                raise ValueError(f"Job {job_id} is not running")
+            if JobState(str(row["state"])) is not JobState.RUNNING or (
+                claim_token is not None and row["claim_token"] != claim_token
+            ):
+                raise self._not_running(job_id, claim_token)
             dead = row["attempts"] >= row["max_attempts"]
             state = JobState.DEAD if dead else JobState.FAILED
             delay = 0 if dead else self.backoff_base_seconds * (2 ** max(0, row["attempts"] - 1))
             cursor = connection.execute(
-                """UPDATE jobs SET state=?, last_error=?, not_before=?,
-                   claimed_at=NULL, lease_expires_at=NULL, updated_at=?
-                   WHERE id=? AND state='running'""",
-                (state.value, error[:4000], now + delay, now, job_id),
+                f"""UPDATE jobs SET state=?, last_error=?, not_before=?,
+                   claimed_at=NULL, lease_expires_at=NULL, claim_token=NULL, updated_at=?
+                   WHERE id=? AND state='running'{owned}""",
+                (state.value, error[:4000], now + delay, now, job_id, *params),
             )
             if cursor.rowcount != 1:
-                raise ValueError(f"Job {job_id} is not running")
+                raise self._not_running(job_id, claim_token)
         diagnostic = decode_diagnostic(error) or {}
         error_type = diagnostic.get("error_type")
         stage = diagnostic.get("stage")
@@ -216,30 +251,34 @@ class JobQueue:
         )
         return state
 
-    def heartbeat(self, job_id: int) -> bool:
+    def heartbeat(self, job_id: int, *, claim_token: str | None = None) -> bool:
         now = time.time()
+        owned, params = _claim_clause(claim_token)
         with self._connect() as connection:
             cursor = connection.execute(
-                """UPDATE jobs SET lease_expires_at=?, updated_at=?
-                   WHERE id=? AND state='running'""",
-                (now + self.visibility_timeout_seconds, now, job_id),
+                f"""UPDATE jobs SET lease_expires_at=?, updated_at=?
+                   WHERE id=? AND state='running'{owned}""",
+                (now + self.visibility_timeout_seconds, now, job_id, *params),
             )
             return cursor.rowcount == 1
 
-    def set_stage(self, job_id: int, stage: JobStage) -> None:
+    def set_stage(
+        self, job_id: int, stage: JobStage, *, claim_token: str | None = None
+    ) -> None:
         if stage in {JobStage.QUEUED, JobStage.DONE}:
             raise ValueError(f"Worker cannot set terminal stage: {stage.value}")
+        owned, params = _claim_clause(claim_token)
         with self._connect() as connection:
             previous = connection.execute(
                 "SELECT stage FROM jobs WHERE id=? AND state='running'", (job_id,)
             ).fetchone()
             cursor = connection.execute(
-                """UPDATE jobs SET stage=?, updated_at=?
-                   WHERE id=? AND state='running'""",
-                (stage.value, time.time(), job_id),
+                f"""UPDATE jobs SET stage=?, updated_at=?
+                   WHERE id=? AND state='running'{owned}""",
+                (stage.value, time.time(), job_id, *params),
             )
             if cursor.rowcount != 1:
-                raise ValueError(f"Job {job_id} is not running")
+                raise self._not_running(job_id, claim_token)
         self._event(
             EventCode.JOB_STAGE,
             job_id=job_id,
@@ -247,7 +286,13 @@ class JobQueue:
             stage_to=stage.value,
         )
 
-    def freeze_payload(self, job_id: int, payload: dict[str, object]) -> None:
+    def freeze_payload(
+        self,
+        job_id: int,
+        payload: dict[str, object],
+        *,
+        claim_token: str | None = None,
+    ) -> None:
         """Persist the resolved meeting once, before any transcript or wiki side effect."""
         if payload.get("classification_frozen") is not True:
             raise ValueError("Frozen payload must set classification_frozen")
@@ -255,10 +300,14 @@ class JobQueue:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT state, payload FROM jobs WHERE id=?", (job_id,)
+                "SELECT state, payload, claim_token FROM jobs WHERE id=?", (job_id,)
             ).fetchone()
-            if row is None or JobState(str(row["state"])) is not JobState.RUNNING:
-                raise ValueError(f"Job {job_id} is not running")
+            if (
+                row is None
+                or JobState(str(row["state"])) is not JobState.RUNNING
+                or (claim_token is not None and row["claim_token"] != claim_token)
+            ):
+                raise self._not_running(job_id, claim_token)
             if json.loads(str(row["payload"])).get("classification_frozen") is True:
                 raise ValueError(f"Job {job_id} payload is already frozen")
             connection.execute(
@@ -271,6 +320,27 @@ class JobQueue:
             raise
         finally:
             connection.close()
+
+    def save_analysis_snapshot(
+        self, job_id: int, snapshot: str, *, claim_token: str | None = None
+    ) -> None:
+        """Persist this job's successful analysis so retries never re-run the LLM."""
+        owned, params = _claim_clause(claim_token)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"""UPDATE jobs SET analysis_snapshot=?, updated_at=?
+                   WHERE id=? AND state='running'{owned}""",
+                (snapshot, time.time(), job_id, *params),
+            )
+            if cursor.rowcount != 1:
+                raise self._not_running(job_id, claim_token)
+
+    def load_analysis_snapshot(self, job_id: int) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT analysis_snapshot FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+        return str(row["analysis_snapshot"]) if row and row["analysis_snapshot"] else None
 
     def get(self, job_id: int) -> JobRecord | None:
         with self._connect() as connection:
@@ -327,7 +397,7 @@ class JobQueue:
                 raise ValueError(f"Job {job_id} is {state.value}; only dead jobs can dismiss")
             connection.execute(
                 """UPDATE jobs SET state='dismissed', claimed_at=NULL,
-                   lease_expires_at=NULL, updated_at=? WHERE id=?""",
+                   lease_expires_at=NULL, claim_token=NULL, updated_at=? WHERE id=?""",
                 (now, job_id),
             )
         dismissed = self.get(job_id)
@@ -382,7 +452,7 @@ class JobQueue:
             connection.execute(
                 """UPDATE jobs SET state='pending', stage='queued', attempts=0,
                    not_before=0, last_error=NULL, claimed_at=NULL,
-                   lease_expires_at=NULL, updated_at=? WHERE id=?""",
+                   lease_expires_at=NULL, claim_token=NULL, updated_at=? WHERE id=?""",
                 (now, job_id),
             )
         retried = self.get(job_id)
@@ -405,6 +475,7 @@ class JobQueue:
             lease_expires_at=(
                 float(row["lease_expires_at"]) if row.get("lease_expires_at") is not None else None
             ),
+            claim_token=str(row["claim_token"]) if row.get("claim_token") else None,
             last_error=str(row["last_error"]) if row.get("last_error") else None,
             created_at=float(row["created_at"]),
             updated_at=float(row["updated_at"]),

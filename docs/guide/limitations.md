@@ -28,7 +28,8 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 - Zoom in a web browser is not detected for automatic recording.
 - The Google Meet extension must be loaded unpacked once per browser.
 - Speaker corrections keep the old label on append-only surfaces (people
-  timelines, action-item table).
+  timelines, action-item table) and on external tasks sent before the
+  correction.
 - Live captions are display only and use microphone audio.
 - API keys are not part of backups and must be re-entered after a restore.
 - First-run setup, uninstall, and Zoom and Google Meet automatic recording are

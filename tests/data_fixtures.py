@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,6 +86,8 @@ def populate(tmp_path: Path, meeting, transcript, analysis) -> Populated:
     (meet / "events").mkdir(parents=True)
     (meet / "manifest.json").write_text('{"name": "host"}\n')
     (meet / "events" / "join.json").write_text("{}\n")
+    # Close lingering sqlite connections now so a later GC checkpoint cannot alter the tree.
+    gc.collect()
     return Populated(
         data_dir=data_dir,
         config_path=config_path,

@@ -54,6 +54,8 @@ meeting-wiki memory-resources
 
 会议页面会被重写，但旧标签会保留在只追加的位置，例如人物时间线和待办表格。确认前，计划会列出这些条目。
 
+重新处理不会再次创建外部任务。已发送的任务在任务系统中保留旧标签；计划会报告数量和所在主机。如果同一更正已经应用过，或其任务已失败停止或被忽略，则不会排队，命令会说明原因。可在处理恢复中重试失败停止的任务。
+
 ```bash
 meeting-wiki correct-inbox
 meeting-wiki correct --meeting wiki/meetings/<page>.md --speaker "Remote participant=Sam Rivera"

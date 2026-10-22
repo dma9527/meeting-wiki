@@ -190,14 +190,24 @@ class MemoryStore:
         source_id = meeting.ingest_id
         occurred_at = meeting.occurred_at.isoformat()
         privacy = "private" if analysis.private else "shared"
+        entity_source = source_id if privacy == "private" else ""
         meeting_node_id = self._node_id("meeting", source_id)
         summary = "\n".join(analysis.summary)
+        # Private people/topics are meeting-scoped; legacy rows had no source, so
+        # they are found through this meeting's edges. Shared entities stay global.
         stale_nodes = connection.execute(
-            "SELECT node_id FROM memory_nodes WHERE source_id=?", (source_id,)
+            """SELECT node_id FROM memory_nodes WHERE source_id=?
+               UNION
+               SELECT nodes.node_id FROM memory_nodes AS nodes
+               JOIN memory_edges AS edges
+                 ON nodes.node_id IN (edges.source_node_id, edges.target_node_id)
+               WHERE edges.source_id=? AND nodes.source_id='' AND nodes.privacy='private'
+                 AND nodes.node_type IN ('person', 'topic')""",
+            (source_id, source_id),
         ).fetchall()
         for row in stale_nodes:
             connection.execute("DELETE FROM memory_fts WHERE node_id=?", (row["node_id"],))
-        connection.execute("DELETE FROM memory_nodes WHERE source_id=?", (source_id,))
+            connection.execute("DELETE FROM memory_nodes WHERE node_id=?", (row["node_id"],))
         connection.execute("DELETE FROM memory_edges WHERE source_id=?", (source_id,))
         self._upsert_node(
             connection,
@@ -227,7 +237,7 @@ class MemoryStore:
                 node_type="person",
                 label=name,
                 content="",
-                source_id="",
+                source_id=entity_source,
                 occurred_at="",
                 privacy=privacy,
                 metadata=self._metadata(canonical_name=canonical(name)),
@@ -264,7 +274,7 @@ class MemoryStore:
                 node_type="topic",
                 label=topic.topic,
                 content=topic.insight,
-                source_id="",
+                source_id=entity_source,
                 occurred_at="",
                 privacy=privacy,
                 metadata=self._metadata(canonical_topic=canonical(topic.topic)),

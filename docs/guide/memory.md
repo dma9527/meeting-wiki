@@ -77,6 +77,12 @@ The meeting page is rewritten, but the old label stays on append-only surfaces
 such as people timelines and the action-item table. The plan lists those
 entries before you confirm.
 
+Reprocessing does not propose external tasks again. Tasks already sent keep the
+old label in the task system; the plan reports how many and on which host. If
+the same correction was already applied, or its job is dead or dismissed,
+nothing is queued and the command says so. Retry a dead job from processing
+recovery.
+
 ```bash
 meeting-wiki correct-inbox
 meeting-wiki correct --meeting wiki/meetings/<page>.md --speaker "Remote participant=Sam Rivera"

@@ -257,3 +257,72 @@ def test_freeze_payload_persists_once_for_a_running_job(tmp_path):
     with pytest.raises(ValueError, match="classification_frozen"):
         queue.freeze_payload(job_id, {"title": "Unfrozen"})
     assert queue.get(job_id).payload["title"] == "Resolved"
+
+
+def _expire(queue: JobQueue, job_id: int) -> None:
+    with sqlite3.connect(queue.path) as connection:
+        connection.execute(
+            "UPDATE jobs SET claimed_at=?, lease_expires_at=? WHERE id=?",
+            (time.time() - 20, time.time() - 1, job_id),
+        )
+
+
+def test_stale_claim_cannot_complete_fail_or_touch_a_newer_claim(tmp_path):
+    from meeting_wiki.jobs import ClaimLost
+
+    queue = JobQueue(tmp_path / "jobs.db", visibility_timeout_seconds=10)
+    job_id = queue.enqueue(JobType.INGEST, {"title": "Meeting"}, "job")
+    stale = queue.claim()
+    _expire(queue, job_id)
+    assert queue.reclaim_stale() == 1
+    fresh = queue.claim()
+    assert stale.claim_token and fresh.claim_token
+    assert stale.claim_token != fresh.claim_token
+
+    with pytest.raises(ClaimLost):
+        queue.complete(job_id, claim_token=stale.claim_token)
+    with pytest.raises(ClaimLost):
+        queue.fail(job_id, "stale", claim_token=stale.claim_token)
+    with pytest.raises(ClaimLost):
+        queue.set_stage(job_id, JobStage.ANALYZING, claim_token=stale.claim_token)
+    with pytest.raises(ClaimLost):
+        queue.freeze_payload(
+            job_id, {"classification_frozen": True}, claim_token=stale.claim_token
+        )
+    with pytest.raises(ClaimLost):
+        queue.save_analysis_snapshot(job_id, "{}", claim_token=stale.claim_token)
+    assert queue.heartbeat(job_id, claim_token=stale.claim_token) is False
+    assert queue.get(job_id).state is JobState.RUNNING
+
+    queue.complete(job_id, claim_token=fresh.claim_token)
+    assert queue.get(job_id).state is JobState.DONE
+    assert queue.get(job_id).claim_token is None
+
+
+def test_claim_lost_is_a_value_error_for_existing_not_running_callers(tmp_path):
+    from meeting_wiki.jobs import ClaimLost
+
+    assert issubclass(ClaimLost, ValueError)
+
+
+def test_analysis_snapshot_survives_failure_and_manual_retry_then_clears(tmp_path):
+    queue = JobQueue(tmp_path / "jobs.db", max_attempts=1)
+    job_id = queue.enqueue(JobType.INGEST, {"title": "Meeting"}, "job")
+    first = queue.claim()
+    assert queue.load_analysis_snapshot(job_id) is None
+    queue.save_analysis_snapshot(job_id, '{"title":"A"}', claim_token=first.claim_token)
+    assert queue.fail(job_id, "render", claim_token=first.claim_token) is JobState.DEAD
+    queue.retry(job_id)
+    second = queue.claim()
+    assert queue.load_analysis_snapshot(job_id) == '{"title":"A"}'
+    queue.complete(job_id, claim_token=second.claim_token)
+    # Completed jobs do not keep meeting content at rest.
+    assert queue.load_analysis_snapshot(job_id) is None
+
+
+def test_snapshot_columns_are_added_to_existing_databases(tmp_path):
+    path = tmp_path / "jobs.db"
+    JobQueue(path)
+    with sqlite3.connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+    assert {"claim_token", "analysis_snapshot"}.issubset(columns)
