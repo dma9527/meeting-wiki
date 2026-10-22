@@ -121,6 +121,8 @@ def decode_diagnostic(value: str | None) -> dict[str, object] | None:
             or not _SAFE_PROVIDER_STATUS.fullmatch(parsed["provider_status"])
         ):
             return None
-    elif provider_keys.intersection(parsed):
+    elif provider_keys.difference({"provider"}).intersection(parsed) or (
+        "provider" in parsed and safe_identifier(parsed.get("provider")) != parsed["provider"]
+    ):
         return None
     return parsed

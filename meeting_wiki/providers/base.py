@@ -217,4 +217,6 @@ class NotificationProvider(Protocol):
 class TaskProvider(Protocol):
     name: str
 
-    def propose(self, item: ActionItem, meeting_key: str) -> str | None: ...
+    def propose(
+        self, item: ActionItem, meeting_key: str, *, action_key: str | None = None
+    ) -> str | None: ...

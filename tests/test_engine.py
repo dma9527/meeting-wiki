@@ -99,7 +99,7 @@ class FakeTask:
     def __init__(self):
         self.calls = []
 
-    def propose(self, item, meeting_key):
+    def propose(self, item, meeting_key, *, action_key=None):
         self.calls.append((item, meeting_key))
         return "https://tasks.example/proposal"
 

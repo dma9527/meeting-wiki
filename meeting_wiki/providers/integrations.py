@@ -33,7 +33,9 @@ class MacOSNotificationProvider:
 class NoneTaskProvider:
     name = "none"
 
-    def propose(self, item: ActionItem, meeting_key: str) -> str | None:
+    def propose(
+        self, item: ActionItem, meeting_key: str, *, action_key: str | None = None
+    ) -> str | None:
         return None
 
 
@@ -73,17 +75,22 @@ class WebhookTaskProvider:
         self.token = token
         self.allow_private_networks = allow_private_networks
 
-    def propose(self, item: ActionItem, meeting_key: str) -> str | None:
+    def propose(
+        self, item: ActionItem, meeting_key: str, *, action_key: str | None = None
+    ) -> str | None:
         # Re-resolve immediately before each request to narrow DNS-rebinding
         # time-of-check/time-of-use exposure.
         validate_webhook_url(self.url, self.allow_private_networks)
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-        response = httpx.post(
-            self.url,
-            headers=headers,
-            json={"action_item": item.model_dump(mode="json"), "meeting": meeting_key},
-            timeout=15,
-        )
+        body: dict[str, object] = {
+            "action_item": item.model_dump(mode="json"),
+            "meeting": meeting_key,
+        }
+        if action_key:
+            # Receivers dedupe on this key; it is identical on every retry.
+            headers["Idempotency-Key"] = action_key
+            body["action_id"] = action_key
+        response = httpx.post(self.url, headers=headers, json=body, timeout=15)
         response.raise_for_status()
         try:
             result = response.json()

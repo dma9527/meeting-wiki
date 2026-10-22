@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AppConfig
+from .events import EventJournal
 from .memory import MemoryStore
 from .models import (
     JobStage,
@@ -19,6 +20,7 @@ from .models import (
     TranscriptResult,
     TranscriptSegment,
 )
+from .outbox import TaskOutbox
 from .privacy import classify
 from .providers.base import EmptyTranscriptError, TranscriptionContext
 from .providers.registry import ProviderBundle
@@ -38,14 +40,21 @@ class IngestResult:
 
 
 class MeetingEngine:
-    def __init__(self, config: AppConfig, providers: ProviderBundle):
+    def __init__(
+        self,
+        config: AppConfig,
+        providers: ProviderBundle,
+        journal: EventJournal | None = None,
+    ):
         self.config = config
         self.providers = providers
+        self.journal = journal
 
     def ingest(
         self,
         meeting: MeetingInput,
         progress: Callable[[JobStage], None] | None = None,
+        job_id: int | None = None,
     ) -> IngestResult:
         report = progress or (lambda _stage: None)
         meeting, calendar_private = self._enrich_from_calendar(meeting)
@@ -108,11 +117,17 @@ class MeetingEngine:
 
         report(JobStage.INTEGRATING)
         task_urls: list[str] = []
-        if not private:
-            for item in analysis.action_items:
-                url = self.providers.task.propose(item, render.meeting_key)
-                if url:
-                    task_urls.append(url)
+        # Private meetings never reach the outbox or a task provider.
+        if not private and self.providers.task.name != "none":
+            outbox = TaskOutbox(self.config.data_dir / "outbox.db", self.journal)
+            keys = outbox.plan(
+                source_id,
+                self.providers.task.name,
+                render.meeting_key,
+                list(analysis.action_items),
+                job_id,
+            )
+            task_urls = outbox.deliver(keys, self.providers.task, job_id).delivered_urls
 
         if private:
             self.providers.notification.notify(

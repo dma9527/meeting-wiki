@@ -9,6 +9,7 @@ import time
 from .config import AppConfig
 from .diagnostics import encode_diagnostic, safe_job_diagnostic
 from .engine import MeetingEngine
+from .events import open_journal
 from .jobs import JobQueue
 from .models import JobStage, JobType, MeetingInput
 from .providers.registry import build_providers
@@ -38,14 +39,16 @@ class _LeaseHeartbeat:
 class Worker:
     def __init__(self, config: AppConfig):
         self.config = config
+        self.journal = open_journal(config.data_dir)
         self.queue = JobQueue(
             config.data_dir / "jobs.db",
             max_attempts=config.jobs.max_attempts,
             backoff_base_seconds=config.jobs.backoff_base_seconds,
             visibility_timeout_seconds=config.jobs.visibility_timeout_seconds,
+            journal=self.journal,
         )
         self.providers = build_providers(config)
-        self.engine = MeetingEngine(config, self.providers)
+        self.engine = MeetingEngine(config, self.providers, self.journal)
 
     def run_once(self) -> bool:
         self.queue.reclaim_stale()
@@ -70,7 +73,7 @@ class Worker:
                 self.queue.set_stage(job.id, stage)
                 self.queue.heartbeat(job.id)
 
-            result = self.engine.ingest(meeting, progress)
+            result = self.engine.ingest(meeting, progress, job_id=job.id)
             heartbeat.stop()
             self.queue.complete(job.id)
             output = {"job_id": job.id, "state": "done"}
@@ -89,6 +92,8 @@ class Worker:
                 provider = self.providers.transcription.name
             elif current_stage is JobStage.ANALYZING:
                 provider = self.providers.llm.name
+            elif current_stage is JobStage.INTEGRATING:
+                provider = self.providers.task.name
             diagnostic = safe_job_diagnostic(
                 error,
                 stage=current_stage.value,

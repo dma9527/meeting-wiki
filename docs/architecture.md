@@ -64,6 +64,40 @@ The SQLite queue runs in WAL mode with synchronous FULL. Jobs have unique dedupe
 keys, exponential backoff, max attempts, and visibility-timeout recovery.
 Rendering is idempotent, so at-least-once processing is safe.
 
+## Task delivery outbox
+
+External task creation goes through `data_dir/outbox.db` (mode 0600). Each
+action item gets a stable key: a SHA-256 of the meeting source ID and a
+canonical form of the owner, action, and due date (whitespace and case
+normalized). The flow per action is:
+
+1. The job's delivery plan and every action payload commit in one transaction
+   before any network call. A retried job reuses its committed plan, so a
+   re-analysis cannot mint new keys for actions already in flight.
+2. The row moves to `sending` under a 60-second lease, then the request runs.
+3. On success the row becomes `delivered` with the returned `https` URL, if
+   any. Delivered actions are never sent again.
+4. Timeouts, network errors, and HTTP 408, 425, 429, and 5xx mark the row
+   `failed`, and the job retries with backoff. Other 4xx responses mark it
+   `rejected` and are not resent.
+
+Every attempt for an action carries the same `Idempotency-Key` header and
+`action_id` body field. A webhook receiver must treat a repeated key as the
+same task. That is what keeps a timeout after an accepted creation, or a crash
+between send and commit, from producing a duplicate. Private meetings and the
+`none` task provider never create an outbox.
+
+## Event journal
+
+`data_dir/events.db` (mode 0600) records queue claims, stage transitions,
+completions, failures, retries, and task delivery outcomes. Each row holds only
+a timestamp, a fixed event code, the component and package version, a job ID,
+an attempt count, stage codes, an outcome code, an HTTP status, an exception
+type name, and a 12-character digest of the action key. The journal rejects
+free text at write time, so titles, transcripts, paths, URLs, error messages,
+and secrets cannot be stored. Write failures are ignored so the journal never
+blocks processing. Read it with `meeting-wiki events --limit 100`.
+
 ## Canonical memory
 
 `data_dir/memory.db` (mode 0600) holds a derived graph of meetings, people,

@@ -8,6 +8,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+from .diagnostics import decode_diagnostic
+from .events import Component, EventCode, EventJournal
 from .models import JobRecord, JobStage, JobState, JobType
 
 _SCHEMA = """
@@ -38,13 +40,19 @@ class JobQueue:
         max_attempts: int = 5,
         backoff_base_seconds: int = 2,
         visibility_timeout_seconds: int = 900,
+        journal: EventJournal | None = None,
     ):
+        self.journal = journal
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = path
         self.max_attempts = max_attempts
         self.backoff_base_seconds = backoff_base_seconds
         self.visibility_timeout_seconds = visibility_timeout_seconds
         self._initialize()
+
+    def _event(self, code: EventCode, **fields: object) -> None:
+        if self.journal is not None:
+            self.journal.record(code, Component.QUEUE, **fields)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
@@ -113,7 +121,10 @@ class JobQueue:
                 )""",
                 (time.time(), time.time(), cutoff),
             )
-            return cursor.rowcount
+            reclaimed = cursor.rowcount
+        if reclaimed:
+            self._event(EventCode.JOB_RECLAIMED, outcome="lease_expired")
+        return reclaimed
 
     def claim(self) -> JobRecord | None:
         now = time.time()
@@ -137,6 +148,12 @@ class JobQueue:
                 (now, lease_expires_at, now, row["id"]),
             )
             connection.execute("COMMIT")
+            self._event(
+                EventCode.JOB_CLAIMED,
+                job_id=int(row["id"]),
+                attempt=int(row["attempts"]) + 1,
+                stage_from=str(row["stage"]),
+            )
             updated = dict(row)
             updated.update(
                 state="running",
@@ -161,6 +178,7 @@ class JobQueue:
             )
             if cursor.rowcount != 1:
                 raise ValueError(f"Job {job_id} is not running")
+        self._event(EventCode.JOB_COMPLETED, job_id=job_id, stage_to=JobStage.DONE.value)
 
     def fail(self, job_id: int, error: str) -> JobState:
         now = time.time()
@@ -183,7 +201,20 @@ class JobQueue:
             )
             if cursor.rowcount != 1:
                 raise ValueError(f"Job {job_id} is not running")
-            return state
+        diagnostic = decode_diagnostic(error) or {}
+        error_type = diagnostic.get("error_type")
+        stage = diagnostic.get("stage")
+        http_status = diagnostic.get("http_status")
+        self._event(
+            EventCode.JOB_DEAD if dead else EventCode.JOB_FAILED,
+            job_id=job_id,
+            attempt=int(row["attempts"]),
+            stage_from=stage if isinstance(stage, str) else None,
+            outcome=state.value,
+            error_type=error_type if isinstance(error_type, str) else None,
+            http_status=http_status if isinstance(http_status, int) else None,
+        )
+        return state
 
     def heartbeat(self, job_id: int) -> bool:
         now = time.time()
@@ -199,6 +230,9 @@ class JobQueue:
         if stage in {JobStage.QUEUED, JobStage.DONE}:
             raise ValueError(f"Worker cannot set terminal stage: {stage.value}")
         with self._connect() as connection:
+            previous = connection.execute(
+                "SELECT stage FROM jobs WHERE id=? AND state='running'", (job_id,)
+            ).fetchone()
             cursor = connection.execute(
                 """UPDATE jobs SET stage=?, updated_at=?
                    WHERE id=? AND state='running'""",
@@ -206,6 +240,12 @@ class JobQueue:
             )
             if cursor.rowcount != 1:
                 raise ValueError(f"Job {job_id} is not running")
+        self._event(
+            EventCode.JOB_STAGE,
+            job_id=job_id,
+            stage_from=str(previous["stage"]) if previous else None,
+            stage_to=stage.value,
+        )
 
     def get(self, job_id: int) -> JobRecord | None:
         with self._connect() as connection:
@@ -268,6 +308,7 @@ class JobQueue:
         dismissed = self.get(job_id)
         if dismissed is None:
             raise KeyError(job_id)
+        self._event(EventCode.JOB_DISMISSED, job_id=job_id, outcome="dismissed")
         return dismissed
 
     def restore(self, job_id: int) -> JobRecord:
@@ -288,6 +329,7 @@ class JobQueue:
         restored = self.get(job_id)
         if restored is None:
             raise KeyError(job_id)
+        self._event(EventCode.JOB_RESTORED, job_id=job_id, outcome="dead")
         return restored
 
     def cleanup_dismissed(self, older_than_seconds: float) -> int:
@@ -321,6 +363,7 @@ class JobQueue:
         retried = self.get(job_id)
         if retried is None:
             raise KeyError(job_id)
+        self._event(EventCode.JOB_RETRIED, job_id=job_id, stage_to=JobStage.QUEUED.value)
         return retried
 
     @staticmethod

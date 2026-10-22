@@ -94,7 +94,7 @@ class _FakeNotification:
 class _FakeTask:
     name = "fake"
 
-    def propose(self, item, meeting_key):
+    def propose(self, item, meeting_key, *, action_key=None):
         return None
 
 

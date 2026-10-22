@@ -21,6 +21,12 @@ or usage data.
    those URLs, and a resource on a private meeting stays private.
 7. "Install Claude skill for meeting memory..." writes only a bundled instruction template with no
    meeting data to `~/.claude/skills/meeting-wiki-memory/SKILL.md`.
+8. A local event journal, `events.db`, records fixed status codes, timestamps,
+   job stages, and app version for troubleshooting. It never stores
+   transcripts, titles, file paths, URLs, error text, or keys, and it is never
+   sent anywhere.
+9. When the webhook task provider is enabled, shared action items are queued in
+   a local `outbox.db` before sending, so a retry cannot create a duplicate.
 
 With MLX Whisper and Ollama, audio and text stay on your Mac. Selecting an
 OpenAI-compatible, AWS, S3, calendar, or webhook provider sends the data needed

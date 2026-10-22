@@ -12,6 +12,7 @@ from pathlib import Path
 from .config import DEFAULT_CONFIG_PATH, load_config
 from .corrections import apply_correction, build_inbox, plan_correction
 from .diagnostics import decode_diagnostic, safe_identifier
+from .events import open_journal
 from .jobs import JobQueue
 from .memory import NODE_TYPES
 from .models import JobState, MeetingInput
@@ -353,6 +354,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Enqueue reprocessing after reviewing the plan",
     )
+    events = sub.add_parser(
+        "events",
+        help="Print the privacy-safe local event journal (codes and timestamps only)",
+    )
+    events.add_argument("--limit", type=int, default=100)
 
     args = parser.parse_args(argv)
     if args.command == "init":
@@ -446,12 +452,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result, indent=2))
         return 0 if "job_id" in result else 1
+    if args.command == "events":
+        journal = open_journal(config.data_dir)
+        print(json.dumps({"events": journal.recent(args.limit) if journal else []}, indent=2))
+        return 0
     if args.command in {"status", "retry", "dismiss", "restore", "cleanup-dismissed"}:
         queue = JobQueue(
             config.data_dir / "jobs.db",
             max_attempts=config.jobs.max_attempts,
             backoff_base_seconds=config.jobs.backoff_base_seconds,
             visibility_timeout_seconds=config.jobs.visibility_timeout_seconds,
+            journal=open_journal(config.data_dir) if args.command != "status" else None,
         )
         if args.command == "cleanup-dismissed":
             try:
