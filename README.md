@@ -1,77 +1,138 @@
+<div align="center">
+
 # Meeting Wiki
+
+**Your meetings become private, source-linked memory that you and your agents can use.**
+
+[![CI](https://github.com/dma9527/meeting-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/dma9527/meeting-wiki/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20Apple%20Silicon-black.svg)](docs/guide/installation.md)
+[![Memory](https://img.shields.io/badge/memory-local--first-2f6f5f.svg)](docs/guide/memory.md)
+[![MCP](https://img.shields.io/badge/MCP-read--only-6d4c9b.svg)](docs/guide/memory.md)
 
 [English](README.md) | [简体中文](docs/zh-CN/README.md)
 
-Local-first meeting memory for macOS. Meeting Wiki records your meetings and
-compiles them into one evolving, plain-Markdown wiki of people, topics,
-decisions, and action items, instead of a pile of one-off summaries.
+</div>
 
-Your files stay readable without the app and work with Obsidian, VS Code, Git,
-or any Markdown tool.
+> **Early alpha.** Meeting Wiki is for technically comfortable Apple Silicon Mac users who want to test a local-first meeting memory workflow. It does not yet have a signed public release. See [known limitations](docs/guide/limitations.md).
 
-## Status
+## The problem
 
-**Early alpha (0.1.x). macOS 14+ on Apple Silicon only.**
+Most meeting tools give you a transcript and a one-time summary. A few weeks
+later, you still have to remember where a decision came from, who committed to
+an action, or which design document changed the plan.
 
-There is no signed release yet. Builds are unsigned **local test artifacts**
-for the maintainer's own Macs. Do not publish them as a GitHub release or send
-them to other people. A public release needs a Developer ID signature,
-notarization, and a settled license path for the bundled audio tools. See
-[Known limitations](docs/guide/limitations.md).
+Meeting Wiki keeps the source material on your Mac and turns each processed
+meeting into an evolving knowledge system of meetings, people, topics,
+decisions, action items, links, and transcript lines.
 
-## Quick start
+```text
+Join a meeting
+  Record microphone and system audio
+  Live captions, translation, and rolling summary
+  Durable batch transcript and analysis
+  Source-linked Markdown wiki and local memory index
+  Search from the app, CLI, MCP, or Claude skill
+```
 
-1. **Build the app** on an Apple Silicon Mac from this repository. See
-   [Installation](docs/guide/installation.md).
-2. **Open Meeting Wiki** and finish setup: choose Gemini, another
-   OpenAI-compatible provider, or Local only, then grant Microphone and Screen &
-   System Audio Recording permission. See [Setup](docs/guide/setup.md).
-3. **Record.** Choose **Start recording...** (Cmd+Shift+0) in the menu bar,
-   pick Shared wiki or Private, and stop when the meeting ends. The meeting
-   appears under `~/.meeting-wiki/wiki/` after processing. See
-   [Recording](docs/guide/recording.md).
+## Why Meeting Wiki
 
-## Capabilities
+| What you get | Why it matters |
+|---|---|
+| **Local-first ownership** | Audio, transcripts, Markdown, memory, jobs, backups, and integration state live under `~/.meeting-wiki/`. |
+| **Memory with sources** | Decisions, action items, people, topics, URL resources, and transcript segments point back to the meeting that created them. |
+| **No meeting bot by default** | Capture happens on your Mac. Zoom and Google Meet automatic recording are opt-in integrations. |
+| **Agent-ready, not agent-dependent** | A read-only MCP server and an installable Claude skill let agents query memory without direct file writes. |
+| **Private by design** | Private meetings never enter shared wiki pages, shared MCP search, S3 mirroring, or task integrations. |
+| **Recoverable workflow** | Queue recovery, processing controls, task outbox idempotency, event journal, backup, restore verification, and deletion preview are built in. |
 
-- Records microphone and system audio, manually or automatically for Zoom and
-  Google Meet (both off by default).
-- Live sidebar with transcript, translation, and rolling summary while you
-  record. Live text is display only.
-- Deterministic Markdown wiki: the model returns validated facts, and code
-  renders pages, indexes, timelines, and action-item tables.
-- Private meetings that never touch shared pages, search, S3, or task
-  integrations.
-- Searchable canonical memory, URL resources you attach to meetings, a
-  read-only MCP server, and an installable Claude skill.
-- Durable job queue with self-check, retry, and a processing recovery view.
-- Encrypted backup and restore, deletion preview, and retention planning.
+## What it does today
+
+- Records microphone and system audio from the macOS menu bar.
+- Shows a pre-record panel with title, privacy, capture readiness, live status, and time limit.
+- Runs a live sidebar with transcript, translation, and rolling summary while recording.
+- Renews Gemini Live sessions before the provider connection limit when supported.
+- Stops, saves, and processes recordings when an opt-in Zoom or Google Meet integration detects a meeting end.
+- Discards integration-started recordings of 10 seconds or less.
+- Builds deterministic Markdown pages for meetings, people, topics, decisions, and action items.
+- Indexes canonical local memory with full-text search and relationship results.
+- Stores user-attached URL resources without fetching or opening them.
+- Creates encrypted backups, verifies restores into a new directory, and previews deletion or retention effects without deleting data.
+
+## Start here
+
+### 1. Install or build
+
+Meeting Wiki currently has unsigned local test artifacts only. Build it on your
+own Apple Silicon Mac, or use a trusted local artifact and follow the install
+guide.
+
+```text
+Apple Silicon Mac
+macOS 14 or later
+Microphone permission
+Screen & System Audio Recording permission
+```
+
+[Installation guide](docs/guide/installation.md)
+
+### 2. Set up processing
+
+Open **Run setup...** from the menu bar. Choose Gemini or another
+OpenAI-compatible provider, paste or reveal a key only when needed, run the
+candidate test, then finish. The active provider remains unchanged if a
+candidate test fails.
+
+[Setup and API key guide](docs/guide/setup.md)
+
+### 3. Record one short meeting
+
+Choose **Start recording...** or press `Cmd+Shift+0`. Confirm shared or
+private storage, then start. When you stop, Meeting Wiki saves the recording,
+queues durable processing, and writes the result to your local wiki.
+
+[Recording guide](docs/guide/recording.md)
+
+## Pick a workflow
+
+| I want to... | Start here |
+|---|---|
+| Record a private one-on-one | [Private recording](docs/guide/recording.md#private-meetings) |
+| Automatically record Zoom or Google Meet | [Automatic recording](docs/guide/recording.md#automatic-recording) |
+| Understand why processing failed | [Live sidebar and recovery](docs/guide/live-and-recovery.md) |
+| Search past decisions, people, or action items | [Memory search](docs/guide/memory.md) |
+| Attach a design doc or ticket to a meeting | [URL resources](docs/guide/memory.md#url-resources) |
+| Let Claude query meeting memory safely | [Claude skill and MCP](docs/guide/memory.md#claude-skill-and-mcp) |
+| Back up or restore local data | [Data ownership](docs/guide/data-ownership.md) |
+| Review release and platform limitations | [Known limitations](docs/guide/limitations.md) |
 
 ## Privacy boundary
 
-- No telemetry. Data lives under `~/.meeting-wiki/` on your Mac.
-- Audio and transcript text go only to the provider you select in setup.
-  Local only keeps them on the Mac.
-- API keys are kept with macOS Keychain facilities, never in `config.toml` or
-  logs.
-- The MCP server and the wiki window read only `wiki/`, never `private/`.
-- You are responsible for recording consent. Read [PRIVACY.md](PRIVACY.md).
+- No telemetry.
+- API keys use macOS Keychain facilities and are not written to `config.toml` or logs.
+- Audio and transcript text go only to the provider selected in setup. Local-only providers keep those inputs on the Mac.
+- Shared MCP and wiki browsing do not read `private/`.
+- URL resources are stored locally and are never fetched automatically.
+- Automatic recording is off by default. You are responsible for giving any required recording notice and obtaining consent.
+
+Read the full [privacy policy](PRIVACY.md) before recording other people.
 
 ## Documentation
 
-| Guide | English | 简体中文 |
+| Topic | English | 简体中文 |
 |---|---|---|
-| Docs index | [docs/README.md](docs/README.md) | [docs/zh-CN/README.md](docs/zh-CN/README.md) |
-| Installation | [installation](docs/guide/installation.md) | [安装](docs/zh-CN/guide/installation.md) |
-| Setup and API key | [setup](docs/guide/setup.md) | [设置与 API Key](docs/zh-CN/guide/setup.md) |
-| Recording | [recording](docs/guide/recording.md) | [录音](docs/zh-CN/guide/recording.md) |
-| Live sidebar and recovery | [live-and-recovery](docs/guide/live-and-recovery.md) | [实时侧栏与恢复](docs/zh-CN/guide/live-and-recovery.md) |
-| Memory, resources, Claude skill | [memory](docs/guide/memory.md) | [记忆与资源](docs/zh-CN/guide/memory.md) |
-| Backup, restore, deletion preview | [data-ownership](docs/guide/data-ownership.md) | [数据归属](docs/zh-CN/guide/data-ownership.md) |
-| Known limitations | [limitations](docs/guide/limitations.md) | [已知限制](docs/zh-CN/guide/limitations.md) |
-| CLI and configuration | [cli-and-config](docs/reference/cli-and-config.md) | English only |
+| Documentation index | [Docs](docs/README.md) | [中文文档](docs/zh-CN/README.md) |
+| Installation | [Installation](docs/guide/installation.md) | [安装](docs/zh-CN/guide/installation.md) |
+| Setup and API key | [Setup](docs/guide/setup.md) | [设置与 API Key](docs/zh-CN/guide/setup.md) |
+| Recording | [Recording](docs/guide/recording.md) | [录音](docs/zh-CN/guide/recording.md) |
+| Live and recovery | [Live sidebar and recovery](docs/guide/live-and-recovery.md) | [实时侧栏与恢复](docs/zh-CN/guide/live-and-recovery.md) |
+| Memory and Claude skill | [Memory](docs/guide/memory.md) | [记忆与资源](docs/zh-CN/guide/memory.md) |
+| Backup and restore | [Data ownership](docs/guide/data-ownership.md) | [数据归属](docs/zh-CN/guide/data-ownership.md) |
+| CLI and config | [Reference](docs/reference/cli-and-config.md) | English only |
 
-Also see [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), and
-[CONTRIBUTING.md](CONTRIBUTING.md).
+For contributors and maintainers, see [CONTRIBUTING.md](CONTRIBUTING.md),
+[SECURITY.md](SECURITY.md), [release checklist](docs/release-checklist.md), and
+[productization roadmap](docs/productization-roadmap.md).
 
 ## License
 
