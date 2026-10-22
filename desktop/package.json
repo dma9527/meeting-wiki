@@ -53,6 +53,7 @@
       "recording-settings.js",
       "secret-store.js",
       "skill-installer.js",
+      "cli-installer.js",
       "self-check.js",
       "setting-metadata.js",
       "record-window.js",

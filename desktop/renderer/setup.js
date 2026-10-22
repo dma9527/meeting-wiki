@@ -280,9 +280,12 @@
 
   // ---- Step 1: choose ----
 
+  // Local only stays visible but disabled until models can be installed from setup.
+  const SELECTABLE_MODES = new Set(["gemini", "online"]);
+
   function selectedMode() {
     const checked = document.querySelector('input[name="mode"]:checked');
-    return checked ? checked.value : null;
+    return checked && SELECTABLE_MODES.has(checked.value) ? checked.value : null;
   }
 
   function onModeChange() {
@@ -294,9 +297,9 @@
   function onChooseSubmit(event) {
     event.preventDefault();
     const mode = selectedMode();
-    if (!mode) {
+    if (!mode || !SELECTABLE_MODES.has(mode)) {
       const node = $("choose-error");
-      node.textContent = "Choose Gemini, Other online API key, or Local only to continue.";
+      node.textContent = "Choose Gemini or Other online API key to continue.";
       node.hidden = false;
       $("mode-gemini").focus();
       return;
@@ -734,10 +737,9 @@
           : "An online API key provider is set up and in use.";
         $("current-setup").hidden = false;
       }
-      if (initial.mode === "online" || initial.mode === "local") {
-        const selected = initial.mode === "online" && initial.provider === "gemini" ? "gemini" : initial.mode;
-        const radio = $(`mode-${selected}`);
-        radio.checked = true;
+      if (initial.mode === "online") {
+        const selected = initial.provider === "gemini" ? "gemini" : "online";
+        $(`mode-${selected}`).checked = true;
         onModeChange();
       }
     }

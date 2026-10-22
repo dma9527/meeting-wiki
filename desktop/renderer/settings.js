@@ -11,7 +11,7 @@
 //   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveRecordingSettings({ maxDurationMinutes }) -> { ok: true, values } | { error }
 //   getIntegrationSettings() -> { ready: true, values, readiness } | { ready: false, reason } | { error }
-//   saveIntegrationSettings({ zoomAutoRecord, googleMeetAutoRecord }) -> { ok: true, values, readiness } | { error }
+//   saveIntegrationSettings({ zoomAutoRecord, googleMeetAutoRecord, autoRecordPrivacy }) -> { ok: true, values, readiness } | { error }
 //   showMeetExtension()  -> { ok: true } | { error }
 //   rerunSetup()         -> { ok: true } | { error }
 //   getSettingMetadata() -> { settings: { [key]: { form, appliesAfter, copy } }, manualEdit }
@@ -324,8 +324,21 @@
     const source = permissions || {};
     return [
       accessLine("Microphone access", source.microphone, "Recordings will be silent until it is allowed in System Settings."),
-      accessLine("Screen & System Audio Recording", source.systemAudio, "Other participants will not be recorded until it is allowed."),
+      "System audio permission cannot be checked in advance. If other participants were silent, allow Meeting Wiki under System Audio Recording in System Settings.",
     ];
+  }
+
+  const PRIVACY_MODES = ["private", "calendar", "shared"];
+
+  function selectedPrivacy() {
+    const checked = document.querySelector('input[name="autoRecordPrivacy"]:checked');
+    return checked && PRIVACY_MODES.includes(checked.value) ? checked.value : "";
+  }
+
+  function setPrivacy(mode, choiceNeeded) {
+    const value = PRIVACY_MODES.includes(mode) ? mode : "private";
+    for (const radio of document.querySelectorAll('input[name="autoRecordPrivacy"]')) radio.checked = radio.value === value;
+    $("auto-record-privacy-notice").hidden = choiceNeeded !== true;
   }
 
   function renderReadiness(readiness) {
@@ -359,7 +372,13 @@
     const meet = $("google-meet-auto-record");
     zoom.checked = values.zoomAutoRecord === true;
     meet.checked = values.googleMeetAutoRecord === true;
-    let saved = { zoomAutoRecord: zoom.checked, googleMeetAutoRecord: meet.checked };
+    setPrivacy(values.autoRecordPrivacy, values.autoRecordPrivacyChoiceNeeded);
+    // A pending migration counts as unsaved, so saving records the explicit choice.
+    let saved = {
+      zoomAutoRecord: zoom.checked,
+      googleMeetAutoRecord: meet.checked,
+      autoRecordPrivacy: values.autoRecordPrivacyChoiceNeeded === true ? "" : selectedPrivacy(),
+    };
     renderReadiness(result.readiness);
     $("panel-integration-settings").hidden = false;
 
@@ -372,7 +391,11 @@
     $("integration-settings-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       if (busy) return;
-      const next = { zoomAutoRecord: zoom.checked, googleMeetAutoRecord: meet.checked };
+      const next = { zoomAutoRecord: zoom.checked, googleMeetAutoRecord: meet.checked, autoRecordPrivacy: selectedPrivacy() };
+      if (!next.autoRecordPrivacy) {
+        setIntegrationStatus("Choose where automatic recordings go.", "error");
+        return;
+      }
       busy = true;
       const button = $("integration-save");
       button.setAttribute("aria-disabled", "true");
@@ -384,13 +407,19 @@
       if (saveError) {
         zoom.checked = saved.zoomAutoRecord;
         meet.checked = saved.googleMeetAutoRecord;
+        if (saved.autoRecordPrivacy) setPrivacy(saved.autoRecordPrivacy, false);
         setIntegrationStatus(saveError, "error");
         return;
       }
       const changed = Object.keys(next).filter((key) => result.values[key] !== saved[key]);
-      saved = { ...result.values };
+      saved = {
+        zoomAutoRecord: result.values.zoomAutoRecord,
+        googleMeetAutoRecord: result.values.googleMeetAutoRecord,
+        autoRecordPrivacy: result.values.autoRecordPrivacy,
+      };
       zoom.checked = saved.zoomAutoRecord;
       meet.checked = saved.googleMeetAutoRecord;
+      setPrivacy(result.values.autoRecordPrivacy, result.values.autoRecordPrivacyChoiceNeeded);
       renderReadiness(result.readiness);
       setIntegrationStatus(savedMessage(changed), "ok");
     });

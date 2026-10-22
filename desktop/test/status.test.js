@@ -131,3 +131,20 @@ test("worker restart backoff rejects a ceiling below the base delay", () => {
   const { RestartBackoff } = require("../status");
   assert.throws(() => new RestartBackoff({ baseMs: 5_000, maxMs: 1_000 }), /maxMs/);
 });
+
+test("job records keep only a clipped printable label and a valid capture time", async () => {
+  const { listDeadJobs } = require("../status");
+  const base = { job_type: "ingest", state: "dead", stage: "analyzing", attempts: 5, max_attempts: 5, error_type: "RuntimeError" };
+  const execFile = fakeExec([{ stdout: JSON.stringify([
+    { ...base, id: 1, label: "Private recording", captured_at: "2026-09-04T15:05:00+00:00" },
+    { ...base, id: 2, label: "Bad\u0007label" + "x".repeat(200), captured_at: "not a date" },
+    { ...base, id: 3 },
+  ]) }], []);
+  const jobs = await listDeadJobs("/python", "/config.toml", execFile);
+  assert.equal(jobs[0].label, "Private recording");
+  assert.equal(jobs[0].captured_at, "2026-09-04T15:05:00+00:00");
+  assert.equal(jobs[1].label, "Recording");
+  assert.equal(jobs[1].captured_at, null);
+  assert.equal(jobs[2].label, "Recording");
+  assert.equal(jobs[2].captured_at, null);
+});

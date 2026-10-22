@@ -124,6 +124,8 @@ class MeetingInput(BaseModel):
     # True once calendar identity and privacy were resolved and persisted in the
     # durable job; retries reuse that decision instead of re-reading the calendar.
     classification_frozen: bool = False
+    # Automatic recordings in calendar mode: no matching calendar event means private.
+    require_calendar_match: bool = False
     speaker_corrections: dict[str, str] = Field(default_factory=dict)
     # Set on correction reprocess jobs: re-analysis must not propose external tasks again.
     suppress_task_delivery: bool = False

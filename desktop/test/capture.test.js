@@ -149,3 +149,11 @@ test("capture manifest refuses to guess privacy or the recording start", () => {
   assert.throws(() => buildCaptureManifest(files, { ...base, recordingStartedAt: null }), /recording start/);
   assert.throws(() => buildCaptureManifest(files, { ...base, recordingStartedAt: "not a date" }), /recording start/);
 });
+
+test("capture manifest adds the calendar requirement only when it is set", () => {
+  const { buildCaptureManifest } = require("../capture");
+  const files = { audioPath: "/data/audio/a.wav", micAudioPath: null, systemAudioPath: null };
+  const base = { title: "Zoom meeting", titleExplicit: false, isPrivate: false, recordingStartedAt: "2026-09-04T15:02:00.000Z" };
+  assert.equal("require_calendar_match" in buildCaptureManifest(files, base), false);
+  assert.equal(buildCaptureManifest(files, { ...base, requireCalendarMatch: true }).require_calendar_match, true);
+});

@@ -99,6 +99,32 @@
           </p>
 
           <form id="integration-settings-form" novalidate>
+            <fieldset id="auto-record-privacy" class="settings-choices" aria-describedby="auto-record-privacy-hint auto-record-privacy-applies">
+              <legend class="subhead">Where automatic recordings go</legend>
+              <p id="auto-record-privacy-notice" class="notice" role="note" hidden>
+                Earlier versions saved every automatic recording to the shared wiki. That still applies until you
+                choose an option below and save.
+              </p>
+              <div class="consent">
+                <input type="radio" id="auto-record-privacy-private" name="autoRecordPrivacy" value="private" />
+                <label for="auto-record-privacy-private">Private: notes stay only in the private folder on this Mac</label>
+              </div>
+              <div class="consent">
+                <input type="radio" id="auto-record-privacy-calendar" name="autoRecordPrivacy" value="calendar" />
+                <label for="auto-record-privacy-calendar">Follow my calendar: shared only when a calendar event matches and is not private</label>
+              </div>
+              <div class="consent">
+                <input type="radio" id="auto-record-privacy-shared" name="autoRecordPrivacy" value="shared" />
+                <label for="auto-record-privacy-shared">Shared wiki, unless the calendar or title marks the meeting private</label>
+              </div>
+              <p id="auto-record-privacy-hint" class="hint">
+                Private is the default. Follow my calendar uses the calendar event that matches when the recording
+                starts, decided once and kept on retries. With no calendar, or no matching event, the meeting is
+                private. Manual recordings always ask in the record panel.
+              </p>
+              <p id="auto-record-privacy-applies" class="hint applies" data-applies-for="autoRecordPrivacy"></p>
+            </fieldset>
+
             <h2 class="subhead">Zoom app</h2>
             <div class="consent">
               <input id="zoom-auto-record" name="zoomAutoRecord" type="checkbox" aria-describedby="zoom-auto-record-boundary zoom-auto-record-applies" />

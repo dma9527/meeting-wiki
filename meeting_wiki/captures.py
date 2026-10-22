@@ -33,6 +33,8 @@ class CaptureManifest(BaseModel):
     private: bool
     recording_started_at: datetime
     occurred_at: datetime | None = None
+    # Automatic recordings in calendar mode; absent in manifests from earlier builds.
+    require_calendar_match: bool = False
 
     @field_validator("recording_started_at", "occurred_at")
     @classmethod
@@ -71,6 +73,7 @@ def meeting_from_manifest(config: AppConfig, manifest: CaptureManifest) -> Meeti
         occurred_at=manifest.occurred_at or manifest.recording_started_at,
         occurred_at_explicit=manifest.occurred_at is not None,
         recording_started_at=manifest.recording_started_at,
+        require_calendar_match=manifest.require_calendar_match,
     )
 
 

@@ -109,7 +109,9 @@ queues durable processing, and writes the result to your local wiki.
 ## Privacy boundary
 
 - No telemetry.
-- API keys use macOS Keychain facilities and are not written to `config.toml` or logs.
+- API keys are encrypted with Electron safeStorage into `secrets.json` (0600) in the
+  storage folder, with the decryption key in the macOS Keychain. They are not written to
+  `config.toml` or logs.
 - Audio and transcript text go only to the provider selected in setup. Local-only providers keep those inputs on the Mac.
 - Shared MCP and wiki browsing do not read `private/`.
 - URL resources are stored locally and are never fetched automatically.

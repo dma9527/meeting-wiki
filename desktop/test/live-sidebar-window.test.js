@@ -35,9 +35,17 @@ function fakeElectron() {
     }
 
     isDestroyed() { return this.destroyed; }
-    showInactive() { this.shown += 1; }
+    isVisible() { return this.visible === true; }
+    showInactive() { this.shown += 1; this.visible = true; }
+    show() { this.shown += 1; this.visible = true; }
+    focus() {}
+    hide() { this.visible = false; }
     loadFile(file) { this.loaded = file; }
+    // Mirrors Electron: a close handler may cancel the close with preventDefault.
     close() {
+      let prevented = false;
+      this.emit("close", { preventDefault: () => { prevented = true; } });
+      if (prevented) return;
       this.destroyed = true;
       this.emit("closed");
     }
@@ -65,7 +73,7 @@ test("the sidebar window is sandboxed, isolated, and blocks navigation and popup
     assert.equal(prevented, true, `${name} must be denied`);
   }
   assert.deepEqual(window.openHandler({ url: "https://example.test" }), { action: "deny" });
-  window.close();
+  sidebar.destroyLiveSidebar();
 });
 
 test("events are buffered until load, re-sanitized, and sent on one channel", () => {
@@ -85,20 +93,37 @@ test("events are buffered until load, re-sanitized, and sent on one channel", ()
     { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "transcript", sequence: 1, text: "Hello" } },
     { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "translation", sequence: 1, text: "你好" } },
   ]);
-  window.close();
+  sidebar.destroyLiveSidebar();
 });
 
-test("reopening reuses the window and closing runs the stop callback once", () => {
+test("closing hides the sidebar and keeps receiving events until the recording ends", () => {
   const sidebar = freshSidebarModule();
   const { electron, windows } = fakeElectron();
-  let closed = 0;
-  const first = sidebar.createLiveSidebarWindow(electron, { onClosed: () => { closed += 1; } });
-  const second = sidebar.createLiveSidebarWindow(electron, { onClosed: () => { closed += 1; } });
+  const first = sidebar.createLiveSidebarWindow(electron);
+  const second = sidebar.createLiveSidebarWindow(electron);
   assert.equal(first, second);
   assert.equal(windows.length, 1);
+  first.webContents.emit("did-finish-load");
+  first.visible = true;
   first.close();
-  assert.equal(closed, 1);
+  assert.equal(first.destroyed, false, "a user close must only hide");
+  assert.equal(first.isVisible(), false);
+  assert.equal(sidebar.liveSidebarAvailable(), true);
+  assert.equal(sidebar.publishLiveEvent({ type: "transcript", sequence: 1, text: "Still live" }), true);
+  assert.equal(first.sent.at(-1).payload.text, "Still live");
+
+  assert.equal(sidebar.showLiveSidebar(), true);
+  assert.equal(first.isVisible(), true);
+
+  sidebar.destroyLiveSidebar();
+  assert.equal(first.destroyed, true);
+  assert.equal(sidebar.liveSidebarAvailable(), false);
+  assert.equal(sidebar.showLiveSidebar(), false);
   assert.equal(sidebar.publishLiveEvent({ type: "state", phase: "stopped" }), false);
+});
+
+test("the sidebar says live captions use the microphone only", () => {
+  assert.match(read("live-sidebar.html"), /Live captions use your microphone only/);
 });
 
 test("the sidebar registers no IPC handlers", () => {

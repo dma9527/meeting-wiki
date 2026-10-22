@@ -35,8 +35,11 @@ the person who built them.
 
 5. Complete first-run setup:
    - Choose a storage location (default `~/.meeting-wiki`).
-   - Choose an online provider and paste your API key. The key is stored in
-     the macOS Keychain, not in any file.
+   - Choose an online provider and paste your API key. The key is encrypted
+     with Electron safeStorage and saved in `secrets.json` in the storage
+     folder; the key that decrypts it is kept in the macOS Keychain. It is
+     never written to `config.toml` or logs. Local only is not available in
+     this build.
    - Grant **Microphone** and **Screen & System Audio Recording** permission
      when prompted (System Settings, Privacy & Security). Quit and reopen the
      app after granting system audio.
@@ -86,15 +89,41 @@ desktop/dist/mac-arm64/Meeting Wiki.app
 Then follow section A from step 2. Step 3 is not needed for an app you built
 on the same Mac.
 
+## Command-line tools
+
+Choose **Install command-line tools...** in the menu bar to add
+`meeting-wiki` and `meeting-wiki-mcp` to `~/.local/bin`. See
+[installation](guide/installation.md#command-line-tools-and-mcp) for the
+`PATH` line and what the tools can do without the app's API key.
+
 ## Uninstall
 
-```bash
-rm -rf "/Applications/Meeting Wiki.app"
-```
+1. Quit Meeting Wiki, then remove the app:
 
-Your recordings, wiki, and settings stay in the storage folder you chose
-(default `~/.meeting-wiki`). Delete that folder only if you also want to
-remove your data. API keys stay in Keychain Access under "Meeting Wiki".
+   ```bash
+   rm -rf "/Applications/Meeting Wiki.app"
+   ```
+
+2. If you installed the command-line tools, remove them:
+
+   ```bash
+   rm -f ~/.local/bin/meeting-wiki ~/.local/bin/meeting-wiki-mcp
+   ```
+
+3. If you turned on Google Meet automatic recording, turn it off in Settings
+   first, or remove `dev.meetingwiki.meet.json` from each browser's
+   `NativeMessagingHosts` folder under `~/Library/Application Support/`.
+4. If you installed the Claude skill, remove
+   `~/.claude/skills/meeting-wiki-memory/`.
+
+Your data stays in the storage folder (default `~/.meeting-wiki/`). That folder
+also holds `secrets.json`, the encrypted API keys. Delete the folder only if you
+also want to remove recordings, transcripts, the wiki, and the saved keys.
+
+The key that decrypts `secrets.json` stays in the macOS Keychain. To remove it,
+open Keychain Access, search for "Safe Storage", and delete the Meeting Wiki
+item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
+`secrets.json` cannot be decrypted, and setup asks for the key again.
 
 ## Troubleshooting
 

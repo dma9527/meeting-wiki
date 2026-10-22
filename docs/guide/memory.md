@@ -56,6 +56,10 @@ meeting-wiki memory-resources
 `meeting_wiki_list_recent`, and `meeting_wiki_action_items`. It never returns
 private meetings or private memory.
 
+On an installed app, choose **Install command-line tools...** in the menu bar,
+then point your MCP client at `~/.local/bin/meeting-wiki-mcp`. See
+[installation](installation.md#command-line-tools-and-mcp).
+
 ## Claude skill
 
 **Install Claude skill for meeting memory...** in the menu bar copies a bundled

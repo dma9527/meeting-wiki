@@ -215,7 +215,13 @@ class MeetingEngine:
             return meeting
         meeting, calendar_private = self._enrich_from_calendar(meeting)
         meeting_type = classify(meeting, self.config.privacy)
-        private = meeting.private or calendar_private or meeting_type is MeetingType.ONE_ON_ONE
+        unmatched = meeting.require_calendar_match and meeting.calendar_event_id is None
+        private = (
+            meeting.private
+            or calendar_private
+            or unmatched
+            or meeting_type is MeetingType.ONE_ON_ONE
+        )
         return meeting.model_copy(
             update={
                 "meeting_type": meeting_type,

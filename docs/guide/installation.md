@@ -58,15 +58,64 @@ The app bundles its own Python runtime, Meeting Wiki components, `rec`, and
 `sox`. The target Mac does not need Homebrew, Python, Node.js, or a source
 checkout.
 
-## Uninstall
+## Command-line tools and MCP
+
+The app bundles the `meeting-wiki` CLI and the `meeting-wiki-mcp` server, but a
+clean Mac has no command for them. To add them, choose **Install command-line
+tools...** in the menu bar and confirm.
+
+- It writes two small scripts, `meeting-wiki` and `meeting-wiki-mcp`, to
+  `~/.local/bin`, readable and runnable only by you.
+- It never replaces an existing file. If a file with either name is already
+  there with other content, or is a link, it is left unchanged and reported.
+- Each script runs the Python inside `/Applications/Meeting Wiki.app` (or
+  `~/Applications/Meeting Wiki.app`), found again on every run, so the tools
+  keep working after you replace the app with a new build. If the app is not
+  there, the script prints an error and exits with status 127.
+
+`~/.local/bin` is not on the default macOS `PATH`. If `meeting-wiki` is not
+found, add this line to `~/.zshrc` and open a new Terminal window:
 
 ```bash
-rm -rf "/Applications/Meeting Wiki.app"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Your data stays in `~/.meeting-wiki/`. Delete that folder only if you also want
-to remove recordings, transcripts, and the wiki. API keys stay in Keychain
-Access under "Meeting Wiki".
+For an MCP client, use the full path `~/.local/bin/meeting-wiki-mcp` (expanded
+to your home folder) as the command.
+
+API keys stay with the app. Read commands such as `memory-search`, `status`,
+and the MCP server need no key. Commands that call your provider from the
+Terminal, such as `ingest --now` or `worker`, need the key in the environment;
+normal processing runs inside the app.
+
+## Uninstall
+
+1. Quit Meeting Wiki, then remove the app:
+
+   ```bash
+   rm -rf "/Applications/Meeting Wiki.app"
+   ```
+
+2. If you installed the command-line tools, remove them:
+
+   ```bash
+   rm -f ~/.local/bin/meeting-wiki ~/.local/bin/meeting-wiki-mcp
+   ```
+
+3. If you turned on Google Meet automatic recording, turn it off in Settings
+   first, or remove `dev.meetingwiki.meet.json` from each browser's
+   `NativeMessagingHosts` folder under `~/Library/Application Support/`.
+4. If you installed the Claude skill, remove
+   `~/.claude/skills/meeting-wiki-memory/`.
+
+Your data stays in the storage folder (default `~/.meeting-wiki/`). That folder
+also holds `secrets.json`, the encrypted API keys. Delete the folder only if you
+also want to remove recordings, transcripts, the wiki, and the saved keys.
+
+The key that decrypts `secrets.json` stays in the macOS Keychain. To remove it,
+open Keychain Access, search for "Safe Storage", and delete the Meeting Wiki
+item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
+`secrets.json` cannot be decrypted, and setup asks for the key again.
 
 ## Troubleshooting
 

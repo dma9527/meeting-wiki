@@ -62,7 +62,7 @@ function switchView(view) {
   if (view === "recent" && !loaded.recent) loadRecent();
   if (view === "actions" && !loaded.actions) loadActions();
   if (view === "corrections" && !loaded.corrections) loadCorrections();
-  if (view === "recovery" && !loaded.recovery) loadRecovery();
+  if (view === "recovery") loadRecovery(true);
 }
 
 function openPageButton(pagePath, label) {
@@ -521,13 +521,19 @@ function setRecoveryBusy(busy) {
   }
 }
 
+function capturedText(value) {
+  if (typeof value !== "string") return "capture time unknown";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "capture time unknown" : `captured ${date.toLocaleString()}`;
+}
+
 function recoveryMeta(job) {
-  return `Job #${job.id} · ${job.stage} · attempt ${job.attempts} of ${job.max_attempts}`;
+  return `${capturedText(job.captured_at)} · Job #${job.id} · ${job.stage} · attempt ${job.attempts} of ${job.max_attempts}`;
 }
 
 function recoveryCard(job, actions) {
   const card = el("article", { class: "card recovery-card" }, [
-    el("h3", { class: "card-title", text: `Job #${job.id}` }),
+    el("h3", { class: "card-title", text: job.label || "Recording" }),
     el("p", { class: "card-meta", text: recoveryMeta(job) }),
     el("p", { class: "recovery-diagnostic", text: diagnosticText(job) }),
   ]);
@@ -544,7 +550,10 @@ function recoveryCard(job, actions) {
       setRecoveryBusy(true);
       const result = await action.run();
       setRecoveryBusy(false);
-      if (failed(result)) return;
+      if (result && typeof result === "object" && "error" in result) {
+        showRecoveryError(`${action.label} did not finish: ${result.error}`);
+        return;
+      }
       toast(action.success(job.id));
       await loadRecovery(true);
     });
@@ -561,6 +570,7 @@ function renderRecovery(deadJobs, dismissedJobs) {
   clear(activeList);
   clear(dismissedList);
   retryAll.disabled = recoveryBusy || deadJobs.length === 0;
+  retryAll.dataset.count = String(deadJobs.length);
   if (deadJobs.length === 0) {
     activeList.appendChild(emptyNote("No processing jobs need action."));
   }
@@ -592,29 +602,71 @@ function renderRecovery(deadJobs, dismissedJobs) {
   }
 }
 
+// Errors stay on screen with a Retry button until a later load succeeds.
+function showRecoveryError(message) {
+  document.getElementById("recovery-error-text").textContent = message;
+  document.getElementById("recovery-error").hidden = false;
+}
+
+function clearRecoveryError() {
+  document.getElementById("recovery-error").hidden = true;
+  document.getElementById("recovery-error-text").textContent = "";
+}
+
+function recoveryErrorOf(...results) {
+  for (const result of results) {
+    if (result && typeof result === "object" && !Array.isArray(result) && "error" in result) return String(result.error);
+    if (!Array.isArray(result)) return "The processing list could not be read.";
+  }
+  return "";
+}
+
 async function loadRecovery(force = false) {
   if (!force && loaded.recovery) return;
   if (!api.jobs) {
-    toast("Processing recovery is unavailable. Reopen the window.");
+    showRecoveryError("Processing recovery is unavailable. Reopen the window.");
     return;
   }
-  const [deadJobs, dismissedJobs] = await Promise.all([api.jobs.listDead(), api.jobs.listDismissed()]);
-  if (failed(deadJobs) || failed(dismissedJobs)) return;
+  let lists;
+  try {
+    lists = await Promise.all([api.jobs.listDead(), api.jobs.listDismissed()]);
+  } catch (_) {
+    lists = [{ error: "The app did not respond." }, []];
+  }
+  const [deadJobs, dismissedJobs] = lists;
+  const problem = recoveryErrorOf(deadJobs, dismissedJobs);
+  if (problem) {
+    showRecoveryError(`Processing jobs could not be loaded: ${problem}`);
+    return;
+  }
+  clearRecoveryError();
   loaded.recovery = true;
   renderRecovery(deadJobs, dismissedJobs);
+  document.getElementById("recovery-updated").textContent = `Last updated ${new Date().toLocaleTimeString()}.`;
   const badge = document.getElementById("recovery-count");
   badge.hidden = deadJobs.length === 0;
   badge.textContent = String(deadJobs.length);
+}
+
+function retryAllPrompt(count) {
+  return `Retry ${count} failed job${count === 1 ? "" : "s"}? Each one is processed again with the current provider settings.`;
 }
 
 async function retryAllRecoveryJobs() {
   if (recoveryBusy) return;
   const retryAll = document.getElementById("recovery-retry-all");
   if (retryAll.disabled) return;
+  const count = Number(retryAll.dataset.count) || 0;
+  if (count === 0) return;
+  if (!window.confirm(retryAllPrompt(count))) return;
   setRecoveryBusy(true);
   const result = await api.jobs.retryAllDead();
   setRecoveryBusy(false);
-  if (failed(result)) return;
+  if (result && typeof result === "object" && "error" in result) {
+    showRecoveryError(`Retry all did not finish: ${result.error}`);
+    await loadRecovery(true);
+    return;
+  }
   toast(`${result} job${result === 1 ? "" : "s"} queued for retry.`);
   await loadRecovery(true);
 }
@@ -662,6 +714,7 @@ function init() {
   updateMemoryScope();
   document.getElementById("page-close").addEventListener("click", closePage);
   document.getElementById("recovery-retry-all").addEventListener("click", retryAllRecoveryJobs);
+  document.getElementById("recovery-error-retry").addEventListener("click", () => { void loadRecovery(true); });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !document.getElementById("page-viewer").hidden) closePage();
   });

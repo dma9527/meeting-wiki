@@ -42,6 +42,8 @@ meeting-wiki memory-resources
 
 `meeting-wiki-mcp` 是只读的本地 MCP 服务，只覆盖共享内容：`meeting_wiki_search`、`meeting_wiki_memory_search`、`meeting_wiki_read_page`、`meeting_wiki_list_recent` 和 `meeting_wiki_action_items`。它从不返回私密会议或私密记忆。
 
+使用已安装的 App 时，在菜单栏选择 **Install command-line tools...**，然后在 MCP 客户端中使用 `~/.local/bin/meeting-wiki-mcp`。参见[安装](installation.md#命令行工具与-mcp)。
+
 ## Claude Skill
 
 菜单栏的 **Install Claude skill for meeting memory...** 会把一个不含任何会议数据的内置模板复制到 `~/.claude/skills/meeting-wiki-memory/SKILL.md`。它教 Agent 通过 MCP 或 CLI 查询记忆、私密记忆需要显式开启、不要直接写入记忆文件。

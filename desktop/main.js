@@ -11,18 +11,19 @@ process.umask(0o077);
 const { AudioCapture, buildCaptureManifest, captureManifestPath } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
-const { createSetupWindow, credentialFreeEnv, needsSetup, readSetupState, resolveProcessEnv } = require("./setup-window");
+const { createSetupWindow, credentialFreeEnv, needsSetup, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
 const { buildRecordContext, closeRecordWindow, createRecordWindow } = require("./record-window");
 const { LiveSessionManager } = require("./live-session");
-const { createLiveSidebarWindow, publishLiveEvent } = require("./live-sidebar-window");
+const { createLiveSidebarWindow, destroyLiveSidebar, liveSidebarAvailable, publishLiveEvent, showLiveSidebar } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("./skill-installer");
 const { formatSelfCheck, runSelfCheck } = require("./self-check");
+const { presentShimInstall } = require("./cli-installer");
 const { readMaxDurationMinutes } = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
 const { AutoRecordCoordinator, SHORT_DISCARD_NOTICE, SOURCES } = require("./auto-record");
-const { readIntegrationSettings } = require("./integration-settings");
+const { autoRecordStartOptions, readAutoRecordPrivacy, readIntegrationSettings } = require("./integration-settings");
 const { createIntegrationService } = require("./integration-service");
 const { MeetSpoolWatcher, createMeetBridge } = require("./meet-bridge");
 const { ZoomMeetingWatcher, sampleZoom } = require("./zoom-detector");
@@ -103,6 +104,10 @@ const liveSession = new LiveSessionManager({
   onEvent: (event) => {
     if (event.type === "state") {
       liveIssue = event.phase === "unavailable" ? event.issue || "unavailable" : null;
+      // Hand-edited configs open the sidebar only once the child proves it has an adapter.
+      if (event.phase === "listening" && liveSession.active && !liveSidebarAvailable()) {
+        try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
+      }
       if (tray) updateMenu();
     }
     publishLiveEvent(event);
@@ -124,7 +129,8 @@ const meetBridge = createMeetBridge({
   hostScript: path.join(__dirname, "meet-native-host.js"),
 });
 const autoRecord = new AutoRecordCoordinator({
-  canStart: () => recordingSession.idle && !capture.active && !quitRequested,
+  // Automatic starts follow the same setup gate as the record panel.
+  canStart: () => recordingSession.idle && !capture.active && !quitRequested && !needsSetup(fs, DATA_DIR, CONFIG_PATH),
   start: (request) => startRecording(request),
   stop: () => stopRecording("integration"),
   discard: async () => {
@@ -333,7 +339,26 @@ async function showSelfCheck() {
   }
 }
 
+// Fixed text plus the count only; job titles never appear in this dialog.
+function retryConfirmation(count) {
+  return {
+    type: "question",
+    title: "Meeting Wiki",
+    message: `Retry ${count} failed job${count === 1 ? "" : "s"}?`,
+    detail: "Each one is processed again with the current provider settings. Open Wiki & Corrections to retry jobs one at a time.",
+    buttons: ["Retry", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+}
+
 async function retryFailedJobs() {
+  const count = Number(queueSummary.action_required) || 0;
+  if (count < 1) return;
+  app.focus({ steal: true });
+  const choice = await dialog.showMessageBox(retryConfirmation(count));
+  if (choice.response !== 0) return;
   const env = processingEnv();
   if (!env) return;
   try {
@@ -359,6 +384,24 @@ async function installSkillFromMenu() {
     });
   } finally {
     skillInstallRunning = false;
+  }
+}
+
+// User-triggered only: a fixed confirmation, then fixed-text results. Never overwrites files.
+let shimInstallRunning = false;
+async function installShimsFromMenu() {
+  if (shimInstallRunning) return;
+  shimInstallRunning = true;
+  try {
+    await presentShimInstall({
+      focus: () => app.focus({ steal: true }),
+      showDialog: (options) => dialog.showMessageBox(options),
+      notify,
+    });
+  } catch (_) {
+    notify("Command-line tools not installed", "Try again from the menu bar.");
+  } finally {
+    shimInstallRunning = false;
   }
 }
 
@@ -404,8 +447,9 @@ function startWorker({ background = false } = {}) {
   });
 }
 
-function audioIngestArgs({ filePath, title, isPrivate, titleExplicit, micAudioPath = null, systemAudioPath = null, occurredAt = null, recordingStartedAt = null }) {
+function audioIngestArgs({ filePath, title, isPrivate, titleExplicit, micAudioPath = null, systemAudioPath = null, occurredAt = null, recordingStartedAt = null, requireCalendarMatch = false }) {
   const args = ["--audio", filePath, "--title", title];
+  if (requireCalendarMatch) args.push("--require-calendar-match");
   if (micAudioPath) args.push("--mic-audio", micAudioPath);
   if (systemAudioPath) args.push("--system-audio", systemAudioPath);
   if (occurredAt) args.push("--occurred-at", occurredAt);
@@ -448,16 +492,18 @@ function recoverPendingCaptures() {
 }
 
 // Live view is display-only: any failure here leaves capture and batch ingest untouched.
-function startLiveSession(micPath, isPrivate) {
+// Closing the sidebar hides it; only the end of the recording stops live and destroys it.
+function startLiveSession(micPath, isPrivate, live) {
   if (!pythonAvailable() || !micPath) return;
   try {
-    createLiveSidebarWindow({ BrowserWindow }, { onClosed: () => { void liveSession.stop(); } });
+    if (live.live === "ready") createLiveSidebarWindow({ BrowserWindow });
     liveSession.start({ micPath, isPrivate });
   } catch (_) {}
 }
 
 function stopLiveSession() {
   liveSession.stop().catch(() => {});
+  destroyLiveSidebar();
 }
 
 function readConfigText() {
@@ -472,13 +518,12 @@ function readConfigText() {
 function recordContext() {
   const available = pythonAvailable();
   return buildRecordContext({
-    setupState: readSetupState(fs, DATA_DIR),
+    setupComplete: !needsSetup(fs, DATA_DIR, CONFIG_PATH),
     configText: readConfigText(),
     pythonAvailable: available,
     keyAvailable: available && Boolean(processingEnv({ background: true })),
     maxDurationMinutes: readMaxDurationMinutes(fs, DATA_DIR),
     microphone: systemPreferences.getMediaAccessStatus("microphone"),
-    systemAudio: systemPreferences.getMediaAccessStatus("screen"),
     recording: !recordingSession.idle,
   });
 }
@@ -488,14 +533,22 @@ function openRecordPanel() {
   if (!recordingSession.idle || quitRequested) return;
   createRecordWindow(
     { app, BrowserWindow, ipcMain },
-    { getContext: recordContext, onStart: (request) => { void startRecording(request); } },
+    {
+      getContext: recordContext,
+      onStart: (request) => { void startRecording(request); },
+      onOpenSetup: openSetupWindow,
+      openExternal: (url) => { void shell.openExternal(url); },
+    },
   );
 }
 
 // Manual starts come from the record panel; integration starts pass source and the join time.
 // Both run the same capture, limit, live view, and notification. Returns true when recording began.
-async function startRecording({ title: requestedTitle = "", isPrivate = false, source = null, occurredAt = null } = {}) {
+// Automatic starts ignore any caller privacy and use the saved automatic-recording mode.
+async function startRecording({ title: requestedTitle = "", isPrivate: requestedPrivate = false, source = null, occurredAt = null } = {}) {
   if (capture.active || !recordingSession.idle || quitRequested) return false;
+  const auto = source ? autoRecordStartOptions(readAutoRecordPrivacy(fs, DATA_DIR).mode) : null;
+  const isPrivate = auto ? auto.isPrivate : requestedPrivate === true;
   const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
   // Integration titles are placeholders, so processing still names the meeting from its content.
   const titleExplicit = Boolean(requestedTitle) && !source;
@@ -513,10 +566,13 @@ async function startRecording({ title: requestedTitle = "", isPrivate = false, s
   capture.active.title = title;
   capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
+  capture.active.requireCalendarMatch = Boolean(auto && auto.requireCalendarMatch);
   capture.active.occurredAt = occurredAt;
   // Calendar matching uses the capture start, never the stop or queue time.
   capture.active.recordingStartedAt = new Date().toISOString();
-  startLiveSession(capture.active.micPath, isPrivate);
+  let liveDecision = { liveStarts: false };
+  try { liveDecision = recordContext(); } catch (_) {}
+  if (liveDecision.liveStarts) startLiveSession(capture.active.micPath, isPrivate, liveDecision);
   return true;
 }
 
@@ -529,12 +585,13 @@ function stopRecording(reason = "user") {
     const isPrivate = capture.active.private;
     const occurredAt = capture.active.occurredAt || null;
     const recordingStartedAt = capture.active.recordingStartedAt;
+    const requireCalendarMatch = capture.active.requireCalendarMatch === true;
     if (reason === "limit") notify(LIMIT_NOTICE.title, LIMIT_NOTICE.body);
     stopLiveSession();
     updateMenu();
     try {
       const files = await capture.stop();
-      const metadata = { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt };
+      const metadata = { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt, requireCalendarMatch };
       const manifestPath = captureManifestPath(files.audioPath);
       try {
         atomicWriteFile(fs, manifestPath, JSON.stringify(buildCaptureManifest(files, metadata)));
@@ -608,6 +665,7 @@ function updateMenu() {
     items.push(
       { label: recordingLabel(recordingSession), enabled: false },
       ...(liveIssue ? [{ label: "Live captions unavailable. Recording continues.", enabled: false }] : []),
+      ...(liveSidebarAvailable() ? [{ label: "Show live captions", click: () => { showLiveSidebar(); } }] : []),
       { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: () => { void stopRecording("user"); } },
       { label: "Stop and discard", click: () => { void discardRecording(); } },
     );
@@ -638,6 +696,7 @@ function updateMenu() {
     { type: "separator" },
     { label: "Open Wiki & Corrections", click: openWikiWindow },
     { label: INSTALL_SKILL_LABEL, toolTip: INSTALL_SKILL_TOOLTIP, click: () => { void installSkillFromMenu(); } },
+    { label: "Install command-line tools...", click: () => { void installShimsFromMenu(); } },
     { label: "Open wiki", click: () => shell.openPath(path.join(DATA_DIR, "wiki")) },
     { label: "Open private meetings", click: () => shell.openPath(path.join(DATA_DIR, "private", "meetings")) },
     { type: "separator" },
@@ -706,7 +765,11 @@ async function prepareQuit() {
 }
 
 app.on("before-quit", (event) => {
-  if (quitPrepared || (recordingSession.idle && ingests.size === 0)) return;
+  if (quitPrepared || (recordingSession.idle && ingests.size === 0)) {
+    // The sidebar hides on close, so it must be destroyed or it would cancel the quit.
+    destroyLiveSidebar();
+    return;
+  }
   event.preventDefault();
   if (quitRequested) return;
   quitRequested = true;

@@ -3,6 +3,7 @@
 // A locked-down, display-only window for one live session. It registers no IPC handlers:
 // main pushes already-sanitized events on a single channel, and the preload exposes only
 // subscribe and unsubscribe. No Node, no navigation, no popups, no network.
+// A user close only hides the window; main destroys it when the recording ends.
 
 const path = require("path");
 const { sanitizeLiveEvent } = require("./live-session");
@@ -14,7 +15,7 @@ const MAX_PENDING = 200;
 let sidebarWindow = null;
 let ready = false;
 let pending = [];
-let onClosedCallback = null;
+let allowClose = false;
 
 // Re-validates main-side events so only known display fields can reach the renderer.
 function rendererEvent(event) {
@@ -34,15 +35,15 @@ function publishLiveEvent(event) {
   return true;
 }
 
-function createLiveSidebarWindow(electron, { onClosed } = {}) {
+function createLiveSidebarWindow(electron) {
   const { BrowserWindow } = electron;
-  onClosedCallback = typeof onClosed === "function" ? onClosed : null;
   if (sidebarWindow && !sidebarWindow.isDestroyed()) {
     sidebarWindow.showInactive();
     return sidebarWindow;
   }
   ready = false;
   pending = [];
+  allowClose = false;
   const window = new BrowserWindow({
     width: 380,
     height: 640,
@@ -77,22 +78,45 @@ function createLiveSidebarWindow(electron, { onClosed } = {}) {
     pending = [];
   });
   window.once("ready-to-show", () => window.showInactive());
+  window.on("close", (event) => {
+    if (allowClose || sidebarWindow !== window) return;
+    event.preventDefault();
+    window.hide();
+  });
   window.on("closed", () => {
     if (sidebarWindow !== window) return;
     sidebarWindow = null;
     ready = false;
     pending = [];
-    const callback = onClosedCallback;
-    onClosedCallback = null;
-    if (callback) callback();
   });
   window.loadFile(LIVE_SIDEBAR_PAGE);
   return window;
+}
+
+function liveSidebarAvailable() {
+  return Boolean(sidebarWindow && !sidebarWindow.isDestroyed());
+}
+
+// User-triggered from the menu, so it may take focus.
+function showLiveSidebar() {
+  if (!liveSidebarAvailable()) return false;
+  sidebarWindow.show();
+  sidebarWindow.focus();
+  return true;
+}
+
+function destroyLiveSidebar() {
+  if (!liveSidebarAvailable()) return;
+  allowClose = true;
+  sidebarWindow.close();
 }
 
 module.exports = {
   LIVE_EVENT_CHANNEL,
   LIVE_SIDEBAR_PAGE,
   createLiveSidebarWindow,
+  destroyLiveSidebar,
+  liveSidebarAvailable,
   publishLiveEvent,
+  showLiveSidebar,
 };

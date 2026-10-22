@@ -30,7 +30,16 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 - Speaker corrections keep the old label on append-only surfaces (people
   timelines, action-item table) and on external tasks sent before the
   correction.
-- Live captions are display only and use microphone audio.
+- Live captions are display only and use the microphone only. Providers
+  without a live adapter (Other online API key) have no live captions.
+- Local only setup is not available in this build.
+- The system audio permission cannot be checked before recording; a missing
+  permission shows up as silent participants and a notification.
+- The command-line tools find the app only in `/Applications` or
+  `~/Applications`. Terminal commands that call a provider need the API key in
+  the environment, because the app's saved key is not readable outside it.
+- The Keychain item name for the encryption key comes from Electron and has not
+  been checked on every build; search Keychain Access for "Safe Storage".
 - API keys are not part of backups and must be re-entered after a restore.
 - First-run setup, uninstall, and Zoom and Google Meet automatic recording are
   checked by hand on a second Mac. There is no automated end-to-end coverage

@@ -13,6 +13,15 @@ workplace, or the platform requires. Read [PRIVACY.md](../../PRIVACY.md).
    optionally enter a title. The panel also shows capture permissions, where
    audio is processed, the length limit, and live caption readiness. Nothing is
    recorded until you confirm.
+
+   **Start recording** is disabled, with a button to fix it, when:
+   - setup is not finished (**Open setup**), or
+   - microphone access is denied or restricted (**Open Microphone
+     settings**).
+
+   macOS does not let Meeting Wiki check the system audio permission in
+   advance, so the panel never says it is ready. **Open System Audio
+   settings** opens the right pane if participants were silent before.
 3. While recording, the menu shows elapsed time against the limit.
 4. Finish with one of:
    - **Stop and process** (Cmd+Shift+0): saves the audio and queues it for
@@ -51,6 +60,21 @@ off until you enable them.
 - There is no countdown. The tray icon switches to the recording icon and a
   "Recording started" notification appears.
 - A meeting that ends within 10 seconds is discarded, not processed.
+- Automatic recording uses the same setup check as the record panel. It does
+  not start while setup is unfinished.
+
+**Where automatic recordings go.** Choose one option in Settings:
+
+| Option | Result |
+|---|---|
+| **Private** (default for new installs) | Always private. |
+| **Follow my calendar** | Shared only when a calendar event matches the recording start and the calendar does not mark it private. No calendar, or no matching event, means private. The decision is made once, before any wiki write, and kept on retries. |
+| **Shared wiki** | Shared unless the calendar or the title marks the meeting private. This is how earlier versions behaved. |
+
+If you already had automatic recording turned on before this setting existed,
+Meeting Wiki keeps the earlier behavior (shared) and Settings shows a notice
+until you choose an option and save. Your earlier choice is never changed for
+you.
 
 **Zoom app.** Every 3 seconds Meeting Wiki checks, on this Mac only, whether
 the Zoom app is running, has meeting audio connections open, or is keeping the

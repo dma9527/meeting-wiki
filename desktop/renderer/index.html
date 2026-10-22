@@ -120,6 +120,11 @@
             </div>
             <button id="recovery-retry-all" class="primary" type="button" data-recovery-action>Retry all</button>
           </div>
+          <p id="recovery-updated" class="explainer recovery-updated" role="status" aria-live="polite">Not loaded yet.</p>
+          <div id="recovery-error" class="recovery-error" role="alert" hidden>
+            <p id="recovery-error-text"></p>
+            <button id="recovery-error-retry" type="button">Retry</button>
+          </div>
           <div id="recovery-list" class="list" aria-live="polite"></div>
           <section class="dismissed-section" aria-labelledby="dismissed-heading">
             <h3 id="dismissed-heading">Dismissed jobs</h3>

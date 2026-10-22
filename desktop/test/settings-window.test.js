@@ -616,7 +616,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
   await exposed.api.saveRecordingSettings({ maxDurationMinutes: { nested: 1 } });
   await exposed.api.rerunSetup({ provider: "x" });
   await exposed.api.getIntegrationSettings("ignored");
-  await exposed.api.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: "yes", path: "/etc/passwd" });
+  await exposed.api.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: "yes", path: "/etc/passwd", autoRecordPrivacy: "public" });
   await exposed.api.showMeetExtension("/etc");
   assert.equal(invocations[3].args[0].aliases.length, 64);
   invocations.splice(3, 1);
@@ -631,7 +631,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
     { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: "" }] },
     { channel: settings.CHANNELS.rerunSetup, args: [] },
     { channel: settings.CHANNELS.getIntegrationSettings, args: [] },
-    { channel: settings.CHANNELS.saveIntegrationSettings, args: [{ zoomAutoRecord: true, googleMeetAutoRecord: false }] },
+    { channel: settings.CHANNELS.saveIntegrationSettings, args: [{ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "" }] },
     { channel: settings.CHANNELS.showMeetExtension, args: [] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "settings-preload.js"), "utf8");

@@ -73,6 +73,7 @@ def meeting_from_args(args) -> MeetingInput:
         occurred_at=occurred_at or parse_time(None),
         occurred_at_explicit=bool(args.occurred_at),
         recording_started_at=recording_started_at,
+        require_calendar_match=getattr(args, "require_calendar_match", False),
         speaker_corrections=parse_speaker_corrections(args.speaker),
         notes=args.notes or "",
     )
@@ -120,6 +121,40 @@ def doctor(config_path: Path) -> int:
     return 1 if failed else 0
 
 
+_LABEL_MAX = 80
+_JOB_TYPE_LABELS = {"notify": "Notification", "mirror": "Storage mirror"}
+
+
+def _payload_time(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.isoformat() if parsed.tzinfo is not None else None
+
+
+def _job_identity(job) -> tuple[str, str | None]:
+    """Privacy-safe label and capture time. A title appears only once it is frozen shared."""
+    if job.job_type.value in _JOB_TYPE_LABELS:
+        return _JOB_TYPE_LABELS[job.job_type.value], None
+    payload = job.payload if isinstance(job.payload, dict) else {}
+    captured_at = _payload_time(payload.get("recording_started_at"))
+    if captured_at is None and payload.get("occurred_at_explicit") is True:
+        captured_at = _payload_time(payload.get("occurred_at"))
+    if payload.get("private") is not False:
+        return "Private recording", captured_at
+    title = payload.get("title")
+    if payload.get("classification_frozen") is True and isinstance(title, str):
+        cleaned = " ".join("".join(c if c.isprintable() else " " for c in title).split())
+        if cleaned:
+            return cleaned[:_LABEL_MAX], captured_at
+    if payload.get("transcript_path"):
+        return "Imported transcript", captured_at
+    return "Recording", captured_at
+
+
 def redacted_job_record(job) -> dict[str, object]:
     """Return a UI-safe job record without payloads or raw provider error text."""
     diagnostic = decode_diagnostic(job.last_error)
@@ -129,6 +164,7 @@ def redacted_job_record(job) -> dict[str, object]:
         error_type = value if isinstance(value, str) else None
     elif job.last_error:
         error_type = safe_identifier(job.last_error.split(":", 1)[0])
+    label, captured_at = _job_identity(job)
     record: dict[str, object] = {
         "id": job.id,
         "job_type": job.job_type.value,
@@ -137,6 +173,8 @@ def redacted_job_record(job) -> dict[str, object]:
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,
         "error_type": error_type,
+        "label": label,
+        "captured_at": captured_at,
     }
     if diagnostic:
         record["diagnostic"] = diagnostic
@@ -330,7 +368,7 @@ def delete_preview_command(config, args) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -359,6 +397,11 @@ def main(argv: list[str] | None = None) -> int:
     ingest.add_argument(
         "--recording-started-at",
         help="ISO 8601 capture start; anchors calendar matching",
+    )
+    ingest.add_argument(
+        "--require-calendar-match",
+        action="store_true",
+        help="Keep the meeting private unless a calendar event matches the capture start",
     )
     ingest.add_argument("--notes")
     ingest.add_argument("--now", action="store_true", help="Process immediately")
@@ -491,8 +534,11 @@ def main(argv: list[str] | None = None) -> int:
         "retention-plan",
         help="Report what configured retention rules would remove; deletes nothing",
     )
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if args.command in {"backup-verify", "backup-restore"}:
         return backup_command(args)
     if args.command == "init":

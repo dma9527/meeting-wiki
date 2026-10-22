@@ -213,6 +213,23 @@ body {
   overflow-wrap: anywhere;
 }
 
+.recovery-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+  padding: 10px 14px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+
+.recovery-error[hidden] {
+  display: none;
+}
+
 .explainer,
 .list-empty {
   color: var(--muted);

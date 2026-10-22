@@ -11,6 +11,8 @@ or usage data.
    in Settings, when you join a meeting. Both are off by default. See
    [docs/integrations.md](docs/integrations.md) for exactly what each
    integration inspects; neither reads meeting content or opens a network port.
+   Automatic recordings are private by default on new installs; Settings can
+   change this to follow your calendar or to the shared wiki.
 2. The configured transcription provider processes the audio.
 3. The configured LLM provider receives the transcript and returns structured
    meeting facts.

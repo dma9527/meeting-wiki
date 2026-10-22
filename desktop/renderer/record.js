@@ -4,9 +4,11 @@
 // window.meetingWikiRecord and writes every dynamic value with textContent.
 //
 // Expected bridge (implemented by record-preload.js):
-//   getContext() -> { maxDurationMinutes, microphone, systemAudio, destination, host, live, liveScope, recording } | { error }
+//   getContext() -> { blockers, maxDurationMinutes, microphone, systemAudio, destination, host, live, liveStarts, liveScope, recording } | { error }
 //   start({ title, private }) -> { ok: true } | { error }
 //   cancel() -> { ok: true }
+//   openSetup() -> { ok: true }
+//   openPrivacySettings("microphone" | "systemAudio") -> { ok: true } | { error }
 
 (function recordPanel() {
   const bridge = window.meetingWikiRecord;
@@ -23,13 +25,21 @@
     unknown: "status not reported",
   };
 
+  const MIC_ONLY = "Live captions use your microphone only, so other participants do not appear in them.";
   const LIVE = {
-    ready: "Live captions start with the recording. They are display-only and never change saved notes.",
-    no_adapter: "Not available with this provider. The recording is still processed after you stop.",
+    ready: `Live captions start with the recording. ${MIC_ONLY} They are display-only and never change saved notes.`,
+    no_adapter: "Not available with this provider, so no live window opens. The recording is still processed after you stop.",
     engine_missing: "Unavailable because the Meeting Wiki engine is missing. Reinstall the app.",
     key_unavailable: "Unavailable because the API key could not be read. Run setup again. The audio is still saved.",
-    manual: "Start if your hand-edited configuration supports them.",
+    manual: `A live window opens only if your hand-edited configuration supports live captions. ${MIC_ONLY}`,
   };
+
+  const BLOCKERS = {
+    setup_incomplete: "Setup is not finished, so recording cannot start. Open setup to choose a provider.",
+    microphone_blocked: "Microphone access is blocked, so recording cannot start. Allow Meeting Wiki in System Settings, Privacy & Security, Microphone, then reopen this window.",
+  };
+
+  const SYSTEM_AUDIO_NOTE = "Other participants are captured from system audio. macOS controls this with the System Audio Recording permission, which Meeting Wiki cannot check in advance. If participants were silent in an earlier recording, allow Meeting Wiki there.";
 
   async function call(method, ...args) {
     if (!bridge || typeof bridge[method] !== "function") {
@@ -70,13 +80,20 @@
 
   function render() {
     if (!context) return;
-    const blocked = context.microphone === "denied" || context.microphone === "restricted";
-    const silent = context.systemAudio === "denied" || context.systemAudio === "restricted";
-    const capture = [
-      `${permissionPart("Your microphone", context.microphone)} and ${permissionPart("system audio from the other participants", context.systemAudio)}.`,
-    ];
-    if (silent) capture.push("Remote participants will be silent.");
-    setLine("record-capture", capture.join(" "), blocked || silent);
+    const blockers = Array.isArray(context.blockers) ? context.blockers.filter((code) => Object.prototype.hasOwnProperty.call(BLOCKERS, code)) : [];
+    const blocked = blockers.length > 0 || !Array.isArray(context.blockers);
+    const micBlocked = blockers.includes("microphone_blocked");
+    setLine(
+      "record-capture",
+      `${permissionPart("Your microphone", context.microphone)} and system audio from the other participants.`,
+      micBlocked,
+    );
+    setLine("record-system-audio", SYSTEM_AUDIO_NOTE, false);
+    $("record-blockers-text").textContent = blockers.map((code) => BLOCKERS[code]).join(" ")
+      || (blocked ? BLOCKERS.setup_incomplete : "");
+    $("record-blockers").hidden = !blocked;
+    $("record-open-setup").hidden = !(blockers.includes("setup_incomplete") || (blocked && blockers.length === 0));
+    $("record-open-microphone").hidden = !micBlocked;
 
     const where = destinationName(context);
     const notes = isPrivate() ? "Private notes stay in the private folder on this Mac." : "Notes go to your shared wiki on this Mac.";
@@ -105,7 +122,7 @@
       start.disabled = true;
       setStatus("A recording is already running. Stop it from the menu bar first.", "error");
     } else {
-      start.disabled = false;
+      start.disabled = blocked;
     }
   }
 
@@ -126,7 +143,7 @@
 
   async function onStart(event) {
     event.preventDefault();
-    if (busy || !context || context.recording) return;
+    if (busy || !context || context.recording || $("record-start").disabled) return;
     const title = $("record-title").value.replace(/\s+/gu, " ").trim();
     if ([...title].length > TITLE_MAX) {
       showTitleError(`Keep the title to ${TITLE_MAX} characters or fewer.`);
@@ -152,6 +169,13 @@
     if (!bridge) $("bridge-missing").hidden = false;
     $("record-form").addEventListener("submit", onStart);
     $("record-cancel").addEventListener("click", () => { void call("cancel"); });
+    const open = async (method, ...args) => {
+      const message = errorOf(await call(method, ...args));
+      if (message) setStatus(message, "error");
+    };
+    $("record-open-setup").addEventListener("click", () => { void open("openSetup"); });
+    $("record-open-microphone").addEventListener("click", () => { void open("openPrivacySettings", "microphone"); });
+    $("record-open-system-audio").addEventListener("click", () => { void open("openPrivacySettings", "systemAudio"); });
     for (const radio of document.querySelectorAll('input[name="privacy"]')) radio.addEventListener("change", render);
     $("record-title").addEventListener("input", () => showTitleError(""));
     document.addEventListener("keydown", (event) => {

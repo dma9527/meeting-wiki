@@ -308,9 +308,13 @@ body {
   background: var(--cable-soft);
 }
 
-.path-card:has(#mode-local:checked) {
-  border-color: var(--moss);
-  background: var(--moss-soft);
+.path-card-unavailable {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.path-card-unavailable:hover {
+  border-color: var(--rule);
 }
 
 .path-card:has(input:focus-visible) {

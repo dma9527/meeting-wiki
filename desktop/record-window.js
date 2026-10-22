@@ -13,6 +13,19 @@ const CHANNELS = Object.freeze({
   getContext: "record:getContext",
   start: "record:start",
   cancel: "record:cancel",
+  openSetup: "record:openSetup",
+  openPrivacySettings: "record:openPrivacySettings",
+});
+
+// Fixed System Settings panes. Electron cannot read the Core Audio tap permission that
+// system audio capture uses, so the panel links to the pane instead of reporting a status.
+const PRIVACY_PANES = Object.freeze({
+  microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+  systemAudio: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+});
+const BLOCKER_MESSAGES = Object.freeze({
+  setup_incomplete: "Finish setup before recording.",
+  microphone_blocked: "Microphone access is blocked. Allow it in System Settings, then try again.",
 });
 
 const TITLE_MAX = 200;
@@ -39,7 +52,7 @@ function hostOf(url) {
 }
 
 // Pure: every field is a code, a number, or the host the user configured.
-function buildRecordContext({ setupState, configText, pythonAvailable, keyAvailable, maxDurationMinutes, microphone, systemAudio, recording }) {
+function buildRecordContext({ setupComplete, configText, pythonAvailable, keyAvailable, maxDurationMinutes, microphone, recording }) {
   const tables = parseManagedConfig(configText);
   const providers = (tables && tables.providers) || {};
   let destination = "manual";
@@ -57,14 +70,21 @@ function buildRecordContext({ setupState, configText, pythonAvailable, keyAvaila
   const liveProvider = providers.live_transcription;
   const liveHost = hostOf((tables && tables.openai_compatible && tables.openai_compatible.base_url) || "");
   const external = liveProvider === "gemini" || (liveProvider === "openai_compatible" && !LOOPBACK_HOSTS.has(liveHost.replace(/:\d+$/, "")));
+  const microphoneStatus = mediaStatus(microphone);
+  const blockers = [];
+  if (setupComplete !== true) blockers.push("setup_incomplete");
+  if (microphoneStatus === "denied" || microphoneStatus === "restricted") blockers.push("microphone_blocked");
   return {
-    setupComplete: Boolean(setupState),
+    setupComplete: setupComplete === true,
+    blockers,
     maxDurationMinutes,
-    microphone: mediaStatus(microphone),
-    systemAudio: mediaStatus(systemAudio),
+    microphone: microphoneStatus,
+    systemAudio: "not_checkable",
     destination,
     host,
     live,
+    // A hand-edited config may still have an adapter; the live child reports if it does not.
+    liveStarts: live === "ready" || live === "manual",
     liveScope: !tables ? "unknown" : external ? "external" : "local",
     recording: recording === true,
   };
@@ -81,7 +101,7 @@ function validateStartRequest(raw) {
   return { title, isPrivate: source.private === true };
 }
 
-function createRecordController({ getContext, onStart, onCancel = () => {} }) {
+function createRecordController({ getContext, onStart, onCancel = () => {}, onOpenSetup = () => {}, openExternal = () => {} }) {
   return {
     getContext() {
       return getContext();
@@ -90,11 +110,24 @@ function createRecordController({ getContext, onStart, onCancel = () => {} }) {
       const request = validateStartRequest(raw);
       const context = getContext();
       if (context.recording) throw new RecordError("A recording is already running.");
+      const blockers = Array.isArray(context.blockers) ? context.blockers : ["setup_incomplete"];
+      if (blockers.length > 0) throw new RecordError(BLOCKER_MESSAGES[blockers[0]] || BLOCKER_MESSAGES.setup_incomplete);
       onStart(request);
       return { ok: true };
     },
     cancel() {
       onCancel();
+      return { ok: true };
+    },
+    openSetup() {
+      onOpenSetup();
+      return { ok: true };
+    },
+    openPrivacySettings(kind) {
+      if (typeof kind !== "string" || !Object.prototype.hasOwnProperty.call(PRIVACY_PANES, kind)) {
+        throw new RecordError("That privacy setting cannot be opened.");
+      }
+      openExternal(PRIVACY_PANES[kind]);
       return { ok: true };
     },
   };
@@ -120,6 +153,8 @@ function registerRecordHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.getContext, (controller) => controller.getContext());
   handle(CHANNELS.start, (controller, request) => controller.start(request));
   handle(CHANNELS.cancel, (controller) => controller.cancel());
+  handle(CHANNELS.openSetup, (controller) => controller.openSetup());
+  handle(CHANNELS.openPrivacySettings, (controller, kind) => controller.openPrivacySettings(kind));
 }
 
 let recordWindow = null;
@@ -148,6 +183,13 @@ function createRecordWindow(electron, context) {
       context.onStart(request);
     },
     onCancel: closeRecordWindow,
+    onOpenSetup: () => {
+      closeRecordWindow();
+      if (context.onOpenSetup) context.onOpenSetup();
+    },
+    openExternal: (url) => {
+      if (context.openExternal) context.openExternal(url);
+    },
   });
   if (!handlersRegistered) {
     handlersRegistered = true;
@@ -193,7 +235,9 @@ function createRecordWindow(electron, context) {
 }
 
 module.exports = {
+  BLOCKER_MESSAGES,
   CHANNELS,
+  PRIVACY_PANES,
   RecordError,
   TITLE_MAX,
   buildRecordContext,

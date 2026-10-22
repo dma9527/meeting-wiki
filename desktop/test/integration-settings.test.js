@@ -81,9 +81,10 @@ test("saving keeps the recording limit and unknown keys", () => {
 test("turning Google Meet on pairs before saving, and off unpairs", () => {
   const dir = dataDir();
   const { instance, bridge, changes } = service(dir);
-  assert.deepEqual(instance.save({ zoomAutoRecord: false, googleMeetAutoRecord: true }), { zoomAutoRecord: false, googleMeetAutoRecord: true });
+  const meetOn = instance.save({ zoomAutoRecord: false, googleMeetAutoRecord: true, autoRecordPrivacy: "private" });
+  assert.equal(meetOn.googleMeetAutoRecord, true);
   assert.deepEqual(bridge.calls, ["pair"]);
-  instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: false });
+  instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "private" });
   assert.deepEqual(bridge.calls, ["pair", "unpair"]);
   assert.deepEqual(changes.at(-1), { zoomAutoRecord: true, googleMeetAutoRecord: false });
   assert.deepEqual(readIntegrationSettings(fs, dir), { zoomAutoRecord: true, googleMeetAutoRecord: false });
@@ -92,7 +93,7 @@ test("turning Google Meet on pairs before saving, and off unpairs", () => {
 test("a pairing failure leaves Google Meet off and saves nothing", () => {
   const dir = dataDir();
   const { instance, changes } = service(dir, fakeBridge({ pairError: new MeetPairingError("No supported Chromium browser was found.") }));
-  assert.throws(() => instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: true }), (error) => error instanceof IntegrationError && /No supported/.test(error.message));
+  assert.throws(() => instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: true, autoRecordPrivacy: "private" }), (error) => error instanceof IntegrationError && /No supported/.test(error.message));
   assert.deepEqual(readIntegrationSettings(fs, dir), { zoomAutoRecord: false, googleMeetAutoRecord: false });
   assert.deepEqual(changes, []);
 });
@@ -100,7 +101,7 @@ test("a pairing failure leaves Google Meet off and saves nothing", () => {
 test("readiness reports permissions, Zoom, and every Meet browser", () => {
   const { instance } = service(dataDir());
   const readiness = instance.readiness();
-  assert.deepEqual(readiness.permissions, { microphone: "granted", systemAudio: "denied" });
+  assert.deepEqual(readiness.permissions, { microphone: "granted", systemAudio: "not_checkable" });
   assert.equal(readiness.zoom.detector, "zoom-closed");
   assert.equal(typeof readiness.zoom.appInstalled, "boolean");
   assert.equal(readiness.googleMeet.extensionBundled, true);
@@ -111,16 +112,16 @@ test("readiness reports permissions, Zoom, and every Meet browser", () => {
 test("Settings serves integrations only after setup and returns readiness with each save", () => {
   const notReady = settings.createSettingsController({ fs, dataDir: dataDir(), configPath: "/nonexistent", integrations: service(dataDir()).instance });
   assert.deepEqual(notReady.getIntegrationSettings(), { ready: false, reason: settings.NOT_ONLINE_INTEGRATIONS });
-  assert.throws(() => notReady.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: false }), settings.SettingsError);
+  assert.throws(() => notReady.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "private" }), settings.SettingsError);
 
   const dir = onlineDataDir();
   const controller = settings.createSettingsController({ fs, dataDir: dir, configPath: path.join(dir, "config.toml"), integrations: service(dir).instance });
   const current = controller.getIntegrationSettings();
   assert.equal(current.ready, true);
-  assert.deepEqual(current.values, { zoomAutoRecord: false, googleMeetAutoRecord: false });
-  const saved = controller.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: false });
+  assert.deepEqual(current.values, { zoomAutoRecord: false, googleMeetAutoRecord: false, autoRecordPrivacy: "private", autoRecordPrivacyChoiceNeeded: false });
+  const saved = controller.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "calendar" });
   assert.equal(saved.ok, true);
-  assert.deepEqual(saved.values, { zoomAutoRecord: true, googleMeetAutoRecord: false });
+  assert.deepEqual(saved.values, { zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "calendar", autoRecordPrivacyChoiceNeeded: false });
   assert.ok(saved.readiness.zoom);
   assert.throws(() => controller.saveIntegrationSettings({ zoomAutoRecord: 1 }), /Choose on or off/);
 
@@ -145,4 +146,75 @@ test("the Settings panel explains boundaries and shows no countdown", () => {
   assert.match(html, /cannot read captions, transcripts,\s+chat, participants, or browsing history/);
   assert.match(html, /<input id="zoom-auto-record" name="zoomAutoRecord" type="checkbox"/);
   assert.doesNotMatch(html, /id="(zoom|google-meet)-auto-record"[^>]*checked/);
+});
+
+const { AUTO_RECORD_PRIVACY, autoRecordStartOptions, readAutoRecordPrivacy } = require("../integration-settings");
+
+test("automatic recordings default to private on a new install", () => {
+  const dir = dataDir();
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "private", choiceNeeded: false });
+  fs.writeFileSync(path.join(dir, "desktop-settings.json"), JSON.stringify({ integrations: { zoom: { auto_record: false } } }));
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "private", choiceNeeded: false });
+  assert.deepEqual([...AUTO_RECORD_PRIVACY], ["private", "calendar", "shared"]);
+});
+
+test("an existing install that already auto-records keeps shared until the user chooses", () => {
+  const dir = dataDir();
+  fs.writeFileSync(path.join(dir, "desktop-settings.json"), JSON.stringify({ integrations: { google_meet: { auto_record: true } } }));
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "shared", choiceNeeded: true });
+  fs.writeFileSync(path.join(dir, "desktop-settings.json"), JSON.stringify({ integrations: { google_meet: { auto_record: true }, auto_record_privacy: "bogus" } }));
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "shared", choiceNeeded: true });
+  fs.writeFileSync(path.join(dir, "desktop-settings.json"), "not json");
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "private", choiceNeeded: false });
+});
+
+test("a saved choice is kept exactly and never silently changed", () => {
+  const dir = dataDir();
+  saveIntegrationSettings(fs, dir, { zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "calendar" }, atomicWriteFile);
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "calendar", choiceNeeded: false });
+  saveIntegrationSettings(fs, dir, { zoomAutoRecord: false, googleMeetAutoRecord: false }, atomicWriteFile);
+  assert.deepEqual(readAutoRecordPrivacy(fs, dir), { mode: "calendar", choiceNeeded: false });
+  assert.throws(
+    () => saveIntegrationSettings(fs, dir, { zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "public" }, atomicWriteFile),
+    /Choose private, calendar, or shared/,
+  );
+  assert.equal(readAutoRecordPrivacy(fs, dir).mode, "calendar");
+});
+
+test("each privacy mode maps to fixed start options", () => {
+  assert.deepEqual(autoRecordStartOptions("private"), { isPrivate: true, requireCalendarMatch: false });
+  assert.deepEqual(autoRecordStartOptions("calendar"), { isPrivate: false, requireCalendarMatch: true });
+  assert.deepEqual(autoRecordStartOptions("shared"), { isPrivate: false, requireCalendarMatch: false });
+  assert.deepEqual(autoRecordStartOptions("anything else"), { isPrivate: true, requireCalendarMatch: false });
+});
+
+test("the service requires a privacy choice and reports it with the values", () => {
+  const dir = dataDir();
+  const { instance } = service(dir);
+  assert.deepEqual(instance.readValues(), {
+    zoomAutoRecord: false, googleMeetAutoRecord: false, autoRecordPrivacy: "private", autoRecordPrivacyChoiceNeeded: false,
+  });
+  assert.throws(() => instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: false }), (error) => error instanceof IntegrationError && /Choose private, calendar, or shared/.test(error.message));
+  assert.deepEqual(
+    instance.save({ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "shared" }),
+    { zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "shared", autoRecordPrivacyChoiceNeeded: false },
+  );
+});
+
+test("readiness never reports system audio from the screen recording status", () => {
+  const { instance } = service(dataDir());
+  assert.equal(instance.readiness().permissions.systemAudio, "not_checkable");
+  const js = fs.readFileSync(path.join(__dirname, "..", "renderer", "settings.js"), "utf8");
+  assert.doesNotMatch(js, /accessLine\("Screen & System Audio Recording"/);
+});
+
+test("the Settings panel offers the three privacy choices with no default checked in markup", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "renderer", "settings.html"), "utf8");
+  for (const mode of ["private", "calendar", "shared"]) {
+    assert.match(html, new RegExp(`<input type="radio" id="auto-record-privacy-${mode}" name="autoRecordPrivacy" value="${mode}"`));
+  }
+  assert.doesNotMatch(html, /name="autoRecordPrivacy"[^>]*checked/);
+  assert.match(html, /id="auto-record-privacy-notice"[^>]*hidden/);
+  const js = fs.readFileSync(path.join(__dirname, "..", "renderer", "settings.js"), "utf8");
+  assert.match(js, /autoRecordPrivacyChoiceNeeded/);
 });

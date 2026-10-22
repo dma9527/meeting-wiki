@@ -166,12 +166,12 @@ function captureManifestPath(audioPath) {
   return audioPath.replace(/\.wav$/i, "") + ".capture.json";
 }
 
-function buildCaptureManifest(files, { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt = null }) {
+function buildCaptureManifest(files, { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt = null, requireCalendarMatch = false }) {
   if (typeof isPrivate !== "boolean") throw new Error("capture manifest requires an explicit privacy choice");
   if (typeof recordingStartedAt !== "string" || Number.isNaN(Date.parse(recordingStartedAt))) {
     throw new Error("capture manifest requires a valid recording start time");
   }
-  return {
+  const manifest = {
     version: 1,
     audio_path: files.audioPath,
     mic_audio_path: files.micAudioPath || null,
@@ -182,6 +182,9 @@ function buildCaptureManifest(files, { title, titleExplicit, isPrivate, recordin
     recording_started_at: recordingStartedAt,
     occurred_at: occurredAt || null,
   };
+  // Calendar-mode automatic recordings: no matching calendar event means private.
+  if (requireCalendarMatch === true) manifest.require_calendar_match = true;
+  return manifest;
 }
 
 module.exports = { AudioCapture, buildCaptureManifest, captureManifestPath, isSilentPcmFile, rawToWavArgs, recArgs };

@@ -21,13 +21,26 @@ test("setup.html enforces a self-only CSP and loads only local assets", () => {
   assert.doesNotMatch(html, /<script>|\sstyle="|\son[a-z]+="/, "setup.html has inline script or style");
 });
 
-test("setup.html offers both paths and a data-boundary panel", () => {
+test("setup.html offers both online paths and a data-boundary panel", () => {
   const html = read("setup.html");
   assert.match(html, /id="mode-online"[^>]*value="online"/);
-  assert.match(html, /id="mode-local"[^>]*value="local"/);
   assert.match(html, /id="online-base-url"/);
   assert.match(html, /id="online-api-key"[^>]*type="password"/);
   assert.match(html, /<aside class="boundary"/);
+});
+
+test("Local only is shown as unavailable and can never be selected", () => {
+  const html = read("setup.html");
+  const card = html.match(/<label class="path-card path-card-unavailable"[^]*?<\/label>/);
+  assert.ok(card, "Local only card is missing its unavailable state");
+  assert.match(card[0], /id="mode-local"[^>]*value="local"[^>]*disabled/);
+  assert.match(card[0], /aria-disabled="true"/);
+  assert.match(card[0], /Not available in this build/);
+  const js = read("setup.js");
+  assert.match(js, /const SELECTABLE_MODES = new Set\(\["gemini", "online"\]\);/);
+  assert.match(js, /if \(!mode \|\| !SELECTABLE_MODES\.has\(mode\)\)/);
+  assert.match(js, /Choose Gemini or Other online API key to continue\./);
+  assert.doesNotMatch(js, /Gemini, Other online API key, or Local only/);
 });
 
 test("setup.js uses only the setup bridge and never parses markup", () => {

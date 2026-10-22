@@ -66,8 +66,12 @@ Open blockers are tracked in `docs/known-issues.md`.
 - [ ] Settings shows the Google Meet extension as bundled, and the Claude
       skill installs from the packaged app.
 - [ ] Deleting the app leaves `~/.meeting-wiki` in place (data is retained).
-      Uninstall and data-removal steps are not documented yet; add them to
-      `docs/install-macos.md` before the first public release.
+      The uninstall steps in `docs/guide/installation.md` (app, `~/.local/bin`
+      shims, Meet host manifests, Keychain "Safe Storage" item) remove what
+      they describe.
+- [ ] **Install command-line tools...** creates both shims, and
+      `meeting-wiki status --summary` works from a new Terminal after adding
+      `~/.local/bin` to `PATH`.
 
 ## 7. Publication
 

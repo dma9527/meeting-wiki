@@ -36,11 +36,15 @@ function pickRecordingSettings(settings) {
   return { maxDurationMinutes: typeof minutes === "number" || typeof minutes === "string" ? minutes : "" };
 }
 
+const AUTO_RECORD_PRIVACY = new Set(["private", "calendar", "shared"]);
+
 function pickIntegrationSettings(settings) {
   const source = settings && typeof settings === "object" ? settings : {};
   return {
     zoomAutoRecord: source.zoomAutoRecord === true,
     googleMeetAutoRecord: source.googleMeetAutoRecord === true,
+    // An unknown value is forwarded as "" so main rejects it instead of guessing.
+    autoRecordPrivacy: AUTO_RECORD_PRIVACY.has(source.autoRecordPrivacy) ? source.autoRecordPrivacy : "",
   };
 }
 

@@ -52,7 +52,13 @@ meeting-wiki ingest --audio meeting.wav --title "Weekly standup"
 meeting-wiki worker
 ```
 
-Use `--private` on `ingest` for a private meeting. Wiki output appears under
+Use `--private` on `ingest` for a private meeting. `--require-calendar-match`
+keeps the meeting private unless a calendar event matches the capture start;
+the app uses it for automatic recordings in **Follow my calendar** mode.
+
+On a packaged install, **Install command-line tools...** in the menu bar adds
+`meeting-wiki` and `meeting-wiki-mcp` to `~/.local/bin`; see
+[installation](../guide/installation.md#command-line-tools-and-mcp). Wiki output appears under
 `~/.meeting-wiki/wiki/`. Private meetings are stored under
 `~/.meeting-wiki/private/` and are not visible through MCP.
 

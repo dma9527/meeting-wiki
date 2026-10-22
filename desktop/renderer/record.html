@@ -46,10 +46,23 @@
           </label>
         </fieldset>
 
+        <div id="record-blockers" class="notice notice-error" role="alert" hidden>
+          <p id="record-blockers-text"></p>
+          <div class="actions">
+            <button type="button" class="button button-secondary" id="record-open-setup" hidden>Open setup</button>
+            <button type="button" class="button button-secondary" id="record-open-microphone" hidden>Open Microphone settings</button>
+          </div>
+        </div>
+
         <h2 class="subhead" id="record-details-heading">Before you start</h2>
         <dl id="record-details" class="summary" aria-labelledby="record-details-heading" aria-busy="true">
           <dt>Capture</dt>
           <dd id="record-capture">Checking.</dd>
+          <dt>System audio</dt>
+          <dd>
+            <span id="record-system-audio">Checking.</span>
+            <button type="button" class="button button-quiet" id="record-open-system-audio">Open System Audio settings</button>
+          </dd>
           <dt>Processing</dt>
           <dd id="record-processing">Checking.</dd>
           <dt>Length limit</dt>

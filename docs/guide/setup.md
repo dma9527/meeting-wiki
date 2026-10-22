@@ -11,7 +11,10 @@ later from the menu bar with **Run setup...**.
 |---|---|---|
 | **Gemini, recommended** | Your Google Gemini API key for transcription, live captions, translation, and summaries | Audio and transcript text are sent to Google |
 | **Other online API key** | An OpenAI-compatible endpoint, a transcription model, and a summary and translation model | Audio and transcript text are sent to the endpoint you enter |
-| **Local only** | Models downloaded to this Mac | Stays on the Mac; works offline once models are installed, needs disk space |
+| **Local only** (not available in this build) | Shown but cannot be selected. Setup cannot install local models yet | Not applicable |
+
+Local only appears in the list so you know it is planned, but it is disabled
+because setup cannot finish it yet. Choose Gemini or Other online API key.
 
 For an online path you must acknowledge the data-egress notice before the
 provider check runs. The wizard shows a data boundary summary of what leaves
@@ -19,7 +22,11 @@ the Mac.
 
 ## API key handling
 
-- The key is encrypted through macOS Keychain facilities.
+- The key is encrypted with Electron safeStorage. The ciphertext is saved in
+  `secrets.json` inside your storage folder (default `~/.meeting-wiki/`, file
+  mode 0600). The encryption key that unlocks it is kept in the macOS
+  Keychain, in an item named after the app (normally "Meeting Wiki Safe
+  Storage"). Neither file nor Keychain item alone reveals the API key.
 - It is never written to `config.toml` or to application logs.
 - **Show key** reveals it and hides it again after 20 seconds. **Paste** puts
   clipboard text only into the masked field; pasted text is never logged.
@@ -30,6 +37,12 @@ Grant **Microphone** and **Screen & System Audio Recording** when macOS asks
 (System Settings, Privacy & Security). Quit and reopen Meeting Wiki after
 granting system audio. Then run the connection test and make a short test
 recording.
+
+Meeting Wiki can read the microphone permission, and the record panel blocks
+Start while it is denied. It cannot read the system audio permission in
+advance, so the panel and Settings never report it as ready. If other
+participants are silent in a test recording, use **Open System Audio
+settings** in the record panel and allow Meeting Wiki.
 
 ## Changing providers
 
@@ -51,7 +64,8 @@ Running setup again is transactional:
 - Live translation language (a code such as `zh` or a name such as Japanese)
   and summary context size.
 - Maximum recording length.
-- Automatic recording for Zoom and Google Meet.
+- Automatic recording for Zoom and Google Meet, and where those recordings go
+  (private, follow my calendar, or shared).
 
 Settings never change a hand-edited `config.toml`. Use **Run setup again** to
 change the API key or switch provider.

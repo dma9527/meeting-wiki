@@ -67,6 +67,19 @@ function safeDiagnostic(value) {
   return diagnostic;
 }
 
+// The CLI already withholds private and unclassified titles; this only enforces shape.
+const LABEL_MAX = 80;
+function safeLabel(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > LABEL_MAX) return "Recording";
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value) ? "Recording" : value;
+}
+
+function safeTimestamp(value) {
+  if (typeof value !== "string" || value.length > 40) return null;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)$/.test(value)) return null;
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
 function safeJobRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !Number.isInteger(value.id) || value.id < 1
@@ -83,6 +96,8 @@ function safeJobRecord(value) {
     attempts: value.attempts,
     max_attempts: value.max_attempts,
     error_type: safeIdentifier(value.error_type) ? value.error_type : null,
+    label: safeLabel(value.label),
+    captured_at: safeTimestamp(value.captured_at),
   };
   const diagnostic = safeDiagnostic(value.diagnostic);
   if (diagnostic) job.diagnostic = diagnostic;

@@ -153,7 +153,7 @@ test("Settings never receives the secret store, restarts processing on save, and
 test("live view starts after capture succeeds and cannot break recording", () => {
   const start = functionBody("startRecording");
   const captureAt = start.indexOf("capture.start(timestamp())");
-  const liveAt = start.indexOf("startLiveSession(capture.active.micPath, isPrivate)");
+  const liveAt = start.indexOf("startLiveSession(capture.active.micPath, isPrivate, liveDecision)");
   assert.ok(captureAt >= 0 && liveAt > captureAt, "live view must start only after capture starts");
   const live = functionBody("startLiveSession");
   assert.match(live, /if \(!pythonAvailable\(\) \|\| !micPath\) return;/);
@@ -198,7 +198,7 @@ test("quit saves and queues an active recording instead of discarding it", () =>
   const willQuit = source.slice(source.indexOf('app.on("will-quit"'), source.indexOf('app.on("window-all-closed"'));
   assert.doesNotMatch(willQuit, /capture\.discard|discardRecording/);
   const beforeQuit = source.slice(source.indexOf('app.on("before-quit"'), source.indexOf('app.on("will-quit"'));
-  assert.match(beforeQuit, /if \(quitPrepared \|\| \(recordingSession\.idle && ingests\.size === 0\)\) return;\s*event\.preventDefault\(\);\s*if \(quitRequested\) return;/);
+  assert.match(beforeQuit, /if \(quitPrepared \|\| \(recordingSession\.idle && ingests\.size === 0\)\) \{[^}]*destroyLiveSidebar\(\);\s*return;\s*\}\s*event\.preventDefault\(\);\s*if \(quitRequested\) return;/);
   assert.match(beforeQuit, /notify\(QUIT_NOTICE\.title, QUIT_NOTICE\.body\)/);
   const prepare = functionBody("prepareQuit");
   const stopAt = prepare.indexOf('await stopRecording("quit");');
@@ -220,4 +220,28 @@ test("the tray self-check shows only formatted fixed text and never doctor outpu
   assert.match(body, /await dialog\.showMessageBox\(formatSelfCheck\(report\)\);/);
   assert.match(body, /skillStatus: \(\) => claudeSkillStatus\(\)/);
   assert.doesNotMatch(body, /error\.message|stdout|detail:/);
+});
+
+test("tray bulk retry confirms the job count before retrying", () => {
+  const retry = functionBody("retryFailedJobs");
+  const confirmAt = retry.indexOf("dialog.showMessageBox(retryConfirmation(count))");
+  assert.ok(confirmAt >= 0 && retry.indexOf("retryDeadJobs(") > confirmAt, "retry must follow confirmation");
+  assert.match(retry, /if \(choice\.response !== 0\) return;/);
+  assert.match(functionBody("retryConfirmation"), /message: `Retry \$\{count\} failed job/);
+});
+
+test("automatic starts take privacy from the saved mode, manual starts from the panel", () => {
+  const start = functionBody("startRecording");
+  assert.match(start, /const auto = source \? autoRecordStartOptions\(readAutoRecordPrivacy\(fs, DATA_DIR\)\.mode\) : null;/);
+  assert.match(start, /const isPrivate = auto \? auto\.isPrivate : requestedPrivate === true;/);
+  assert.match(start, /capture\.active\.requireCalendarMatch = Boolean\(auto && auto\.requireCalendarMatch\);/);
+  const stop = functionBody("stopRecording");
+  assert.match(stop, /requireCalendarMatch/);
+  assert.match(functionBody("audioIngestArgs"), /if \(requireCalendarMatch\) args\.push\("--require-calendar-match"\);/);
+});
+
+test("a proceeding quit destroys the hide-on-close live sidebar so it cannot cancel the quit", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+  const handler = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf('app.on("will-quit"'));
+  assert.match(handler, /if \(quitPrepared \|\| \(recordingSession\.idle && ingests\.size === 0\)\) \{\s*\/\/[^\n]*\n\s*destroyLiveSidebar\(\);\s*return;/);
 });

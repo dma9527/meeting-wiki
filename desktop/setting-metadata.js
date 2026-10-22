@@ -14,6 +14,8 @@ const APPLIES = Object.freeze({
   nextRecording: "Applies to the next recording you start. A recording in progress keeps its current limit.",
   integration:
     "Applies right away. Turning it off stops watching for meetings but does not stop a recording already in progress.",
+  autoRecordPrivacy:
+    "Applies to the next automatic recording. A recording already in progress keeps the privacy it started with.",
   setupFinish: "Applies when you finish setup after a passing check. Until then your current provider keeps working.",
   manualEdit:
     "Settings never change a hand-edited configuration. Your own edits apply to live captions from the next recording and to processing after you quit and reopen Meeting Wiki.",
@@ -30,6 +32,7 @@ const SETTINGS = Object.freeze({
   maxDurationMinutes: Object.freeze({ form: "recording", applies: "nextRecording" }),
   zoomAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),
   googleMeetAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),
+  autoRecordPrivacy: Object.freeze({ form: "integrations", applies: "autoRecordPrivacy" }),
   provider: Object.freeze({ form: "setup", applies: "setupFinish" }),
   apiKey: Object.freeze({ form: "setup", applies: "setupFinish" }),
 });

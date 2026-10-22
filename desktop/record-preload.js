@@ -1,6 +1,6 @@
 "use strict";
 
-// Recording confirmation bridge. Exposes only getContext, start, and cancel. Channel names
+// Recording confirmation bridge. Exposes only getContext, start, cancel, and two fixed openers. Channel names
 // must match CHANNELS in record-window.js (sandboxed preloads cannot require local modules).
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -15,8 +15,12 @@ function pickStartRequest(request) {
   };
 }
 
+const PRIVACY_KINDS = new Set(["microphone", "systemAudio"]);
+
 contextBridge.exposeInMainWorld("meetingWikiRecord", {
   getContext: () => ipcRenderer.invoke("record:getContext"),
   start: (request) => ipcRenderer.invoke("record:start", pickStartRequest(request)),
   cancel: () => ipcRenderer.invoke("record:cancel"),
+  openSetup: () => ipcRenderer.invoke("record:openSetup"),
+  openPrivacySettings: (kind) => ipcRenderer.invoke("record:openPrivacySettings", PRIVACY_KINDS.has(kind) ? kind : ""),
 });

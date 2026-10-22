@@ -16,12 +16,11 @@ const DESKTOP = path.join(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(DESKTOP, relative), "utf8");
 
 const BASE = Object.freeze({
-  setupState: { completed: true, mode: "online" },
+  setupComplete: true,
   pythonAvailable: true,
   keyAvailable: true,
   maxDurationMinutes: 90,
   microphone: "granted",
-  systemAudio: "granted",
   recording: false,
 });
 
@@ -29,15 +28,87 @@ test("a managed Gemini setup reports external live captions ready", () => {
   const context = record.buildRecordContext({ ...BASE, configText: setup.renderGeminiConfig() });
   assert.deepEqual(context, {
     setupComplete: true,
+    blockers: [],
     maxDurationMinutes: 90,
     microphone: "granted",
-    systemAudio: "granted",
+    systemAudio: "not_checkable",
     destination: "gemini",
     host: "",
     live: "ready",
+    liveStarts: true,
     liveScope: "external",
     recording: false,
   });
+});
+
+test("system audio readiness is never derived from the screen recording status", () => {
+  const context = record.buildRecordContext({ ...BASE, configText: setup.renderGeminiConfig(), systemAudio: "granted" });
+  assert.equal(context.systemAudio, "not_checkable");
+  assert.doesNotMatch(read("main.js"), /systemAudio: systemPreferences\.getMediaAccessStatus\("screen"\)/);
+});
+
+test("incomplete setup and a blocked microphone are blockers", () => {
+  const gemini = setup.renderGeminiConfig();
+  assert.deepEqual(record.buildRecordContext({ ...BASE, configText: gemini, setupComplete: false }).blockers, ["setup_incomplete"]);
+  for (const microphone of ["denied", "restricted"]) {
+    assert.deepEqual(record.buildRecordContext({ ...BASE, configText: gemini, microphone }).blockers, ["microphone_blocked"]);
+  }
+  assert.deepEqual(record.buildRecordContext({ ...BASE, configText: gemini, microphone: "not-determined" }).blockers, []);
+  assert.deepEqual(
+    record.buildRecordContext({ ...BASE, configText: gemini, setupComplete: false, microphone: "denied" }).blockers,
+    ["setup_incomplete", "microphone_blocked"],
+  );
+});
+
+test("the controller refuses to start while a blocker remains", () => {
+  const started = [];
+  const controller = record.createRecordController({
+    getContext: () => ({ recording: false, blockers: ["microphone_blocked"] }),
+    onStart: (request) => started.push(request),
+  });
+  assert.throws(() => controller.start({}), /Microphone access is blocked/);
+  const setupController = record.createRecordController({
+    getContext: () => ({ recording: false, blockers: ["setup_incomplete"] }),
+    onStart: (request) => started.push(request),
+  });
+  assert.throws(() => setupController.start({}), /Finish setup/);
+  assert.equal(started.length, 0);
+});
+
+test("only fixed privacy panes can be opened and setup opens through a callback", () => {
+  const opened = [];
+  let setupOpened = 0;
+  const controller = record.createRecordController({
+    getContext: () => ({ recording: false, blockers: [] }),
+    onStart: () => {},
+    openExternal: (url) => opened.push(url),
+    onOpenSetup: () => { setupOpened += 1; },
+  });
+  controller.openPrivacySettings("microphone");
+  controller.openPrivacySettings("systemAudio");
+  assert.deepEqual(opened, [record.PRIVACY_PANES.microphone, record.PRIVACY_PANES.systemAudio]);
+  for (const bad of ["camera", "x-apple.systempreferences:evil", "", 5, null]) {
+    assert.throws(() => controller.openPrivacySettings(bad), /privacy setting/);
+  }
+  assert.equal(opened.length, 2);
+  for (const url of Object.values(record.PRIVACY_PANES)) {
+    assert.match(url, /^x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_[A-Za-z]+$/);
+  }
+  controller.openSetup();
+  assert.equal(setupOpened, 1);
+});
+
+test("live captions start only for providers with a live adapter", () => {
+  const online = setup.renderOnlineConfig({
+    baseUrl: "https://provider.example.test/v1",
+    transcriptionModel: "test-transcribe",
+    languageModel: "test-language",
+  });
+  assert.equal(record.buildRecordContext({ ...BASE, configText: online }).liveStarts, false);
+  const gemini = setup.renderGeminiConfig();
+  assert.equal(record.buildRecordContext({ ...BASE, configText: gemini, keyAvailable: false }).liveStarts, false);
+  assert.equal(record.buildRecordContext({ ...BASE, configText: gemini, pythonAvailable: false }).liveStarts, false);
+  assert.equal(record.buildRecordContext({ ...BASE, configText: '[providers]\nllm = "ollama"\n' }).liveStarts, true);
 });
 
 test("an OpenAI-compatible setup shows only its host and no live adapter", () => {
@@ -61,9 +132,8 @@ test("engine, key, manual config, permissions, and recording state map to codes"
   assert.equal(manual.live, "manual");
   assert.equal(manual.destination, "manual");
   assert.equal(manual.liveScope, "unknown");
-  const odd = record.buildRecordContext({ ...BASE, configText: null, microphone: "weird", systemAudio: "denied", recording: true });
+  const odd = record.buildRecordContext({ ...BASE, configText: null, microphone: "weird", recording: true });
   assert.equal(odd.microphone, "unknown");
-  assert.equal(odd.systemAudio, "denied");
   assert.equal(odd.recording, true);
 });
 
@@ -82,7 +152,7 @@ test("the controller starts only when idle and passes the validated request", ()
   const started = [];
   let recording = false;
   const controller = record.createRecordController({
-    getContext: () => ({ recording }),
+    getContext: () => ({ recording, blockers: [] }),
     onStart: (request) => started.push(request),
   });
   assert.deepEqual(controller.start({ title: "Design review", private: true, extra: "dropped" }), { ok: true });
@@ -99,6 +169,8 @@ test("IPC rejects other senders and hides unexpected error details", async () =>
     getContext: () => { throw new Error("/Users/test/secret"); },
     start: () => ({ ok: true }),
     cancel: () => ({ ok: true }),
+    openSetup: () => ({ ok: true }),
+    openPrivacySettings: () => ({ ok: true }),
   };
   record.registerRecordHandlers({ handle: (channel, fn) => handlers.set(channel, fn) }, () => controller, (event) => event === trusted);
   assert.deepEqual([...handlers.keys()].sort(), Object.values(record.CHANNELS).sort());
@@ -149,7 +221,7 @@ test("the record window matches setup hardening and closes before capture starts
   const fake = fakeElectron();
   const events = [];
   const win = record.createRecordWindow(fake.electron, {
-    getContext: () => ({ recording: false }),
+    getContext: () => ({ recording: false, blockers: [] }),
     onStart: (request) => events.push(["start", request, win.closed]),
   });
   const { preload: setupPreload, ...setupPrefs } = setupFake.windows[0].options.webPreferences;
@@ -167,7 +239,7 @@ test("the record window matches setup hardening and closes before capture starts
   assert.deepEqual(events, [["start", { title: "Retro", isPrivate: false }, true]]);
 });
 
-test("the record bridge exposes only getContext, start, and cancel with picked fields", async () => {
+test("the record bridge exposes only its fixed actions with picked fields", async () => {
   const invocations = [];
   let exposed;
   const electron = {
@@ -187,14 +259,20 @@ test("the record bridge exposes only getContext, start, and cancel with picked f
     Module._load = originalLoad;
   }
   assert.equal(exposed.name, "meetingWikiRecord");
-  assert.deepEqual(Object.keys(exposed.api).sort(), ["cancel", "getContext", "start"]);
+  assert.deepEqual(Object.keys(exposed.api).sort(), ["cancel", "getContext", "openPrivacySettings", "openSetup", "start"]);
   await exposed.api.getContext("ignored");
   await exposed.api.start({ title: "Sync", private: "true", configPath: "/etc/passwd" });
   await exposed.api.cancel();
+  await exposed.api.openSetup("ignored");
+  await exposed.api.openPrivacySettings("microphone");
+  await exposed.api.openPrivacySettings({ url: "https://evil.test" });
   assert.deepEqual(invocations, [
     { channel: record.CHANNELS.getContext, args: [] },
     { channel: record.CHANNELS.start, args: [{ title: "Sync", private: false }] },
     { channel: record.CHANNELS.cancel, args: [] },
+    { channel: record.CHANNELS.openSetup, args: [] },
+    { channel: record.CHANNELS.openPrivacySettings, args: ["microphone"] },
+    { channel: record.CHANNELS.openPrivacySettings, args: [""] },
   ]);
 });
 
@@ -217,6 +295,13 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   const init = js.slice(js.indexOf("async function init()"));
   assert.doesNotMatch(init, /call\("start"/);
   assert.match(js, /including for this private meeting/);
+  assert.match(js, /Live captions use your microphone only/);
+  assert.match(js, /start\.disabled = blocked;/);
+  assert.match(html, /id="record-blockers"[^>]*role="alert"[^>]*hidden/);
+  for (const id of ["record-open-setup", "record-open-microphone", "record-open-system-audio"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*type="button"|type="button"[^>]*id="${id}"`));
+  }
+  assert.doesNotMatch(js, /context\.systemAudio === "(granted|denied|restricted)"/);
 });
 
 test("main removes implicit next-recording state and confirms every start and import", () => {
@@ -225,9 +310,23 @@ test("main removes implicit next-recording state and confirms every start and im
   assert.match(main, /\{ label: "Start recording\.\.\.", accelerator: "CommandOrControl\+Shift\+0", click: openRecordPanel \}/);
   assert.match(main, /else if \(recordingSession\.idle\) openRecordPanel\(\);/);
   assert.match(main, /onStart: \(request\) => \{ void startRecording\(request\); \}/);
-  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate = false, source = null, occurredAt = null \} = \{\}\)/);
+  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate: requestedPrivate = false, source = null, occurredAt = null \} = \{\}\)/);
   const importBody = main.slice(main.indexOf("async function importAudio"), main.indexOf("function updateMenu"));
   assert.match(importBody, /if \(choice\.response !== 0\) return;/);
   assert.match(importBody, /choice\.checkboxChecked === true/);
   assert.match(main, /checkboxChecked: false,/);
+});
+
+test("main gates the live sidebar on a live adapter and keeps it reopenable", () => {
+  const main = read("main.js");
+  assert.match(main, /setupComplete: !needsSetup\(fs, DATA_DIR, CONFIG_PATH\)/);
+  assert.match(main, /onOpenSetup: openSetupWindow/);
+  assert.match(main, /openExternal: \(url\) => \{ void shell\.openExternal\(url\); \}/);
+  const start = main.slice(main.indexOf("async function startRecording"), main.indexOf("// The limit, the user, and quit"));
+  assert.match(start, /if \(liveDecision\.liveStarts\) startLiveSession\(capture\.active\.micPath, isPrivate, liveDecision\);/);
+  const live = main.slice(main.indexOf("function startLiveSession"), main.indexOf("function readConfigText"));
+  assert.match(live, /if \(live\.live === "ready"\) createLiveSidebarWindow\(\{ BrowserWindow \}\);/);
+  assert.match(live, /destroyLiveSidebar\(\);/);
+  assert.doesNotMatch(live, /onClosed/);
+  assert.match(main, /label: "Show live captions", click: \(\) => \{ showLiveSidebar\(\); \}/);
 });

@@ -22,8 +22,12 @@ automatic recording**.
   is a placeholder, so processing still names the meeting from what was
   discussed or from a matching calendar event, as it does for a manual
   recording with no title.
-- **Privacy:** integration recordings are shared (not private), the same as the
-  record panel default. Mark sensitive meetings by recording them manually.
+- **Privacy:** set in **Settings > Automatic recording > Where automatic
+  recordings go**. New installs default to **Private**. **Follow my calendar**
+  is shared only when a calendar event matches the recording start and is not
+  private; no calendar or no match means private (`--require-calendar-match`).
+  **Shared wiki** keeps the earlier behavior. An install that already
+  auto-recorded before this setting keeps shared and is asked to choose.
 
 Ownership rules:
 
