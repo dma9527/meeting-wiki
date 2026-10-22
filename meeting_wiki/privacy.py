@@ -34,6 +34,14 @@ _CUSTOMER = (
 )
 
 
+def title_has_private_terms(title: str, policy: PrivacyConfig) -> bool:
+    """Explicit 1:1 phrasing or any configured private term, shared by every classifier."""
+    normalized = " ".join(title.lower().split())
+    if _EXPLICIT_ONE_ON_ONE.search(normalized):
+        return True
+    return any(term.lower() in normalized for term in policy.private_terms)
+
+
 def classify(meeting: MeetingInput, policy: PrivacyConfig) -> MeetingType:
     if meeting.private:
         return MeetingType.ONE_ON_ONE

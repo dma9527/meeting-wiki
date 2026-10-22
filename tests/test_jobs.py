@@ -239,3 +239,21 @@ def test_terminal_updates_require_running_state(tmp_path):
         queue.complete(job_id)
     with pytest.raises(ValueError, match="not running"):
         queue.fail(job_id, "stale worker")
+
+
+def test_freeze_payload_persists_once_for_a_running_job(tmp_path):
+    queue = JobQueue(tmp_path / "jobs.db")
+    job_id = queue.enqueue(JobType.INGEST, {"title": "Meeting"}, "freeze")
+
+    with pytest.raises(ValueError, match="not running"):
+        queue.freeze_payload(job_id, {"title": "Meeting", "classification_frozen": True})
+
+    queue.claim()
+    queue.freeze_payload(job_id, {"title": "Resolved", "classification_frozen": True})
+    assert queue.get(job_id).payload == {"title": "Resolved", "classification_frozen": True}
+
+    with pytest.raises(ValueError, match="already frozen"):
+        queue.freeze_payload(job_id, {"title": "Changed", "classification_frozen": True})
+    with pytest.raises(ValueError, match="classification_frozen"):
+        queue.freeze_payload(job_id, {"title": "Unfrozen"})
+    assert queue.get(job_id).payload["title"] == "Resolved"

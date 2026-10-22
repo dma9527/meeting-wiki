@@ -285,6 +285,13 @@ function resolveProcessEnv({ fs, dataDir, secretStore, baseEnv }) {
   return { env };
 }
 
+// For children that only write the local job store, such as ingest and capture recovery.
+function credentialFreeEnv(baseEnv) {
+  const env = { ...baseEnv };
+  for (const name of MANAGED_KEY_ENVS) delete env[name];
+  return env;
+}
+
 function failureDetail(stdout, apiKey) {
   const lines = String(stdout)
     .split("\n")
@@ -701,6 +708,7 @@ module.exports = {
   clipboardApiKey,
   createSetupController,
   createSetupWindow,
+  credentialFreeEnv,
   failureDetail,
   guard,
   isManagedConfig,

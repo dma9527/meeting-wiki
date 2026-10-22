@@ -8,10 +8,10 @@ const path = require("path");
 
 // Meeting audio, titles, job payloads and logs are sensitive on shared Macs.
 process.umask(0o077);
-const { AudioCapture } = require("./capture");
+const { AudioCapture, buildCaptureManifest, captureManifestPath } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
-const { createSetupWindow, needsSetup, readSetupState, resolveProcessEnv } = require("./setup-window");
+const { createSetupWindow, credentialFreeEnv, needsSetup, readSetupState, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
 const { buildRecordContext, closeRecordWindow, createRecordWindow } = require("./record-window");
 const { LiveSessionManager } = require("./live-session");
@@ -37,6 +37,7 @@ const {
   recordingLabel,
 } = require("./recording-session");
 const {
+  RestartBackoff,
   formatQueueLabel,
   trayIconState,
   readQueueStatus,
@@ -66,6 +67,10 @@ const INSTALL_SKILL_TOOLTIP = "Adds a data-free skill so Claude can search your 
 
 let tray;
 let worker;
+let workerRetryTimer = null;
+// A worker that ran this long is healthy, so its next restart starts from the base delay.
+const WORKER_STABLE_MS = 30_000;
+const workerBackoff = new RestartBackoff({ baseMs: 2_000, maxMs: 60_000 });
 let shuttingDown = false;
 // Quit waits for an active recording to stop and its ingest to finish before exiting.
 let quitRequested = false;
@@ -184,6 +189,11 @@ function processingEnv({ background = false } = {}) {
   return result.env;
 }
 
+// Queueing and capture recovery only write the local job store, so provider keys stay out.
+function ingestEnv() {
+  return credentialFreeEnv(process.env);
+}
+
 function icon(state) {
   const image = nativeImage.createFromPath(TRAY_ICON_PATHS[state] || TRAY_ICON_PATHS.idle);
   if (image.isEmpty()) {
@@ -278,6 +288,7 @@ function openSetupWindow() {
 
 // Provider config is read at worker start, so a config change restarts the worker.
 function restartProcessing() {
+  workerBackoff.reset();
   if (worker) worker.kill("SIGTERM"); else startWorker();
   void refreshQueueStatus();
 }
@@ -351,11 +362,28 @@ async function installSkillFromMenu() {
   }
 }
 
-function startWorker() {
+// Retries run in the background so a key outage notifies once, then starts on its own after recovery.
+function scheduleWorkerStart() {
+  if (shuttingDown || worker || workerRetryTimer) return;
+  workerRetryTimer = setTimeout(() => {
+    workerRetryTimer = null;
+    startWorker({ background: true });
+  }, workerBackoff.nextDelayMs());
+  workerRetryTimer.unref();
+}
+
+function startWorker({ background = false } = {}) {
   if (worker || shuttingDown) return;
+  if (workerRetryTimer) {
+    clearTimeout(workerRetryTimer);
+    workerRetryTimer = null;
+  }
   if (!pythonAvailable()) return;
-  const env = processingEnv();
-  if (!env) return;
+  const env = processingEnv({ background });
+  if (!env) {
+    scheduleWorkerStart();
+    return;
+  }
   const logDir = path.join(DATA_DIR, "logs");
   fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
   fs.chmodSync(logDir, 0o700);
@@ -368,40 +396,53 @@ function startWorker() {
     env,
     stdio: ["ignore", log, log],
   });
+  const startedAt = Date.now();
   worker.once("exit", () => {
     worker = null;
-    if (!shuttingDown) setTimeout(startWorker, 2_000).unref();
+    if (Date.now() - startedAt >= WORKER_STABLE_MS) workerBackoff.reset();
+    scheduleWorkerStart();
   });
 }
 
-function enqueue(
-  filePath,
-  title,
-  isPrivate,
-  titleExplicit,
-  micAudioPath = null,
-  systemAudioPath = null,
-  occurredAt = null,
-) {
+function audioIngestArgs({ filePath, title, isPrivate, titleExplicit, micAudioPath = null, systemAudioPath = null, occurredAt = null, recordingStartedAt = null }) {
+  const args = ["--audio", filePath, "--title", title];
+  if (micAudioPath) args.push("--mic-audio", micAudioPath);
+  if (systemAudioPath) args.push("--system-audio", systemAudioPath);
+  if (occurredAt) args.push("--occurred-at", occurredAt);
+  if (recordingStartedAt) args.push("--recording-started-at", recordingStartedAt);
+  if (!titleExplicit) args.push("--title-auto");
+  if (isPrivate) args.push("--private");
+  return args;
+}
+
+function enqueue(ingestArgs, label) {
   if (!pythonAvailable()) {
     notifyMissingPython();
     return;
   }
-  const args = [
-    "-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "ingest",
-    "--audio", filePath, "--title", title,
-  ];
-  if (micAudioPath) args.push("--mic-audio", micAudioPath);
-  if (systemAudioPath) args.push("--system-audio", systemAudioPath);
-  if (occurredAt) args.push("--occurred-at", occurredAt);
-  if (!titleExplicit) args.push("--title-auto");
-  if (isPrivate) args.push("--private");
-  const env = processingEnv();
-  if (!env) return;
-  const child = spawn(PYTHON, args, { env, stdio: "ignore" });
+  const env = ingestEnv();
+  const child = spawn(PYTHON, ["-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "ingest", ...ingestArgs], { env, stdio: "ignore" });
   ingests.track(child);
   child.once("exit", (code) => {
-    notify(code === 0 ? "Meeting queued" : "Meeting queue failed", path.basename(filePath));
+    notify(code === 0 ? "Meeting queued" : "Meeting queue failed", label);
+    void refreshQueueStatus();
+  });
+}
+
+// Finalized recordings whose manifest outlived a failed hand-off are queued again at startup.
+function recoverPendingCaptures() {
+  if (!pythonAvailable()) return;
+  execFile(PYTHON, ["-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "recover-captures"], { env: ingestEnv(), timeout: 60_000 }, (error, stdout) => {
+    if (error) {
+      notify("Saved recordings were not queued", "Meeting Wiki will try again at next launch.");
+      return;
+    }
+    let summary = {};
+    try { summary = JSON.parse(String(stdout).trim().split("\n").pop() || "{}"); } catch (_) {}
+    const recovered = Number(summary.recovered) || 0;
+    const invalid = Number(summary.invalid) || 0;
+    if (recovered > 0) notify("Saved recordings queued", `${recovered} recording${recovered === 1 ? " was" : "s were"} queued for processing.`);
+    if (invalid > 0) notify("Saved recordings need attention", `${invalid} saved recording${invalid === 1 ? "" : "s"} could not be queued. Import the audio to process it.`);
     void refreshQueueStatus();
   });
 }
@@ -473,6 +514,8 @@ async function startRecording({ title: requestedTitle = "", isPrivate = false, s
   capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
   capture.active.occurredAt = occurredAt;
+  // Calendar matching uses the capture start, never the stop or queue time.
+  capture.active.recordingStartedAt = new Date().toISOString();
   startLiveSession(capture.active.micPath, isPrivate);
   return true;
 }
@@ -485,20 +528,23 @@ function stopRecording(reason = "user") {
     const titleExplicit = capture.active.titleExplicit;
     const isPrivate = capture.active.private;
     const occurredAt = capture.active.occurredAt || null;
+    const recordingStartedAt = capture.active.recordingStartedAt;
     if (reason === "limit") notify(LIMIT_NOTICE.title, LIMIT_NOTICE.body);
     stopLiveSession();
     updateMenu();
     try {
       const files = await capture.stop();
-      enqueue(
-        files.audioPath,
-        title,
-        isPrivate,
-        titleExplicit,
-        files.micAudioPath,
-        files.systemAudioPath,
-        occurredAt,
-      );
+      const metadata = { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt };
+      const manifestPath = captureManifestPath(files.audioPath);
+      try {
+        atomicWriteFile(fs, manifestPath, JSON.stringify(buildCaptureManifest(files, metadata)));
+      } catch (_) {
+        // Without a manifest there is no startup recovery, so queue directly from the same metadata.
+        enqueue(audioIngestArgs({ filePath: files.audioPath, ...files, ...metadata }), path.basename(files.audioPath));
+        notify("Recording saved", files.audioPath);
+        return;
+      }
+      enqueue(["--capture-manifest", manifestPath], path.basename(files.audioPath));
       notify("Recording saved", files.audioPath);
     } catch (error) {
       notify("Recording failed", error.message);
@@ -545,7 +591,13 @@ async function importAudio() {
   if (result.canceled || result.filePaths.length === 0) return;
   const choice = await dialog.showMessageBox(importConfirmation(result.filePaths.length));
   if (choice.response !== 0) return;
-  for (const file of result.filePaths) enqueue(file, "Imported meeting", choice.checkboxChecked === true, false);
+  // Imported files carry no capture time, so they are never matched to the event happening now.
+  for (const file of result.filePaths) {
+    enqueue(
+      audioIngestArgs({ filePath: file, title: "Imported meeting", isPrivate: choice.checkboxChecked === true, titleExplicit: false }),
+      path.basename(file),
+    );
+  }
   updateMenu();
 }
 
@@ -616,6 +668,7 @@ app.whenReady().then(async () => {
     else if (recordingSession.idle) openRecordPanel();
   });
   startWorker();
+  recoverPendingCaptures();
   if (RUNTIME.packaged && !pythonAvailable()) notifyMissingPython();
   updateMenu();
   void refreshQueueStatus();

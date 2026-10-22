@@ -89,7 +89,7 @@ def test_calendar_match_requires_one_non_all_day_candidate(tmp_path, monkeypatch
         start=moment - timedelta(minutes=5),
         end=moment + timedelta(minutes=55),
     )
-    monkeypatch.setattr(provider, "_events", lambda: [event])
+    monkeypatch.setattr(provider, "_events", lambda *_window: [event])
     assert provider.match(moment) is event
 
     overlap = CalendarEvent(
@@ -98,7 +98,7 @@ def test_calendar_match_requires_one_non_all_day_candidate(tmp_path, monkeypatch
         start=moment,
         end=moment + timedelta(minutes=30),
     )
-    monkeypatch.setattr(provider, "_events", lambda: [event, overlap])
+    monkeypatch.setattr(provider, "_events", lambda *_window: [event, overlap])
     assert provider.match(moment) is None
 
     all_day = CalendarEvent(
@@ -108,8 +108,129 @@ def test_calendar_match_requires_one_non_all_day_candidate(tmp_path, monkeypatch
         end=moment.replace(hour=23),
         all_day=True,
     )
-    monkeypatch.setattr(provider, "_events", lambda: [all_day])
+    monkeypatch.setattr(provider, "_events", lambda *_window: [all_day])
     assert provider.match(moment) is None
+
+
+def _write_ics(path, *events):
+    body = "".join(f"BEGIN:VEVENT\r\n{event}END:VEVENT\r\n" for event in events)
+    path.write_text(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//test//EN\r\n"
+        f"{body}END:VCALENDAR\r\n"
+    )
+    return path
+
+
+def test_ics_expands_weekly_rrule_and_honors_exdate(tmp_path):
+    pytest.importorskip("icalendar")
+    path = _write_ics(
+        tmp_path / "calendar.ics",
+        "UID:weekly-sync\r\nSUMMARY:Platform sync\r\n"
+        "DTSTART:20260902T150000Z\r\nDTEND:20260902T153000Z\r\n"
+        "RRULE:FREQ=WEEKLY;COUNT=10\r\nEXDATE:20260916T150000Z\r\n",
+    )
+    provider = ICSCalendarProvider(path)
+
+    third_week = provider.match(datetime(2026, 9, 23, 15, 3, tzinfo=UTC))
+    assert third_week is not None
+    assert third_week.title == "Platform sync"
+    assert third_week.start == datetime(2026, 9, 23, 15, 0, tzinfo=UTC)
+    assert third_week.end == datetime(2026, 9, 23, 15, 30, tzinfo=UTC)
+    assert third_week.event_id != "weekly-sync"
+    assert third_week.event_id.startswith("weekly-sync")
+
+    assert provider.match(datetime(2026, 9, 16, 15, 3, tzinfo=UTC)) is None
+    # COUNT=10 ends the series on 2026-11-04.
+    assert provider.match(datetime(2026, 11, 11, 15, 3, tzinfo=UTC)) is None
+
+
+def test_ics_rrule_with_tzid_and_until_and_moved_override(tmp_path):
+    pytest.importorskip("icalendar")
+    path = _write_ics(
+        tmp_path / "calendar.ics",
+        "UID:daily-standup\r\nSUMMARY:Team standup\r\n"
+        "DTSTART;TZID=America/New_York:20260907T090000\r\n"
+        "DTEND;TZID=America/New_York:20260907T091500\r\n"
+        "RRULE:FREQ=DAILY;UNTIL=20260911T130000Z\r\n",
+        "UID:daily-standup\r\nSUMMARY:Team standup (moved)\r\n"
+        "RECURRENCE-ID;TZID=America/New_York:20260909T090000\r\n"
+        "DTSTART;TZID=America/New_York:20260909T140000\r\n"
+        "DTEND;TZID=America/New_York:20260909T141500\r\n",
+    )
+    provider = ICSCalendarProvider(path)
+
+    # 09:00 EDT is 13:00 UTC.
+    tuesday = provider.match(datetime(2026, 9, 8, 13, 2, tzinfo=UTC))
+    assert tuesday is not None and tuesday.start == datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
+    assert provider.match(datetime(2026, 9, 9, 13, 2, tzinfo=UTC)) is None
+    moved = provider.match(datetime(2026, 9, 9, 18, 2, tzinfo=UTC))
+    assert moved is not None and moved.title == "Team standup (moved)"
+    assert provider.match(datetime(2026, 9, 12, 13, 2, tzinfo=UTC)) is None
+
+
+def test_ics_duration_and_missing_dtend_are_safe(tmp_path):
+    pytest.importorskip("icalendar")
+    path = _write_ics(
+        tmp_path / "calendar.ics",
+        "UID:with-duration\r\nSUMMARY:Long review\r\n"
+        "DTSTART:20260910T150000Z\r\nDURATION:PT2H\r\n",
+        "UID:no-end\r\nSUMMARY:Quick chat\r\nDTSTART:20260911T150000Z\r\n",
+        "UID:all-day-no-end\r\nSUMMARY:Offsite\r\nDTSTART;VALUE=DATE:20260912\r\n",
+    )
+    provider = ICSCalendarProvider(path)
+
+    long_review = provider.match(datetime(2026, 9, 10, 16, 30, tzinfo=UTC))
+    assert long_review is not None
+    assert long_review.end == datetime(2026, 9, 10, 17, 0, tzinfo=UTC)
+
+    quick = provider.match(datetime(2026, 9, 11, 15, 10, tzinfo=UTC))
+    assert quick is not None and quick.end == quick.start
+    assert provider.match(datetime(2026, 9, 11, 16, 0, tzinfo=UTC)) is None
+
+    all_day = [event for event in provider._events() if event.event_id == "all-day-no-end"]
+    assert all_day[0].all_day is True
+    assert all_day[0].end - all_day[0].start == timedelta(days=1)
+
+
+def test_ics_private_hint_uses_configured_privacy_terms(tmp_path):
+    pytest.importorskip("icalendar")
+    from meeting_wiki.config import PrivacyConfig
+
+    path = _write_ics(
+        tmp_path / "calendar.ics",
+        "UID:mentoring\r\nSUMMARY:Mentoring session\r\n"
+        "DTSTART:20260910T150000Z\r\nDTEND:20260910T160000Z\r\n",
+        "UID:skip-level\r\nSUMMARY:Skip-level with director\r\n"
+        "DTSTART:20260911T150000Z\r\nDTEND:20260911T160000Z\r\n",
+        "UID:planning\r\nSUMMARY:Quarterly planning\r\n"
+        "DTSTART:20260912T150000Z\r\nDTEND:20260912T160000Z\r\n",
+    )
+    default = {event.event_id: event.private_hint for event in ICSCalendarProvider(path)._events()}
+    assert default == {"mentoring": False, "skip-level": True, "planning": False}
+
+    custom = PrivacyConfig(private_terms=["mentoring"])
+    configured = {
+        event.event_id: event.private_hint
+        for event in ICSCalendarProvider(path, custom)._events()
+    }
+    # Explicit 1:1 phrasing stays private; configured terms replace the defaults.
+    assert configured == {"mentoring": True, "skip-level": False, "planning": False}
+
+
+def test_registry_builds_ics_calendar_with_configured_privacy(tmp_path):
+    from meeting_wiki.cli import _build_calendar
+    from meeting_wiki.config import AppConfig
+
+    config = AppConfig.model_validate(
+        {
+            "data_dir": str(tmp_path),
+            "providers": {"calendar": "ics"},
+            "ics": {"path": str(tmp_path / "calendar.ics")},
+            "privacy": {"private_terms": ["mentoring"]},
+        }
+    )
+    provider = _build_calendar(config)
+    assert provider.privacy.private_terms == ["mentoring"]
 
 
 def test_calendar_event_normalizes_naive_datetimes_to_utc():

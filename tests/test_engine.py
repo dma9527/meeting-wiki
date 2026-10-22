@@ -75,11 +75,13 @@ class FakeCalendar:
 
     def __init__(self, event=None):
         self.event = event
+        self.match_calls = []
 
     def upcoming(self, within_minutes):
         return []
 
     def match(self, occurred_at, tolerance_minutes=15):
+        self.match_calls.append(occurred_at)
         return self.event
 
 
@@ -210,6 +212,64 @@ def test_worker_redacts_private_title_and_path_from_stdout(
     assert "private/" not in str(output)
 
 
+def test_worker_freezes_privacy_before_side_effects_so_retries_cannot_flip_it(
+    tmp_path, transcript, analysis, monkeypatch, capsys
+):
+    import json
+
+    import meeting_wiki.worker as worker_module
+    from meeting_wiki.worker import Worker, enqueue_meeting
+
+    started = datetime(2026, 9, 4, 15, 5, tzinfo=UTC)
+    audio = tmp_path / "meeting.wav"
+    audio.write_bytes(b"fake")
+    meeting = MeetingInput(
+        audio_path=audio,
+        title="Meeting placeholder",
+        title_explicit=False,
+        occurred_at=started,
+        occurred_at_explicit=False,
+        recording_started_at=started,
+    )
+    private_event = CalendarEvent(
+        event_id="event-private",
+        title="Career check-in",
+        start=started - timedelta(minutes=5),
+        end=started + timedelta(minutes=55),
+        attendees=["Alex", "Manager"],
+        private_hint=True,
+    )
+    config = AppConfig(data_dir=tmp_path)
+    providers, _, _ = bundle(tmp_path, transcript, analysis)
+    providers.calendar = FakeCalendar(private_event)
+
+    class FailingTranscriber(FakeTranscriber):
+        def transcribe(self, audio_path, language=None, context=None):
+            raise RuntimeError("provider outage")
+
+    good_transcriber = providers.transcription
+    providers.transcription = FailingTranscriber(transcript)
+    monkeypatch.setattr(worker_module, "build_providers", lambda _: providers)
+    job_id = enqueue_meeting(config, meeting)
+    worker = Worker(config)
+    assert worker.run_once() is True
+    failed = worker.queue.get(job_id)
+    assert failed.payload["classification_frozen"] is True
+    assert failed.payload["private"] is True
+    assert failed.payload["calendar_event_id"] == "event-private"
+
+    # The calendar entry disappears before the retry; the frozen decision holds.
+    providers.calendar = FakeCalendar(None)
+    providers.transcription = good_transcriber
+    worker.queue.retry(job_id)
+    capsys.readouterr()
+    assert worker.run_once() is True
+    assert providers.calendar.match_calls == []
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"job_id": job_id, "state": "done", "private": True}
+    assert providers.storage.list_keys("wiki/") == []
+
+
 def test_ingest_reports_deterministic_processing_stages(tmp_path, meeting, transcript, analysis):
     audio = tmp_path / "audio.wav"
     audio.write_bytes(b"fake")
@@ -247,6 +307,7 @@ def test_calendar_enriches_automatic_metadata_and_forces_private(tmp_path, trans
         attendees=[],
         occurred_at=occurred_at,
         occurred_at_explicit=False,
+        recording_started_at=occurred_at,
     )
     providers, _, tasks = bundle(tmp_path, transcript, analysis)
     providers.calendar = FakeCalendar(event)
@@ -261,6 +322,129 @@ def test_calendar_enriches_automatic_metadata_and_forces_private(tmp_path, trans
     assert enriched.private is True
     assert result.render.meeting_key.startswith("private/meetings/")
     assert tasks.calls == []
+
+
+def test_calendar_match_uses_recording_start_not_stop_time(tmp_path, transcript, analysis):
+    started = datetime(2026, 9, 4, 15, 2, tzinfo=UTC)
+    stopped = datetime(2026, 9, 4, 16, 40, tzinfo=UTC)
+    audio = tmp_path / "meeting.wav"
+    audio.write_bytes(b"fake")
+    meeting = MeetingInput(
+        audio_path=audio,
+        title="Meeting placeholder",
+        title_explicit=False,
+        occurred_at=stopped,
+        occurred_at_explicit=False,
+        recording_started_at=started,
+    )
+    providers, _, _ = bundle(tmp_path, transcript, analysis)
+    providers.calendar = FakeCalendar(None)
+
+    MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)
+
+    assert providers.calendar.match_calls == [started]
+
+
+def test_imported_audio_without_source_time_is_never_calendar_matched(
+    tmp_path, transcript, analysis
+):
+    now = datetime(2026, 9, 4, 15, 5, tzinfo=UTC)
+    current_event = CalendarEvent(
+        event_id="current-event",
+        title="Private career check-in",
+        start=now - timedelta(minutes=5),
+        end=now + timedelta(minutes=55),
+        attendees=["Alex", "Manager"],
+        private_hint=True,
+    )
+    audio = tmp_path / "imported.wav"
+    audio.write_bytes(b"fake")
+    meeting = MeetingInput(
+        audio_path=audio,
+        title="Imported meeting",
+        title_explicit=False,
+        occurred_at=now,
+        occurred_at_explicit=False,
+    )
+    providers, _, _ = bundle(tmp_path, transcript, analysis)
+    providers.calendar = FakeCalendar(current_event)
+
+    result = MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)
+
+    assert providers.calendar.match_calls == []
+    enriched = providers.llm.calls[0][0]
+    assert enriched.calendar_event_id is None
+    assert enriched.title == "Imported meeting"
+    assert result.render.meeting_key.startswith("wiki/meetings/")
+
+
+def test_resolve_freezes_calendar_identity_and_privacy(tmp_path, transcript, analysis):
+    started = datetime(2026, 9, 4, 15, 5, tzinfo=UTC)
+    event = CalendarEvent(
+        event_id="event-frozen",
+        title="Career check-in",
+        start=started - timedelta(minutes=5),
+        end=started + timedelta(minutes=55),
+        attendees=["Alex", "Manager"],
+        private_hint=True,
+    )
+    meeting = MeetingInput(
+        audio_path=tmp_path / "meeting.wav",
+        title="Meeting placeholder",
+        title_explicit=False,
+        occurred_at=started,
+        occurred_at_explicit=False,
+        recording_started_at=started,
+    )
+    providers, _, _ = bundle(tmp_path, transcript, analysis)
+    providers.calendar = FakeCalendar(event)
+    engine = MeetingEngine(AppConfig(data_dir=tmp_path), providers)
+
+    resolved = engine.resolve(meeting)
+
+    assert resolved.classification_frozen is True
+    assert resolved.private is True
+    assert resolved.calendar_event_id == "event-frozen"
+    assert resolved.meeting_type is not None
+    assert resolved.ingest_id == meeting.ingest_id
+    # A frozen meeting is returned unchanged, even if the calendar changes.
+    providers.calendar = FakeCalendar(None)
+    assert engine.resolve(resolved) == resolved
+    assert providers.calendar.match_calls == []
+
+
+def test_frozen_shared_meeting_stays_shared_when_calendar_later_says_private(
+    tmp_path, transcript, analysis
+):
+    started = datetime(2026, 9, 4, 15, 5, tzinfo=UTC)
+    audio = tmp_path / "meeting.wav"
+    audio.write_bytes(b"fake")
+    frozen = MeetingInput(
+        audio_path=audio,
+        title="Architecture sync",
+        title_explicit=False,
+        occurred_at=started,
+        occurred_at_explicit=False,
+        recording_started_at=started,
+        meeting_type=MeetingType.GENERIC,
+        private=False,
+        classification_frozen=True,
+    )
+    late_private = CalendarEvent(
+        event_id="late-edit",
+        title="Career check-in",
+        start=started - timedelta(minutes=5),
+        end=started + timedelta(minutes=55),
+        private_hint=True,
+    )
+    providers, _, _ = bundle(tmp_path, transcript, analysis)
+    providers.calendar = FakeCalendar(late_private)
+
+    result = MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(frozen)
+
+    assert providers.calendar.match_calls == []
+    assert result.render.meeting_key.startswith("wiki/meetings/")
+    assert providers.llm.calls[0][0].calendar_event_id is None
 
 
 def test_explicit_meeting_metadata_overrides_calendar(tmp_path, transcript, analysis):

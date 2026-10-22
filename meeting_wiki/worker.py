@@ -66,7 +66,9 @@ class Worker:
             if job.job_type is not JobType.INGEST:
                 raise ValueError(f"Unsupported job type: {job.job_type}")
             meeting = MeetingInput.model_validate(job.payload)
-
+            if not meeting.classification_frozen:
+                meeting = self.engine.resolve(meeting)
+                self.queue.freeze_payload(job.id, meeting.model_dump(mode="json"))
             def progress(stage: JobStage) -> None:
                 nonlocal current_stage
                 current_stage = stage

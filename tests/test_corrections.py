@@ -161,6 +161,7 @@ def _auto_meeting(tmp_path) -> MeetingInput:
         attendees=[],
         occurred_at=datetime(2026, 9, 3, 23, 15, tzinfo=UTC),
         occurred_at_explicit=False,
+        recording_started_at=datetime(2026, 9, 3, 23, 15, tzinfo=UTC),
     )
 
 

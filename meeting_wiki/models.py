@@ -117,7 +117,13 @@ class MeetingInput(BaseModel):
     private: bool = False
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     occurred_at_explicit: bool = True
+    # Capture-start anchor for calendar matching. Without it (or an explicit
+    # occurred_at), audio is never matched to whatever event is current now.
+    recording_started_at: datetime | None = None
     calendar_event_id: str | None = None
+    # True once calendar identity and privacy were resolved and persisted in the
+    # durable job; retries reuse that decision instead of re-reading the calendar.
+    classification_frozen: bool = False
     speaker_corrections: dict[str, str] = Field(default_factory=dict)
     notes: str = ""
     # Enrichment-invariant identity: computed once at construction from the raw
@@ -130,6 +136,13 @@ class MeetingInput(BaseModel):
     @classmethod
     def expand_paths(cls, value: Path | None) -> Path | None:
         return value.expanduser().resolve() if value else None
+
+    @field_validator("recording_started_at")
+    @classmethod
+    def require_aware_recording_start(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("recording_started_at must include a timezone")
+        return value
 
     @model_validator(mode="after")
     def _assign_ingest_id(self) -> MeetingInput:

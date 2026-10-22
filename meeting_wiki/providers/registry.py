@@ -153,7 +153,7 @@ def build_providers(config: AppConfig) -> ProviderBundle:
     if config.providers.calendar == "none":
         calendar = NoneCalendarProvider()
     elif config.providers.calendar == "ics":
-        calendar = ICSCalendarProvider(config.ics.path)
+        calendar = ICSCalendarProvider(config.ics.path, config.privacy)
     else:
         raise ValueError(f"Unknown calendar provider: {config.providers.calendar}")
 

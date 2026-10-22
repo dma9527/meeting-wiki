@@ -110,3 +110,42 @@ test("silent PCM detection distinguishes all-zero system audio from audio sample
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("capture manifest records the recording start and an explicit privacy choice", () => {
+  const { buildCaptureManifest, captureManifestPath } = require("../capture");
+  const files = {
+    audioPath: "/data/audio/2026-09-04-150200.wav",
+    micAudioPath: "/data/audio/2026-09-04-150200_mic.wav",
+    systemAudioPath: null,
+  };
+  assert.equal(captureManifestPath(files.audioPath), "/data/audio/2026-09-04-150200.capture.json");
+  assert.deepEqual(
+    buildCaptureManifest(files, {
+      title: "Meeting placeholder",
+      titleExplicit: false,
+      isPrivate: true,
+      recordingStartedAt: "2026-09-04T15:02:00.000Z",
+      occurredAt: null,
+    }),
+    {
+      version: 1,
+      audio_path: files.audioPath,
+      mic_audio_path: files.micAudioPath,
+      system_audio_path: null,
+      title: "Meeting placeholder",
+      title_explicit: false,
+      private: true,
+      recording_started_at: "2026-09-04T15:02:00.000Z",
+      occurred_at: null,
+    },
+  );
+});
+
+test("capture manifest refuses to guess privacy or the recording start", () => {
+  const { buildCaptureManifest } = require("../capture");
+  const files = { audioPath: "/data/audio/a.wav", micAudioPath: null, systemAudioPath: null };
+  const base = { title: "Meeting", titleExplicit: false, isPrivate: false, recordingStartedAt: "2026-09-04T15:02:00.000Z" };
+  assert.throws(() => buildCaptureManifest(files, { ...base, isPrivate: undefined }), /privacy/);
+  assert.throws(() => buildCaptureManifest(files, { ...base, recordingStartedAt: null }), /recording start/);
+  assert.throws(() => buildCaptureManifest(files, { ...base, recordingStartedAt: "not a date" }), /recording start/);
+});

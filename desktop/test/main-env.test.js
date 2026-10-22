@@ -30,16 +30,61 @@ test("main reads the key only through resolveProcessEnv and never names or logs 
   assert.match(functionBody("processingEnv"), /notify\("Meeting processing paused", result\.error\)/);
 });
 
-for (const name of ["startWorker", "enqueue"]) {
-  test(`${name} passes a per-child env and stops before spawning when the key is unavailable`, () => {
-    const body = functionBody(name);
-    const envAt = body.indexOf("const env = processingEnv();");
-    const guardAt = body.indexOf("if (!env) return;");
-    const spawnAt = body.indexOf("spawn(PYTHON");
-    assert.ok(envAt >= 0 && guardAt > envAt && spawnAt > guardAt, `${name} must resolve and guard env before spawn`);
-    assert.match(body.slice(spawnAt), /\{\s*[^}]*\benv\b/);
-  });
-}
+test("startWorker passes a per-child env and schedules a bounded retry when the key is unavailable", () => {
+  const body = functionBody("startWorker");
+  const envAt = body.indexOf("const env = processingEnv({ background });");
+  const guardAt = body.indexOf("if (!env) {", envAt);
+  const retryAt = body.indexOf("scheduleWorkerStart();", guardAt);
+  const spawnAt = body.indexOf("spawn(PYTHON");
+  assert.ok(envAt >= 0 && guardAt > envAt && retryAt > guardAt && spawnAt > retryAt, "startWorker must guard env and retry before spawn");
+  assert.match(body.slice(spawnAt), /\{\s*[^}]*\benv\b/);
+  assert.match(body, /worker\.once\("exit", \(\) => \{[\s\S]*workerBackoff\.reset\(\);[\s\S]*scheduleWorkerStart\(\);/);
+  const schedule = functionBody("scheduleWorkerStart");
+  assert.match(schedule, /workerBackoff\.nextDelayMs\(\)/);
+  assert.match(schedule, /startWorker\(\{ background: true \}\)/);
+  assert.match(schedule, /\.unref\(\)/);
+  assert.match(source, /const workerBackoff = new RestartBackoff\(/);
+});
+
+test("restartProcessing resets the worker backoff so recovered credentials start immediately", () => {
+  const body = functionBody("restartProcessing");
+  const resetAt = body.indexOf("workerBackoff.reset();");
+  assert.ok(resetAt >= 0 && resetAt < body.indexOf("startWorker();"));
+});
+
+test("enqueue never needs provider credentials to create the durable job", () => {
+  const body = functionBody("enqueue");
+  assert.doesNotMatch(body, /processingEnv/);
+  const envAt = body.indexOf("const env = ingestEnv();");
+  const spawnAt = body.indexOf("spawn(PYTHON");
+  assert.ok(envAt >= 0 && spawnAt > envAt, "enqueue must use the credential-free env");
+  assert.match(body.slice(spawnAt), /\{\s*[^}]*\benv\b/);
+  assert.match(functionBody("ingestEnv"), /credentialFreeEnv\(process\.env\)/);
+});
+
+test("finalized recordings are handed off through a durable capture manifest", () => {
+  const stop = functionBody("stopRecording");
+  const stopAt = stop.indexOf("await capture.stop()");
+  const manifestAt = stop.indexOf("atomicWriteFile(fs, manifestPath");
+  const enqueueAt = stop.indexOf('enqueue(["--capture-manifest", manifestPath]');
+  assert.ok(stopAt >= 0 && manifestAt > stopAt && enqueueAt > manifestAt, "manifest must be written before enqueue");
+  assert.match(stop, /recordingStartedAt/);
+  assert.match(functionBody("startRecording"), /capture\.active\.recordingStartedAt = new Date\(\)\.toISOString\(\);/);
+});
+
+test("imported audio carries no source time, so it is never matched to the current event", () => {
+  const body = functionBody("importAudio");
+  assert.doesNotMatch(body, /recordingStartedAt|occurredAt|--occurred-at|--recording-started-at/);
+});
+
+test("startup recovers finalized captures that were never enqueued", () => {
+  const body = functionBody("recoverPendingCaptures");
+  assert.match(body, /execFile\(PYTHON, \["-m", "meeting_wiki\.cli", "--config", CONFIG_PATH, "recover-captures"\]/);
+  assert.match(body, /env: ingestEnv\(\)/);
+  assert.doesNotMatch(body, /processingEnv/);
+  const ready = source.slice(source.indexOf("app.whenReady()"));
+  assert.match(ready, /recoverPendingCaptures\(\);/);
+});
 
 for (const [name, call] of [
   ["refreshQueueStatus", "readQueueStatus("],

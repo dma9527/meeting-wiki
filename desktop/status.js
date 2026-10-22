@@ -187,7 +187,28 @@ function trayIconState({ isRecording, queueStatusError, queueSummary }) {
   return "idle";
 }
 
+// Bounded exponential delay for restarting the worker while credentials are unavailable.
+class RestartBackoff {
+  constructor({ baseMs = 2_000, maxMs = 60_000 } = {}) {
+    if (!(baseMs > 0) || !(maxMs >= baseMs)) throw new Error("RestartBackoff requires 0 < baseMs <= maxMs");
+    this.baseMs = baseMs;
+    this.maxMs = maxMs;
+    this.current = baseMs;
+  }
+
+  nextDelayMs() {
+    const delay = this.current;
+    this.current = Math.min(this.maxMs, this.current * 2);
+    return delay;
+  }
+
+  reset() {
+    this.current = this.baseMs;
+  }
+}
+
 module.exports = {
+  RestartBackoff,
   formatQueueLabel,
   trayIconState,
   readQueueStatus,

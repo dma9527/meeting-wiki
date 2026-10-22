@@ -12,10 +12,21 @@
 ## Flow
 
 1. Electron captures microphone and system audio into a local WAV.
-2. The desktop app enqueues an ingest job in SQLite.
+2. The desktop app writes `audio/<recording>.capture.json` (title, privacy
+   choice, recording start) and enqueues an ingest job in SQLite. Queueing
+   needs no provider credentials. The manifest is deleted only after the job
+   row commits; `meeting-wiki recover-captures` runs at app startup and queues
+   any manifest left by a crash, quit, or missing runtime.
 3. The worker claims the job under `BEGIN IMMEDIATE`.
-4. The configured transcription provider returns a typed transcript.
-5. The deterministic privacy classifier selects meeting type and privacy.
+4. Before any transcript, wiki, or S3 write, the worker resolves calendar
+   identity and privacy once and stores the result in the job payload
+   (`classification_frozen`). Retries reuse it, so a calendar edit cannot move
+   a meeting between shared and private storage. Calendar matching uses the
+   recording start, or an explicit `--occurred-at`; imported audio without a
+   source time is never matched to the current event. ICS recurrences
+   (RRULE, RDATE, EXDATE, RECURRENCE-ID) are expanded, and calendar private
+   hints use the configured `[privacy].private_terms`.
+5. The configured transcription provider returns a typed transcript.
 6. The configured LLM provider returns `MeetingAnalysis` JSON validated by
    Pydantic.
 7. `WikiRenderer` writes a meeting page and append-only entity/topic timelines,

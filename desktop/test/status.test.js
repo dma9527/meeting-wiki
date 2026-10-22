@@ -115,3 +115,19 @@ test("tray icon state reflects recording, attention, processing, and idle priori
     "idle",
   );
 });
+
+test("worker restart backoff doubles to a bounded ceiling and resets after recovery", () => {
+  const { RestartBackoff } = require("../status");
+  const backoff = new RestartBackoff({ baseMs: 1_000, maxMs: 8_000 });
+  const delays = Array.from({ length: 6 }, () => backoff.nextDelayMs());
+  assert.deepEqual(delays, [1_000, 2_000, 4_000, 8_000, 8_000, 8_000]);
+  for (let index = 0; index < 2_000; index += 1) backoff.nextDelayMs();
+  assert.equal(backoff.nextDelayMs(), 8_000);
+  backoff.reset();
+  assert.equal(backoff.nextDelayMs(), 1_000);
+});
+
+test("worker restart backoff rejects a ceiling below the base delay", () => {
+  const { RestartBackoff } = require("../status");
+  assert.throws(() => new RestartBackoff({ baseMs: 5_000, maxMs: 1_000 }), /maxMs/);
+});

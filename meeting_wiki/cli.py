@@ -58,6 +58,9 @@ def parse_speaker_corrections(values: list[str] | None) -> dict[str, str]:
 
 def meeting_from_args(args) -> MeetingInput:
     attendees = [item.strip() for item in (args.attendees or "").split(",") if item.strip()]
+    started_at = getattr(args, "recording_started_at", None)
+    recording_started_at = parse_time(started_at) if started_at else None
+    occurred_at = parse_time(args.occurred_at) if args.occurred_at else recording_started_at
     return MeetingInput(
         audio_path=Path(args.audio) if args.audio else None,
         mic_audio_path=Path(args.mic_audio) if args.mic_audio else None,
@@ -67,8 +70,9 @@ def meeting_from_args(args) -> MeetingInput:
         title_explicit=bool(args.title) and not args.title_auto,
         attendees=attendees,
         private=args.private,
-        occurred_at=parse_time(args.occurred_at),
+        occurred_at=occurred_at or parse_time(None),
         occurred_at_explicit=bool(args.occurred_at),
+        recording_started_at=recording_started_at,
         speaker_corrections=parse_speaker_corrections(args.speaker),
         notes=args.notes or "",
     )
@@ -90,7 +94,7 @@ def _build_calendar(config):
     from .providers.calendar import ICSCalendarProvider, NoneCalendarProvider
 
     if config.providers.calendar == "ics":
-        return ICSCalendarProvider(config.ics.path)
+        return ICSCalendarProvider(config.ics.path, config.privacy)
     return NoneCalendarProvider()
 
 
@@ -336,6 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     source = ingest.add_mutually_exclusive_group(required=True)
     source.add_argument("--audio")
     source.add_argument("--transcript")
+    source.add_argument(
+        "--capture-manifest",
+        help="Finalized desktop capture manifest inside the managed audio directory",
+    )
     ingest.add_argument("--mic-audio", help="Preserved microphone WAV aligned to --audio")
     ingest.add_argument("--system-audio", help="Preserved system-audio WAV aligned to --audio")
     ingest.add_argument(
@@ -348,11 +356,19 @@ def main(argv: list[str] | None = None) -> int:
     ingest.add_argument("--attendees", help="Comma-separated display names")
     ingest.add_argument("--private", action="store_true")
     ingest.add_argument("--occurred-at", help="ISO 8601 timestamp")
+    ingest.add_argument(
+        "--recording-started-at",
+        help="ISO 8601 capture start; anchors calendar matching",
+    )
     ingest.add_argument("--notes")
     ingest.add_argument("--now", action="store_true", help="Process immediately")
 
     worker = sub.add_parser("worker", help="Run durable jobs")
     worker.add_argument("--once", action="store_true")
+    sub.add_parser(
+        "recover-captures",
+        help="Queue finalized recordings whose hand-off was interrupted",
+    )
     status = sub.add_parser("status", help="List jobs (payloads redacted by default)")
     status.add_argument("--state", choices=[state.value for state in JobState])
     status.add_argument("--verbose", action="store_true", help="Include full job payloads/errors")
@@ -502,11 +518,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         return doctor(args.config)
     if args.command == "ingest":
-        meeting = meeting_from_args(args)
-        job_id = enqueue_meeting(config, meeting)
+        if args.capture_manifest:
+            from .captures import enqueue_capture
+
+            job_id = enqueue_capture(config, Path(args.capture_manifest))
+        else:
+            job_id = enqueue_meeting(config, meeting_from_args(args))
         print(json.dumps({"job_id": job_id, "queued": True}))
         if args.now:
             Worker(config).run_once()
+        return 0
+    if args.command == "recover-captures":
+        from .captures import recover_captures
+
+        print(json.dumps(recover_captures(config)))
         return 0
     if args.command == "worker":
         process = Worker(config)

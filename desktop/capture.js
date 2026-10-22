@@ -161,4 +161,27 @@ class AudioCapture {
   }
 }
 
-module.exports = { AudioCapture, isSilentPcmFile, rawToWavArgs, recArgs };
+// Durable hand-off record: the Python side deletes it only after the job row exists.
+function captureManifestPath(audioPath) {
+  return audioPath.replace(/\.wav$/i, "") + ".capture.json";
+}
+
+function buildCaptureManifest(files, { title, titleExplicit, isPrivate, recordingStartedAt, occurredAt = null }) {
+  if (typeof isPrivate !== "boolean") throw new Error("capture manifest requires an explicit privacy choice");
+  if (typeof recordingStartedAt !== "string" || Number.isNaN(Date.parse(recordingStartedAt))) {
+    throw new Error("capture manifest requires a valid recording start time");
+  }
+  return {
+    version: 1,
+    audio_path: files.audioPath,
+    mic_audio_path: files.micAudioPath || null,
+    system_audio_path: files.systemAudioPath || null,
+    title,
+    title_explicit: Boolean(titleExplicit),
+    private: isPrivate,
+    recording_started_at: recordingStartedAt,
+    occurred_at: occurredAt || null,
+  };
+}
+
+module.exports = { AudioCapture, buildCaptureManifest, captureManifestPath, isSilentPcmFile, rawToWavArgs, recArgs };

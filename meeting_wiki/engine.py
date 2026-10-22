@@ -7,6 +7,7 @@ import shutil
 import wave
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .config import AppConfig
@@ -57,10 +58,9 @@ class MeetingEngine:
         job_id: int | None = None,
     ) -> IngestResult:
         report = progress or (lambda _stage: None)
-        meeting, calendar_private = self._enrich_from_calendar(meeting)
-        meeting_type = classify(meeting, self.config.privacy)
-        private = meeting.private or calendar_private or meeting_type is MeetingType.ONE_ON_ONE
-        meeting = meeting.model_copy(update={"meeting_type": meeting_type, "private": private})
+        meeting = self.resolve(meeting)
+        meeting_type = meeting.meeting_type or MeetingType.GENERIC
+        private = meeting.private
         source_id = stable_id(
             meeting.occurred_at.isoformat(),
             meeting.title,
@@ -154,8 +154,32 @@ class MeetingEngine:
             task_urls=task_urls,
         )
 
+    def resolve(self, meeting: MeetingInput) -> MeetingInput:
+        """Resolve calendar identity and privacy once; frozen meetings are returned unchanged."""
+        if meeting.classification_frozen:
+            return meeting
+        meeting, calendar_private = self._enrich_from_calendar(meeting)
+        meeting_type = classify(meeting, self.config.privacy)
+        private = meeting.private or calendar_private or meeting_type is MeetingType.ONE_ON_ONE
+        return meeting.model_copy(
+            update={
+                "meeting_type": meeting_type,
+                "private": private,
+                "classification_frozen": True,
+            }
+        )
+
+    @staticmethod
+    def _calendar_anchor(meeting: MeetingInput) -> datetime | None:
+        if meeting.recording_started_at is not None:
+            return meeting.recording_started_at
+        return meeting.occurred_at if meeting.occurred_at_explicit else None
+
     def _enrich_from_calendar(self, meeting: MeetingInput) -> tuple[MeetingInput, bool]:
-        event = self.providers.calendar.match(meeting.occurred_at)
+        anchor = self._calendar_anchor(meeting)
+        if anchor is None:
+            return meeting, False
+        event = self.providers.calendar.match(anchor)
         if event is None:
             return meeting, False
         updates: dict[str, object] = {"calendar_event_id": event.event_id}

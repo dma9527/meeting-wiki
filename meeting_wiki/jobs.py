@@ -247,6 +247,31 @@ class JobQueue:
             stage_to=stage.value,
         )
 
+    def freeze_payload(self, job_id: int, payload: dict[str, object]) -> None:
+        """Persist the resolved meeting once, before any transcript or wiki side effect."""
+        if payload.get("classification_frozen") is not True:
+            raise ValueError("Frozen payload must set classification_frozen")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state, payload FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if row is None or JobState(str(row["state"])) is not JobState.RUNNING:
+                raise ValueError(f"Job {job_id} is not running")
+            if json.loads(str(row["payload"])).get("classification_frozen") is True:
+                raise ValueError(f"Job {job_id} payload is already frozen")
+            connection.execute(
+                "UPDATE jobs SET payload=?, updated_at=? WHERE id=?",
+                (json.dumps(payload, sort_keys=True), time.time(), job_id),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
     def get(self, job_id: int) -> JobRecord | None:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

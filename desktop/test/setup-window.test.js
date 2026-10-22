@@ -896,3 +896,15 @@ test("managed Gemini config is accepted by AppConfig and passes doctor", { skip:
   assert.match(doctor.stdout, /^OK llm: .*gemini-3\.5-flash/m);
   assert.ok(!(doctor.stdout + doctor.stderr).includes(GEMINI_KEY));
 });
+
+test("credentialFreeEnv copies the base env without any managed provider key", () => {
+  const baseEnv = Object.freeze({
+    PATH: "/usr/bin",
+    [setup.API_KEY_ENV]: "inherited-value",
+    [setup.GEMINI_API_KEY_ENV]: "inherited-gemini-value",
+  });
+  const env = setup.credentialFreeEnv(baseEnv);
+  assert.deepEqual(env, { PATH: "/usr/bin" });
+  assert.notEqual(env, baseEnv);
+  assert.equal(baseEnv[setup.API_KEY_ENV], "inherited-value");
+});
