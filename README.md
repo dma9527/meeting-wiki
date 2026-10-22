@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/dma9527/meeting-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/dma9527/meeting-wiki/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20Apple%20Silicon-black.svg)](docs/guide/installation.md)
+[![Platform](https://img.shields.io/badge/platform-macOS%2014.2%2B%20Apple%20Silicon-black.svg)](docs/guide/installation.md)
 [![Memory](https://img.shields.io/badge/memory-local--first-2f6f5f.svg)](docs/guide/memory.md)
 [![MCP](https://img.shields.io/badge/MCP-read--only-6d4c9b.svg)](docs/guide/memory.md)
 
@@ -64,8 +64,8 @@ Join a meeting
 ### 1. Install or build
 
 Meeting Wiki currently has unsigned local test artifacts only. Build it on your
-own Apple Silicon Mac, or use a trusted local artifact and follow the install
-guide.
+own Apple Silicon Mac, or copy a build you made to another Mac you own and
+follow the install guide.
 
 ```text
 Apple Silicon Mac
@@ -112,7 +112,7 @@ queues durable processing, and writes the result to your local wiki.
 - API keys are encrypted with Electron safeStorage into `secrets.json` (0600) in the
   storage folder, with the decryption key in the macOS Keychain. They are not written to
   `config.toml` or logs.
-- Audio and transcript text go only to the provider selected in setup. Local-only providers keep those inputs on the Mac.
+- Audio and transcript text go only to the provider selected in setup. A manually configured local provider keeps those inputs on the Mac; Local only setup is not available in this build.
 - Shared MCP and wiki browsing do not read `private/`.
 - URL resources are stored locally and are never fetched automatically.
 - Automatic recording is off by default. You are responsible for giving any required recording notice and obtaining consent.

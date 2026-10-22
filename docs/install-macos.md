@@ -1,21 +1,32 @@
 # Installing Meeting Wiki on Another Mac
 
-Two ways to install. Use A when someone hands you a built `.dmg` or `.zip`.
-Use B when you only have the source code.
+Two ways to install on Macs you control. Use A when copying a local test build
+you made to another Mac you own. Use B when you only have the source code.
 
-Requirements for both: Apple Silicon Mac (M1 or newer), macOS 14 or newer.
+Requirements for both: Apple Silicon Mac (M1 or newer), macOS 14.2 or newer.
 
 ## A. Install a prebuilt app
 
 The current builds are not signed with a Developer ID or notarized, so macOS
-blocks them on first launch. Only install builds you received directly from
-the person who built them.
+blocks them on first launch. They are local test artifacts and must not be
+given to other people or published while the release blockers remain open.
 
-1. Copy `Meeting Wiki-0.1.11-arm64.dmg` (or the `.zip`) and `SHA256SUMS` to the
-   Mac. Check the file was not changed in transit:
+1. Copy `Meeting Wiki-VERSION-arm64.dmg` (or the `.zip`) and `SHA256SUMS` to the
+   Mac. Replace `VERSION` with the version you built. Check the file was not changed in transit:
+
+   Run the matching command from the folder that contains the artifact and
+   `SHA256SUMS`.
+
+   For the DMG:
 
    ```bash
-   grep 'Meeting Wiki-.*-arm64\.dmg$' SHA256SUMS | shasum -a 256 -c -
+   grep 'Meeting Wiki-VERSION-arm64\.dmg$' SHA256SUMS | shasum -a 256 -c -
+   ```
+
+   For the ZIP:
+
+   ```bash
+   grep 'Meeting Wiki-VERSION-arm64-mac\.zip$' SHA256SUMS | shasum -a 256 -c -
    ```
 
    The command must print `OK`.
@@ -49,7 +60,7 @@ the person who built them.
    the Desktop Wiki.
 
 If the app says "installation damaged", the bundle is missing its runtime.
-Ask for a fresh build.
+Rebuild the artifact on the source Mac.
 
 ## B. Build from source on the target Mac
 
@@ -73,9 +84,10 @@ MEETING_WIKI_GPL_SOURCE_OFFER=/path/to/SOURCE-OFFER.txt scripts/build-macos.sh
 `MEETING_WIKI_GPL_SOURCE_OFFER` must point to a non-empty text file. SoX and
 some of its libraries are GPL/LGPL, so the build refuses to bundle them
 without it. For a build you only run on your own Macs, a short note such as
-"Personal build, not distributed" is enough. Before giving the build to
-anyone else, read `docs/portable-runtime.md` ("Audio tool redistribution
-blocker").
+"Personal build, not distributed" is enough. Do not give this build to anyone
+else or publish it. A future distributable build must close every blocker in
+`docs/known-issues.md`, including the corresponding-source requirements in
+`docs/portable-runtime.md`.
 
 The build writes:
 
@@ -130,7 +142,7 @@ item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
 | Symptom | Fix |
 |---------|-----|
 | "Meeting Wiki is damaged and can't be opened" | Run the `xattr` command in step A3. |
-| "Meeting Wiki installation damaged" | The bundled runtime is missing. Rebuild or get a fresh build. |
+| "Meeting Wiki installation damaged" | The bundled runtime is missing. Rebuild the artifact on the source Mac. |
 | Recording has no system audio | Grant Screen & System Audio Recording, then restart the app. |
 | Build exits with "AUDIO TOOLS BLOCKED" | Set `MEETING_WIKI_GPL_SOURCE_OFFER` as shown in B. |
 | Build says "Apple Silicon macOS only" | Intel Macs are not supported. |
