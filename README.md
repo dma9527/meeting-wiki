@@ -365,6 +365,22 @@ Default status output never includes meeting titles, source paths, transcripts,
 or provider error details. Use `status --verbose` only when inspecting your own
 private machine.
 
+## Backup, restore, and deletion preview
+
+```bash
+meeting-wiki backup-create            # encrypted; passphrase via hidden prompt
+meeting-wiki backup-verify --archive ~/.meeting-wiki/backups/<name>.mwbackup
+meeting-wiki backup-restore --archive <file> --target ~/mw-restored
+meeting-wiki delete-preview --meeting wiki/meetings/<stem>.md
+meeting-wiki retention-plan
+```
+
+Backups cover config metadata, wiki, transcripts, analysis, audio, memory and
+resources, jobs, outbox, events, and integration state. Secrets are never
+included. Restore only writes into a new or empty directory after verifying
+every file. Deletion preview and retention planning never delete anything. See
+[docs/data-ownership.md](docs/data-ownership.md).
+
 ## Development
 
 ```bash

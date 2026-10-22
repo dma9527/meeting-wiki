@@ -52,10 +52,18 @@ who cannot consent.
 
 ## Retention and deletion
 
-Local files persist until you delete them. The project does not retain backups.
-Optional S3 retention is controlled by your bucket configuration. Deleting a
-Markdown page does not automatically delete its audio or transcript; delete all
-three when removing a meeting.
+Local files persist until you delete them. Optional S3 retention is controlled
+by your bucket configuration. Deleting a Markdown page does not automatically
+delete its audio or transcript.
+
+`meeting-wiki delete-preview` lists every artifact tied to a meeting (audio,
+transcripts, analysis, wiki pages, memory, job rows, and task links) without
+changing anything. `meeting-wiki retention-plan` reports what the optional
+`[retention]` thresholds would remove, and also deletes nothing.
+
+Encrypted backups are created only when you run `meeting-wiki backup-create`.
+They never include API keys, `secrets.json`, `.env` files, or logs. The
+passphrase is never stored. See `docs/data-ownership.md`.
 
 ## Model downloads
 

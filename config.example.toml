@@ -78,3 +78,11 @@ private_terms = [
 max_attempts = 5
 backoff_base_seconds = 2
 visibility_timeout_seconds = 3600
+
+[retention]
+# Planning only: `meeting-wiki retention-plan` reports what each rule would
+# remove. Nothing is ever deleted automatically. Omit a value to keep forever.
+# audio_days = 90
+# dismissed_jobs_days = 30
+live_tmp_hours = 24
+# backups_keep = 5

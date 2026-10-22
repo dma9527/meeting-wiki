@@ -242,6 +242,90 @@ def memory_resources_command(config, args) -> int:
     return 0
 
 
+def _read_passphrase(args, *, confirm: bool) -> str:
+    """Read the passphrase from one stdin line or a hidden TTY prompt. Never from argv/env."""
+    import getpass
+    import sys
+
+    if args.passphrase_stdin:
+        line = sys.stdin.readline()
+        return line[:-1] if line.endswith("\n") else line
+    if not sys.stdin.isatty():
+        raise RuntimeError("passphrase_requires_tty_or_stdin")
+    passphrase = getpass.getpass("Backup passphrase: ")
+    if confirm and getpass.getpass("Repeat passphrase: ") != passphrase:
+        raise RuntimeError("passphrase_mismatch")
+    return passphrase
+
+
+def backup_command(args, config=None) -> int:
+    from .backup import (
+        BackupError,
+        create_backup,
+        default_archive_path,
+        restore_backup,
+        verify_backup,
+    )
+
+    try:
+        passphrase = _read_passphrase(args, confirm=args.command == "backup-create")
+        if args.command == "backup-create":
+            output = Path(args.output) if args.output else default_archive_path(config.data_dir)
+            report = create_backup(
+                config.data_dir,
+                args.config,
+                output,
+                passphrase,
+                storage_provider=config.providers.storage,
+            ).to_dict()
+        elif args.command == "backup-verify":
+            report = verify_backup(Path(args.archive), passphrase).to_dict()
+        else:
+            report = restore_backup(Path(args.archive), Path(args.target), passphrase).to_dict()
+            report.update(
+                {
+                    "restored": True,
+                    "target": str(Path(args.target).expanduser().resolve()),
+                    "secrets_restored": False,
+                }
+            )
+    except BackupError as error:
+        print(json.dumps({"error": error.code}))
+        return 1
+    except OSError:
+        print(json.dumps({"error": "backup_io_error"}))
+        return 1
+    except RuntimeError as error:
+        code = str(error)
+        known = {"passphrase_requires_tty_or_stdin", "passphrase_mismatch"}
+        print(json.dumps({"error": code if code in known else "backup_failed"}))
+        return 1
+    finally:
+        passphrase = ""
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def delete_preview_command(config, args) -> int:
+    from .deletion import DeletionPreviewError, preview_meeting_deletion
+    from .providers.local_storage import LocalFileStorage
+
+    shared = (
+        LocalFileStorage(config.data_dir)
+        if config.providers.storage == "local"
+        else _build_storage(config)
+    )
+    try:
+        preview = preview_meeting_deletion(
+            config.data_dir, shared, args.meeting, allow_private=args.allow_private
+        )
+    except DeletionPreviewError as error:
+        print(json.dumps({"error": str(error), "deleted": False}))
+        return 1
+    print(json.dumps(preview, indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meeting-wiki")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -360,7 +444,41 @@ def main(argv: list[str] | None = None) -> int:
     )
     events.add_argument("--limit", type=int, default=100)
 
+    passphrase_help = "Read the passphrase from one stdin line instead of a hidden prompt"
+    backup_create = sub.add_parser(
+        "backup-create",
+        help="Write an encrypted local backup (secrets are never included)",
+    )
+    backup_create.add_argument("--output", help="Archive path; refuses to overwrite")
+    backup_create.add_argument("--passphrase-stdin", action="store_true", help=passphrase_help)
+    backup_verify = sub.add_parser(
+        "backup-verify", help="Decrypt and check every archive member without writing files"
+    )
+    backup_verify.add_argument("--archive", required=True)
+    backup_verify.add_argument("--passphrase-stdin", action="store_true", help=passphrase_help)
+    backup_restore = sub.add_parser(
+        "backup-restore",
+        help="Restore into a new or empty directory; existing data is never overwritten",
+    )
+    backup_restore.add_argument("--archive", required=True)
+    backup_restore.add_argument("--target", required=True)
+    backup_restore.add_argument("--passphrase-stdin", action="store_true", help=passphrase_help)
+    delete_preview = sub.add_parser(
+        "delete-preview",
+        help="List every artifact a meeting deletion would affect; deletes nothing",
+    )
+    delete_preview.add_argument("--meeting", required=True, help="wiki/meetings/*.md key")
+    delete_preview.add_argument(
+        "--allow-private", action="store_true", help="Allow previewing a private meeting"
+    )
+    sub.add_parser(
+        "retention-plan",
+        help="Report what configured retention rules would remove; deletes nothing",
+    )
+
     args = parser.parse_args(argv)
+    if args.command in {"backup-verify", "backup-restore"}:
+        return backup_command(args)
     if args.command == "init":
         return init_command(args.config)
     if args.command == "mcp":
@@ -455,6 +573,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "events":
         journal = open_journal(config.data_dir)
         print(json.dumps({"events": journal.recent(args.limit) if journal else []}, indent=2))
+        return 0
+    if args.command == "backup-create":
+        return backup_command(args, config)
+    if args.command == "delete-preview":
+        return delete_preview_command(config, args)
+    if args.command == "retention-plan":
+        from .retention import plan_retention
+
+        print(json.dumps(plan_retention(config.data_dir, config.retention), indent=2))
         return 0
     if args.command in {"status", "retry", "dismiss", "restore", "cleanup-dismissed"}:
         queue = JobQueue(

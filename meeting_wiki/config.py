@@ -140,6 +140,16 @@ class JobConfig(BaseModel):
     visibility_timeout_seconds: int = Field(default=3600, ge=30, le=86400)
 
 
+class RetentionConfig(BaseModel):
+    """Planning thresholds only; `retention-plan` reports, it never deletes. None keeps forever."""
+
+    model_config = ConfigDict(extra="forbid")
+    audio_days: int | None = Field(default=None, ge=1, le=36500)
+    dismissed_jobs_days: int | None = Field(default=None, ge=1, le=36500)
+    live_tmp_hours: int | None = Field(default=24, ge=1, le=8760)
+    backups_keep: int | None = Field(default=None, ge=1, le=1000)
+
+
 def is_loopback_url(value: str) -> bool:
     parsed = urlparse(value)
     hostname = parsed.hostname
@@ -215,6 +225,7 @@ class AppConfig(BaseModel):
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     jobs: JobConfig = Field(default_factory=JobConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
     @field_validator("user_name")
     @classmethod
