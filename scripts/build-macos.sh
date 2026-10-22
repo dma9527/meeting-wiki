@@ -15,6 +15,9 @@ APP="dist/mac-$(uname -m)/Meeting Wiki.app"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 bash "$ROOT/scripts/assert-packaged-runtime.sh" "$APP"
+python3 "$ROOT/scripts/release_integrity.py" inventory --app "$APP"
+python3 "$ROOT/scripts/release_integrity.py" scan --app "$APP" \
+  --forbid-path "$HOME" --forbid-path "$ROOT"
 
 # This path is for local development artifacts. electron-builder may apply an
 # ad-hoc signature when no Developer ID identity is available. Never publish

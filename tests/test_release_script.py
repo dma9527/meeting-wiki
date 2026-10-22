@@ -87,3 +87,57 @@ def test_build_scripts_resign_the_app_after_electron_builder():
     release_after_builder = release_script.index("npx electron-builder --mac dir")
     release_resign = release_script.index('codesign --force --deep --sign "$IDENTITY" "$APP"')
     assert release_after_builder < release_resign
+
+
+def test_release_preflight_gates_run_before_check_only_exit():
+    script = _script("release-macos.sh")
+    check_only_exit = script.index('if [ "$CHECK_ONLY" -eq 1 ]; then')
+
+    source_identity = script.index('"$INTEGRITY" preflight --mode "$MODE"')
+    source_offer = script.index('[ -s "$SOURCE_OFFER" ] || fail')
+    identity = script.index('[ -n "$IDENTITY" ] || fail')
+    notary = script.index("xcrun notarytool history")
+
+    assert source_identity < source_offer < identity < notary < check_only_exit
+
+
+def test_release_defaults_to_tagged_mode_and_candidate_is_explicit():
+    script = _script("release-macos.sh")
+
+    assert "MODE=release\n" in script
+    assert "--candidate) MODE=candidate ;;" in script
+    assert '*) echo "usage:' in script
+
+
+def test_release_inspects_build_zip_and_dmg_before_checksums():
+    script = _script("release-macos.sh")
+
+    build_inspect = script.index('inspect_app "$APP"')
+    notarize = script.index("xcrun notarytool submit")
+    zip_inspect = script.index('inspect_app "$INSPECT_DIR/zip/Meeting Wiki.app"')
+    dmg_inspect = script.index('inspect_app "$INSPECT_DIR/dmg/Meeting Wiki.app"')
+    manifest = script.index('"$INTEGRITY" manifest --mode "$MODE"')
+    checksums = script.index("> SHA256SUMS")
+
+    assert build_inspect < notarize < zip_inspect < dmg_inspect < manifest < checksums
+    assert '"$(basename "$MANIFEST")" > SHA256SUMS' in script
+
+
+def test_release_inspection_covers_inventory_scan_and_source_offer():
+    script = _script("release-macos.sh")
+    start = script.index("inspect_app() {")
+    body = script[start : script.index("\n}\n", start)]
+
+    assert '"$INTEGRITY" inventory --app "$app"' in body
+    assert '--forbid-path "$HOME" --forbid-path "$ROOT"' in body
+    assert '"$INTEGRITY" source-offer --app "$app"' in body
+
+
+def test_local_build_inspects_inventory_and_privacy():
+    script = _script("build-macos.sh")
+
+    assertion = script.index("scripts/assert-packaged-runtime.sh")
+    inventory = script.index('release_integrity.py" inventory')
+    scan = script.index('release_integrity.py" scan')
+
+    assert assertion < inventory < scan < script.index("shasum -a 256")

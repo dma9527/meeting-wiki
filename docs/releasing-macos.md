@@ -93,35 +93,80 @@ Before releasing, update both Python and desktop versions and keep them equal:
 - `desktop/package.json`: `version`
 - `desktop/package-lock.json`: root package version
 
-Then run:
+Then commit the version bump and create the annotated release tag on that
+commit before building. The tag name is `v` plus the version, for example
+`v0.1.11`:
 
 ```bash
+git tag -a v0.1.11 -m "Meeting Wiki 0.1.11"
 scripts/release-macos.sh --check
 scripts/release-macos.sh
 ```
 
-The script performs these gates:
+To build an untagged release candidate for second-Mac testing, pass
+`--candidate`. Candidate builds go through every signing and notarization gate,
+but the release manifest records `"mode": "candidate"` and
+`"publishable": false`. Never upload a candidate as a release.
 
-1. Stages the bundled runtime with `scripts/prepare-runtime-macos.sh`
-   (requires `MEETING_WIKI_GPL_SOURCE_OFFER`; see `docs/portable-runtime.md`).
-   After electron-builder, `scripts/assert-packaged-runtime.sh` checks
-   `Resources/runtime/bin/{python,rec,sox}` before signing checks.
-1. Installs exact desktop dependencies with `npm ci`.
-2. Runs desktop tests.
-3. Builds the `.app` with the Developer ID Application identity.
-4. Verifies the signature and hardened runtime.
-5. Submits a ZIP container to Apple notarization and waits for acceptance.
-6. Staples and validates the ticket on the `.app`.
-7. Creates final ZIP and DMG artifacts from the stapled app.
-8. Submits, staples, and validates the final DMG.
+```bash
+scripts/release-macos.sh --check --candidate
+scripts/release-macos.sh --candidate
+```
+
+The script fails closed before building unless all of these hold:
+
+- The Git tree is clean, including untracked files.
+- `pyproject.toml`, `desktop/package.json`, and both versions in
+  `desktop/package-lock.json` are equal and committed at `HEAD`.
+- Release mode: annotated tag `vVERSION` points at `HEAD`. Candidate mode:
+  `vVERSION` does not already point at a different commit.
+- `MEETING_WIKI_GPL_SOURCE_OFFER` names a non-empty file supplied by the
+  release owner. The script never writes or assumes a source offer.
+- A valid Developer ID Application identity and working notarization
+  credentials are available.
+
+The build then performs these gates:
+
+1. Runs `scripts/verify-local.sh`.
+2. Stages the bundled runtime with `scripts/prepare-runtime-macos.sh`
+   (see `docs/portable-runtime.md`).
+3. Installs exact desktop dependencies with `npm ci` and runs desktop tests.
+4. Builds the `.app` with the Developer ID Application identity and checks
+   `Resources/runtime/bin/{python,rec,sox}` with
+   `scripts/assert-packaged-runtime.sh`.
+5. Inspects the `.app` with `scripts/release_integrity.py`: every
+   `build.files` entry is in `app.asar` with the committed content (including
+   the Claude skill `skills/meeting-wiki-memory/SKILL.md`), every
+   `build.extraResources` file is in `Resources` (including the Google Meet
+   extension and the runtime), no undeclared file appears under those
+   resources, no user data, secret-shaped content, or build host path is
+   present, and the packaged source offer matches
+   `MEETING_WIKI_GPL_SOURCE_OFFER`.
+6. Verifies the signature and hardened runtime.
+7. Notarizes, staples, and validates the `.app`.
+8. Creates the final ZIP and DMG from the stapled app, then notarizes,
+   staples, and validates the DMG.
 9. Runs Gatekeeper assessment with `spctl`.
-10. Writes `SHA256SUMS`.
+10. Extracts the final ZIP and attaches the final DMG read-only, repeats the
+    step 5 inspection and Gatekeeper assessment on each copy, and checks the
+    DMG contains only `Meeting Wiki.app` and the `Applications` link.
+11. Re-runs the source preflight and writes `release-manifest.json`.
+12. Writes `SHA256SUMS` for the DMG, ZIP, and release manifest.
+
+`release-manifest.json` records the source commit, tag, mode, app version,
+staged and packaged runtime tree hashes, Python and dependency lock hashes,
+Google Meet extension version, Claude skill hash, `LICENSE` and `NOTICE`
+hashes, the source offer hash, and the size and SHA-256 of each artifact. It
+contains file names only, never build host paths.
 
 Successful output is written under:
 
 ```text
 desktop/dist/release/
 ```
+
+See `docs/release-checklist.md` for the full sign-off list and
+`docs/known-issues.md` for open release blockers.
 
 ## Independent release verification
 
@@ -150,13 +195,16 @@ Also verify:
 ## GitHub release process
 
 1. Run `scripts/verify-local.sh` and the public safety and gitleaks scans.
-2. Create the signed and notarized artifacts from a clean checkout.
-3. Test the artifacts on a second Mac.
-4. Create a version tag only after every gate passes.
-5. Create a draft GitHub Release.
-6. Upload the DMG, ZIP, and `SHA256SUMS`.
-7. Verify downloaded checksums and Gatekeeper behavior again.
-8. Publish the release.
+2. Build a `--candidate` from a clean checkout and test it on a second Mac.
+3. Commit any fixes, then create the annotated `vVERSION` tag on the final
+   commit. Do not push the tag until step 5 passes.
+4. Run `scripts/release-macos.sh` from a clean checkout of that tag.
+5. Test the tagged artifacts on a second Mac.
+6. Push the tag and create a draft GitHub Release.
+7. Upload the DMG, ZIP, `release-manifest.json`, `SHA256SUMS`, and the source
+   offer materials.
+8. Verify downloaded checksums and Gatekeeper behavior again.
+9. Publish the release.
 
 Never replace artifacts under an existing version tag. Fix forward with a new
 patch version.
