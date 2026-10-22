@@ -34,6 +34,11 @@ Optional S3 storage can be selected, but `private/` is hard-blocked and remains
 local. No provider receives private data unless it is the explicitly selected
 LLM or transcription provider needed to process that meeting.
 
+S3 writes are grouped into revisions: content-addressed blobs are uploaded
+first, then one manifest is swapped with a conditional PUT. Readers resolve
+every key through one manifest, so they never observe a partial meeting
+revision. Local storage keeps its per-file atomic replace behavior.
+
 ## Determinism
 
 LLM extraction itself is probabilistic. The deterministic guarantee begins

@@ -383,6 +383,16 @@ Access, default encryption, versioning, and a least-privilege identity scoped to
 the configured prefix. Meeting Wiki requests SSE-S3 for every object and refuses
 to mirror any `private/` key. Review retention and deletion policies before use.
 
+Shared S3 content is written as immutable, SHA-256-addressed objects under
+`<prefix>/_meeting-wiki/objects/`. A single revision manifest at
+`<prefix>/_meeting-wiki/manifest.json` maps wiki keys to those objects and is
+replaced with a conditional PUT (`If-Match` / `If-None-Match`). A meeting's
+transcript, analysis, and every wiki page it updates become visible together,
+or not at all. If another writer changed a page the current job read, the job
+fails with a conflict and can be retried instead of overwriting newer content.
+Grant the identity `s3:GetObject`, `s3:PutObject`, and `s3:ListBucket` on the
+prefix. Objects written before manifests existed stay readable until replaced.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

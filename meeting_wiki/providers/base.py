@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -169,6 +169,12 @@ class StorageProvider(Protocol):
     def exists(self, key: str) -> bool: ...
 
     def list_keys(self, prefix: str = "") -> list[str]: ...
+
+
+def storage_revision(storage: StorageProvider) -> AbstractContextManager[None]:
+    """Group writes into one atomic revision when the provider supports it."""
+    begin = getattr(storage, "revision", None)
+    return begin() if callable(begin) else nullcontext()
 
 
 class CalendarEvent:

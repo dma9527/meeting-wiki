@@ -22,7 +22,7 @@ from .models import (
 )
 from .outbox import TaskOutbox
 from .privacy import classify
-from .providers.base import EmptyTranscriptError, TranscriptionContext
+from .providers.base import EmptyTranscriptError, TranscriptionContext, storage_revision
 from .providers.registry import ProviderBundle
 from .providers.transcription import TextImportTranscriber
 from .wiki import RenderResult, WikiRenderer, stable_id
@@ -87,12 +87,14 @@ class MeetingEngine:
         else:
             transcript = self._transcribe(meeting)
 
-        storage.write_text(transcript_key, transcript.text.rstrip() + "\n", private=private)
-        storage.write_text(
-            transcript_data_key,
-            transcript.model_dump_json(indent=2) + "\n",
-            private=private,
-        )
+        # The transcript pair is its own revision so a failed analysis can reuse it.
+        with storage_revision(storage):
+            storage.write_text(transcript_key, transcript.text.rstrip() + "\n", private=private)
+            storage.write_text(
+                transcript_data_key,
+                transcript.model_dump_json(indent=2) + "\n",
+                private=private,
+            )
 
         report(JobStage.ANALYZING)
         analysis = self.providers.llm.analyze(meeting, transcript).model_copy(
@@ -103,14 +105,15 @@ class MeetingEngine:
             if private
             else f"analysis/{date}-{source_id}.json"
         )
-        storage.write_text(
-            analysis_key,
-            analysis.model_dump_json(indent=2) + "\n",
-            private=private,
-        )
         report(JobStage.RENDERING)
-        renderer = WikiRenderer(storage)
-        render = renderer.apply(meeting, analysis, transcript_key)
+        # Analysis and every wiki page it touches publish as one revision.
+        with storage_revision(storage):
+            storage.write_text(
+                analysis_key,
+                analysis.model_dump_json(indent=2) + "\n",
+                private=private,
+            )
+            render = WikiRenderer(storage).apply(meeting, analysis, transcript_key)
         MemoryStore(self.config.data_dir / "memory.db").index_meeting(
             meeting, analysis, transcript, render.meeting_key
         )
