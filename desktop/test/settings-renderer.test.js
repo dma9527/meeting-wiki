@@ -94,23 +94,31 @@ test("settings.css loads no external resources", () => {
   assert.doesNotMatch(read("settings.css"), /@import|url\(/);
 });
 
-test("the recording form edits only the maximum length, with a label, error, and status", () => {
+test("the recording form edits duration, privacy, and live defaults with labels and status", () => {
   const html = read("settings.html");
   const panel = section(html, "panel-recording-settings");
   const names = [...panel.matchAll(/<(?:input|textarea)\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(names, ["maxDurationMinutes"]);
+  assert.deepEqual(names, ["maxDurationMinutes", "defaultPrivacyMode", "defaultPrivacyMode", "liveEnabled"]);
   assert.match(panel, /<label for="max-duration-minutes">/);
+  assert.match(panel, /<label for="default-privacy-shared">/);
+  assert.match(panel, /<label for="default-privacy-private">/);
+  assert.match(panel, /<label for="recording-live-enabled">/);
   assert.match(panel, /<input id="max-duration-minutes"(?![^>]*\bvalue=)[^>]*type="number"[^>]*>/);
   assert.match(panel, /id="max-duration-minutes-error" class="field-error"/);
+  assert.match(panel, /external[^<]*provider receives microphone audio and transcript text/i);
+  assert.match(panel, /including for private[^<]*recordings/i);
+  assert.match(panel, /id="recording-defaults-notice"[^>]*role="note"/);
   assert.match(panel, /id="recording-status"[^>]*role="status"/);
   assert.ok(html.indexOf("panel-identity-settings") < html.indexOf("panel-recording-settings"));
   assert.ok(html.indexOf("panel-recording-settings") < html.indexOf("panel-gemini-settings"));
 });
 
-test("settings.js loads and saves the recording limit through the bridge without claiming a restart", () => {
+test("settings.js loads and saves recording defaults through the bridge without restarting processing", () => {
   const js = read("settings.js");
   assert.match(js, /call\("getRecordingSettings"\)/);
-  assert.match(js, /call\("saveRecordingSettings", \{ maxDurationMinutes: minutes \}\)/);
+  assert.match(js, /call\("saveRecordingSettings", next\)/);
+  assert.match(js, /defaultPrivacyMode/);
+  assert.match(js, /recording-live-enabled/);
   assert.match(js, /setRecordingStatus\(savedMessage\(changed\), "ok"\)/);
   assert.doesNotMatch(js, /restarted/);
   assert.match(js, /!identityReady && !geminiReady && !recordingReady/);

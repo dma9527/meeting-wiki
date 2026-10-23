@@ -7,11 +7,13 @@ automatic recording**.
 
 ## What happens
 
-- **Join:** Meeting Wiki runs the same start as **Start recording...** after
-  the record panel: the same capture, time limit, live view, and "Recording
-  started" notification. There is no countdown. The tray icon switches to the
-  recording icon for the whole recording, which is the notice that it is
-  running. An open record panel is closed.
+- **Join:** Meeting Wiki uses the same capture, time limit, saved live default,
+  and "Recording started" notification as a manual quick start. When live is
+  enabled and supported, the sidebar, translation, and rolling summary start
+  automatically. Until recording defaults are saved, automatic live features
+  stay off. There is no countdown. Automatic privacy still comes from
+  **Settings > Automatic recording**. The tray icon switches to the recording
+  icon for the whole recording, and an open options panel is closed.
 - **Leave:** Meeting Wiki runs the same stop as **Stop and process**. The
   recording is saved and queued for processing.
 - **Short meetings:** if the meeting ended within 10 seconds of the recording

@@ -63,7 +63,8 @@ Running setup again is transactional:
 - Gemini models, including the live transcription model.
 - Live translation language (a code such as `zh` or a name such as Japanese)
   and summary context size.
-- Maximum recording length.
+- Recording defaults for privacy, automatic live captions, translation,
+  rolling summary, and maximum length.
 - Automatic recording for Zoom and Google Meet, and where those recordings go
   (private, follow my calendar, or shared).
 

@@ -33,7 +33,19 @@ function pickIdentitySettings(settings) {
 function pickRecordingSettings(settings) {
   const source = settings && typeof settings === "object" ? settings : {};
   const minutes = source.maxDurationMinutes;
-  return { maxDurationMinutes: typeof minutes === "number" || typeof minutes === "string" ? minutes : "" };
+  return {
+    maxDurationMinutes: typeof minutes === "number" || typeof minutes === "string" ? minutes : "",
+    defaultPrivacyMode: source.defaultPrivacyMode === "private" || source.defaultPrivacyMode === "shared"
+      ? source.defaultPrivacyMode
+      : "",
+    liveEnabled: source.liveEnabled === true,
+    expectedDefaultsConfigured: source.expectedDefaultsConfigured === true,
+    expectedDefaultPrivacyMode: source.expectedDefaultPrivacyMode === "private"
+      || source.expectedDefaultPrivacyMode === "shared"
+      ? source.expectedDefaultPrivacyMode
+      : "",
+    expectedLiveEnabled: source.expectedLiveEnabled === true,
+  };
 }
 
 const AUTO_RECORD_PRIVACY = new Set(["private", "calendar", "shared"]);

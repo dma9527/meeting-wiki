@@ -233,6 +233,7 @@ test("tray bulk retry confirms the job count before retrying", () => {
 test("automatic starts take privacy from the saved mode, manual starts from the panel", () => {
   const start = functionBody("startRecording");
   assert.match(start, /const auto = source \? autoRecordStartOptions\(readAutoRecordPrivacy\(fs, DATA_DIR\)\.mode\) : null;/);
+  assert.match(start, /const liveEnabled = source\s*\? recordingDefaults\.configured && recordingDefaults\.values\.liveEnabled\s*:\s*requestedLive === true;/);
   assert.match(start, /const isPrivate = auto \? auto\.isPrivate : requestedPrivate === true;/);
   assert.match(start, /capture\.active\.requireCalendarMatch = Boolean\(auto && auto\.requireCalendarMatch\);/);
   const stop = functionBody("stopRecording");

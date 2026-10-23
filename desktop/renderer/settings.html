@@ -66,13 +66,17 @@
         </section>
 
         <section id="panel-recording-settings" class="panel" aria-labelledby="recording-settings-heading" tabindex="-1" hidden>
-          <h1 id="recording-settings-heading" class="display">Recording length</h1>
+          <h1 id="recording-settings-heading" class="display">Recording defaults</h1>
           <p class="lede">
-            Recording stops on its own at this limit, then the meeting is saved and processed the same way as when
-            you stop it yourself.
+            Normal Start recording actions use these choices without opening the options form. Use Start with options
+            for a one-record override. A meeting title is never saved as a default.
           </p>
 
           <form id="recording-settings-form" novalidate>
+            <p id="recording-defaults-notice" class="notice" role="note" hidden>
+              Choose privacy and live behavior once. Until you save, normal Start recording opens the options form and
+              automatic recordings keep live captions, translation, and summary off.
+            </p>
             <div class="field">
               <label for="max-duration-minutes">Maximum meeting length (minutes)</label>
               <input id="max-duration-minutes" name="maxDurationMinutes" type="number" inputmode="numeric" step="1" required aria-describedby="max-duration-minutes-hint max-duration-minutes-applies max-duration-minutes-error" />
@@ -81,10 +85,34 @@
               <p id="max-duration-minutes-error" class="field-error" hidden></p>
             </div>
 
+            <fieldset id="default-privacy-mode" class="settings-choices" aria-describedby="default-privacy-mode-applies">
+              <legend class="subhead">Default note location</legend>
+              <div class="consent">
+                <input type="radio" id="default-privacy-shared" name="defaultPrivacyMode" value="shared" />
+                <label for="default-privacy-shared">Shared wiki, unless calendar or title rules make it private</label>
+              </div>
+              <div class="consent">
+                <input type="radio" id="default-privacy-private" name="defaultPrivacyMode" value="private" />
+                <label for="default-privacy-private">Private folder on this Mac</label>
+              </div>
+              <p id="default-privacy-mode-applies" class="hint applies" data-applies-for="defaultPrivacyMode"></p>
+            </fieldset>
+
+            <div class="consent">
+              <input id="recording-live-enabled" name="liveEnabled" type="checkbox" aria-describedby="recording-live-enabled-hint recording-live-enabled-applies" />
+              <label for="recording-live-enabled">Start live captions, translation, and rolling summary</label>
+            </div>
+            <p id="recording-live-enabled-hint" class="hint">
+              The live sidebar opens automatically when the selected provider supports live features. An external
+              provider receives microphone audio and transcript text for these live features, including for private
+              recordings. Batch recording and processing continue when live features are unavailable.
+            </p>
+            <p id="recording-live-enabled-applies" class="hint applies" data-applies-for="recordingLiveEnabled"></p>
+
             <p id="recording-status" class="status" role="status" aria-live="polite"></p>
 
             <div class="actions">
-              <button type="submit" class="button button-primary" id="recording-save">Save limit</button>
+              <button type="submit" class="button button-primary" id="recording-save">Save recording defaults</button>
             </div>
           </form>
         </section>
@@ -120,7 +148,7 @@
               <p id="auto-record-privacy-hint" class="hint">
                 Private is the default. Follow my calendar uses the calendar event that matches when the recording
                 starts, decided once and kept on retries. With no calendar, or no matching event, the meeting is
-                private. Manual recordings always ask in the record panel.
+                private. Manual recordings use your saved defaults. Choose Start with options for a one-record override.
               </p>
               <p id="auto-record-privacy-applies" class="hint applies" data-applies-for="autoRecordPrivacy"></p>
             </fieldset>

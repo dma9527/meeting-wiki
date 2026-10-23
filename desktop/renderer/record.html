@@ -19,7 +19,7 @@
 
       <form id="record-form" class="panel" aria-labelledby="record-heading" novalidate>
         <h1 id="record-heading" class="display">Start a recording</h1>
-        <p class="lede">Check these details, then start. Nothing is recorded until you press Start recording.</p>
+        <p id="record-intro" class="lede">Check these details, then start. Nothing is recorded until you press Start recording.</p>
 
         <div class="field">
           <label for="record-title">Meeting title (optional)</label>
@@ -31,7 +31,7 @@
         <fieldset class="record-privacy">
           <legend>Where the notes go</legend>
           <label class="record-choice" for="record-shared">
-            <input type="radio" id="record-shared" name="privacy" value="shared" checked aria-describedby="record-shared-desc" />
+            <input type="radio" id="record-shared" name="privacy" value="shared" aria-describedby="record-shared-desc" />
             <span>
               <span class="record-choice-title">Shared wiki</span>
               <span id="record-shared-desc" class="hint">Notes, people, topics, decisions, and action items update your shared wiki on this Mac.</span>
@@ -45,6 +45,14 @@
             </span>
           </label>
         </fieldset>
+
+        <div class="consent record-live-choice">
+          <input type="checkbox" id="record-live-enabled" name="liveEnabled" checked aria-describedby="record-live-enabled-desc" />
+          <label for="record-live-enabled">Start live captions, translation, and rolling summary</label>
+        </div>
+        <p id="record-live-enabled-desc" class="hint">
+          When your provider supports live features, the sidebar opens automatically after recording starts.
+        </p>
 
         <div id="record-blockers" class="notice notice-error" role="alert" hidden>
           <p id="record-blockers-text"></p>

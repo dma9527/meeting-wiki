@@ -49,7 +49,7 @@ Join a meeting
 ## What it does today
 
 - Records microphone and system audio from the macOS menu bar.
-- Shows a pre-record panel with title, privacy, capture readiness, live status, and time limit.
+- Shows recording options on first use and for one-record overrides, including title, privacy, capture readiness, live status, and time limit.
 - Runs a live sidebar with transcript, translation, and rolling summary while recording.
 - Renews Gemini Live sessions before the provider connection limit when supported.
 - Stops, saves, and processes recordings when an opt-in Zoom or Google Meet integration detects a meeting end.
@@ -87,8 +87,10 @@ candidate test fails.
 
 ### 3. Record one short meeting
 
-Choose **Start recording...** or press `Cmd+Shift+0`. Confirm shared or
-private storage, then start. When you stop, Meeting Wiki saves the recording,
+The first time, choose **Start recording** or press `Cmd+Shift+0`, select the
+privacy and live defaults, then start. Later normal starts use those saved
+defaults immediately. Choose **Start with options...** for a one-record title,
+privacy, or live override. When you stop, Meeting Wiki saves the recording,
 queues durable processing, and writes the result to your local wiki.
 
 [Recording guide](docs/guide/recording.md)

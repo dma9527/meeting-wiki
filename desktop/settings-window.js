@@ -1,8 +1,8 @@
 "use strict";
 
 // Settings window. Same lockdown as setup-window.js. It edits the [identity] section and
-// the five Gemini feature values in a setup-managed config, plus the desktop-only recording
-// limit and auto-record opt-ins in desktop-settings.json. It never touches the secret store.
+// the five Gemini feature values in a setup-managed config, plus desktop-only recording
+// defaults, duration, and auto-record opt-ins in desktop-settings.json. It never touches the secret store.
 
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -28,7 +28,10 @@ const {
   MAX_DURATION_BOUNDS,
   RecordingSettingsError,
   readMaxDurationMinutes,
-  saveMaxDurationMinutes,
+  readRecordingDefaults,
+  saveRecordingPreferences,
+  validateMaxDurationMinutes,
+  validateRecordingDefaults,
 } = require("./recording-settings");
 const { settingMetadata } = require("./setting-metadata");
 const { IntegrationError } = require("./integration-service");
@@ -222,9 +225,15 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
 
     getRecordingSettings() {
       if (!recordingReady()) return { ready: false, reason: NOT_ONLINE_RECORDING };
+      const defaults = readRecordingDefaults(fs, dataDir);
       return {
         ready: true,
-        values: { maxDurationMinutes: readMaxDurationMinutes(fs, dataDir) },
+        values: {
+          maxDurationMinutes: readMaxDurationMinutes(fs, dataDir),
+          defaultsConfigured: defaults.configured,
+          defaultPrivacyMode: defaults.values.privacyMode,
+          liveEnabled: defaults.values.liveEnabled,
+        },
         bounds: { maxDurationMinutes: { ...MAX_DURATION_BOUNDS } },
       };
     },
@@ -234,8 +243,37 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       if (!recordingReady()) throw new SettingsError(NOT_ONLINE_RECORDING);
       const source = raw && typeof raw === "object" ? raw : {};
       try {
-        const maxDurationMinutes = saveMaxDurationMinutes(fs, dataDir, source.maxDurationMinutes, atomicWriteFile);
-        return { ok: true, values: { maxDurationMinutes } };
+        const maxDurationMinutes = validateMaxDurationMinutes(source.maxDurationMinutes);
+        const defaults = validateRecordingDefaults({
+          privacyMode: source.defaultPrivacyMode,
+          liveEnabled: source.liveEnabled,
+        });
+        const current = readRecordingDefaults(fs, dataDir);
+        const expectedMatches = typeof source.expectedDefaultsConfigured === "boolean"
+          && source.expectedDefaultsConfigured === current.configured
+          && source.expectedDefaultPrivacyMode === current.values.privacyMode
+          && source.expectedLiveEnabled === current.values.liveEnabled;
+        if (!expectedMatches) {
+          throw new RecordingSettingsError("Recording defaults changed. Close and reopen Settings before saving.");
+        }
+        const values = saveRecordingPreferences(
+          fs,
+          dataDir,
+          {
+            maxDurationMinutes,
+            privacyMode: defaults.privacyMode,
+            liveEnabled: defaults.liveEnabled,
+          },
+          atomicWriteFile,
+        );
+        return {
+          ok: true,
+          values: {
+            maxDurationMinutes: values.maxDurationMinutes,
+            defaultPrivacyMode: values.privacyMode,
+            liveEnabled: values.liveEnabled,
+          },
+        };
       } catch (error) {
         throw error instanceof RecordingSettingsError ? new SettingsError(error.message) : error;
       }

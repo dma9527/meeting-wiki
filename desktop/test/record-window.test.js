@@ -66,12 +66,12 @@ test("the controller refuses to start while a blocker remains", () => {
     getContext: () => ({ recording: false, blockers: ["microphone_blocked"] }),
     onStart: (request) => started.push(request),
   });
-  assert.throws(() => controller.start({}), /Microphone access is blocked/);
+  assert.throws(() => controller.start({ privacyMode: "shared", liveEnabled: false }), /Microphone access is blocked/);
   const setupController = record.createRecordController({
     getContext: () => ({ recording: false, blockers: ["setup_incomplete"] }),
     onStart: (request) => started.push(request),
   });
-  assert.throws(() => setupController.start({}), /Finish setup/);
+  assert.throws(() => setupController.start({ privacyMode: "shared", liveEnabled: false }), /Finish setup/);
   assert.equal(started.length, 0);
 });
 
@@ -137,11 +137,18 @@ test("engine, key, manual config, permissions, and recording state map to codes"
   assert.equal(odd.recording, true);
 });
 
-test("start requests accept only a one-line title and an explicit private true", () => {
-  assert.deepEqual(record.validateStartRequest({ title: "  Weekly \n sync  ", private: true }), { title: "Weekly sync", isPrivate: true });
-  assert.deepEqual(record.validateStartRequest({}), { title: "", isPrivate: false });
-  for (const flag of ["true", 1, "yes", null]) {
-    assert.equal(record.validateStartRequest({ private: flag }).isPrivate, false);
+test("start requests accept a one-line title, explicit privacy, and a strict live opt-out", () => {
+  assert.deepEqual(record.validateStartRequest({ title: "  Weekly \n sync  ", privacyMode: "private", liveEnabled: false }), {
+    title: "Weekly sync",
+    isPrivate: true,
+    liveEnabled: false,
+  });
+  assert.deepEqual(record.validateStartRequest({ privacyMode: "shared" }), { title: "", isPrivate: false, liveEnabled: false });
+  for (const privacyMode of ["", "calendar", true, null, undefined]) {
+    assert.throws(() => record.validateStartRequest({ privacyMode }), /Choose where the notes go/);
+  }
+  for (const flag of ["false", 0, null]) {
+    assert.throws(() => record.validateStartRequest({ privacyMode: "shared", liveEnabled: flag }), /Choose whether live/);
   }
   assert.throws(() => record.validateStartRequest({ title: "x".repeat(201) }), /200 characters/);
   assert.throws(() => record.validateStartRequest({ title: "bad\u0001title" }), /control characters/);
@@ -155,10 +162,10 @@ test("the controller starts only when idle and passes the validated request", ()
     getContext: () => ({ recording, blockers: [] }),
     onStart: (request) => started.push(request),
   });
-  assert.deepEqual(controller.start({ title: "Design review", private: true, extra: "dropped" }), { ok: true });
-  assert.deepEqual(started, [{ title: "Design review", isPrivate: true }]);
+  assert.deepEqual(controller.start({ title: "Design review", privacyMode: "private", liveEnabled: false, extra: "dropped" }), { ok: true });
+  assert.deepEqual(started, [{ title: "Design review", isPrivate: true, liveEnabled: false }]);
   recording = true;
-  assert.throws(() => controller.start({}), /already running/);
+  assert.throws(() => controller.start({ privacyMode: "shared", liveEnabled: false }), /already running/);
   assert.equal(started.length, 1);
 });
 
@@ -235,8 +242,37 @@ test("the record window matches setup hardening and closes before capture starts
   const url = pathToFileURL(path.join(DESKTOP, "renderer", "record.html")).href;
   const start = fake.handlers.get(record.CHANNELS.start);
   assert.match((await start({ sender: win.webContents, senderFrame: { url: "https://evil.test/" } }, {})).error, /recording window/);
-  assert.deepEqual(await start({ sender: win.webContents, senderFrame: { url } }, { title: "Retro", private: false }), { ok: true });
-  assert.deepEqual(events, [["start", { title: "Retro", isPrivate: false }, true]]);
+  assert.deepEqual(await start({ sender: win.webContents, senderFrame: { url } }, { title: "Retro", privacyMode: "shared", liveEnabled: true }), { ok: true });
+  assert.deepEqual(events, [["start", { title: "Retro", isPrivate: false, liveEnabled: true }, true]]);
+});
+
+test("an already-open options window keeps its original controller and mode", async () => {
+  const modulePath = require.resolve("../record-window");
+  delete require.cache[modulePath];
+  const freshRecord = require(modulePath);
+  const fake = fakeElectron();
+  const firstEvents = [];
+  const secondEvents = [];
+  const first = freshRecord.createRecordWindow(fake.electron, {
+    getContext: () => ({ recording: false, blockers: [] }),
+    onStart: (request) => firstEvents.push(request),
+  });
+  const second = freshRecord.createRecordWindow(fake.electron, {
+    getContext: () => ({ recording: false, blockers: [] }),
+    onStart: (request) => secondEvents.push(request),
+  });
+  assert.equal(second, first);
+  const url = pathToFileURL(path.join(DESKTOP, "renderer", "record.html")).href;
+  const start = fake.handlers.get(freshRecord.CHANNELS.start);
+  assert.deepEqual(
+    await start(
+      { sender: first.webContents, senderFrame: { url } },
+      { title: "First mode", privacyMode: "private", liveEnabled: true },
+    ),
+    { ok: true },
+  );
+  assert.deepEqual(firstEvents, [{ title: "First mode", isPrivate: true, liveEnabled: true }]);
+  assert.deepEqual(secondEvents, []);
 });
 
 test("the record bridge exposes only its fixed actions with picked fields", async () => {
@@ -261,14 +297,14 @@ test("the record bridge exposes only its fixed actions with picked fields", asyn
   assert.equal(exposed.name, "meetingWikiRecord");
   assert.deepEqual(Object.keys(exposed.api).sort(), ["cancel", "getContext", "openPrivacySettings", "openSetup", "start"]);
   await exposed.api.getContext("ignored");
-  await exposed.api.start({ title: "Sync", private: "true", configPath: "/etc/passwd" });
+  await exposed.api.start({ title: "Sync", privacyMode: "private", private: "true", liveEnabled: false, configPath: "/etc/passwd" });
   await exposed.api.cancel();
   await exposed.api.openSetup("ignored");
   await exposed.api.openPrivacySettings("microphone");
   await exposed.api.openPrivacySettings({ url: "https://evil.test" });
   assert.deepEqual(invocations, [
     { channel: record.CHANNELS.getContext, args: [] },
-    { channel: record.CHANNELS.start, args: [{ title: "Sync", private: false }] },
+    { channel: record.CHANNELS.start, args: [{ title: "Sync", privacyMode: "private", liveEnabled: false }] },
     { channel: record.CHANNELS.cancel, args: [] },
     { channel: record.CHANNELS.openSetup, args: [] },
     { channel: record.CHANNELS.openPrivacySettings, args: ["microphone"] },
@@ -284,9 +320,10 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   }
   assert.doesNotMatch(html, /<script>|\sstyle="|\son[a-z]+="|(src|href)="(https?:)?\/\//);
   assert.match(html, /<label for="record-title">/);
-  assert.match(html, /id="record-shared"[^>]*checked/);
+  assert.doesNotMatch(html, /id="record-shared"[^>]*checked/);
   assert.doesNotMatch(html, /id="record-private"[^>]*checked/);
   for (const id of ["record-capture", "record-processing", "record-duration", "record-live"]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /type="checkbox"[^>]*id="record-live-enabled"[^>]*checked/);
   assert.match(html, /type="submit" class="button button-primary" id="record-start">Start recording</);
 
   const js = read("renderer/record.js");
@@ -296,7 +333,7 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   assert.doesNotMatch(init, /call\("start"/);
   assert.match(js, /including for this private meeting/);
   assert.match(js, /Live captions use your microphone only/);
-  assert.match(js, /start\.disabled = blocked;/);
+  assert.match(js, /start\.disabled = systemBlocked \|\| privacyMissing;/);
   assert.match(html, /id="record-blockers"[^>]*role="alert"[^>]*hidden/);
   for (const id of ["record-open-setup", "record-open-microphone", "record-open-system-audio"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*type="button"|type="button"[^>]*id="${id}"`));
@@ -304,13 +341,20 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   assert.doesNotMatch(js, /context\.systemAudio === "(granted|denied|restricted)"/);
 });
 
-test("main removes implicit next-recording state and confirms every start and import", () => {
+test("main uses saved defaults for quick start and reserves the panel for first use or overrides", () => {
   const main = read("main.js");
   assert.doesNotMatch(main, /nextTitle|nextPrivate|askTitle|osascript|Mark next recording private|Set next title/);
-  assert.match(main, /\{ label: "Start recording\.\.\.", accelerator: "CommandOrControl\+Shift\+0", click: openRecordPanel \}/);
-  assert.match(main, /else if \(recordingSession\.idle\) openRecordPanel\(\);/);
-  assert.match(main, /onStart: \(request\) => \{ void startRecording\(request\); \}/);
-  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate: requestedPrivate = false, source = null, occurredAt = null \} = \{\}\)/);
+  assert.match(main, /function startManualRecording\(\)/);
+  assert.match(main, /readRecordingDefaults\(fs, DATA_DIR\)/);
+  assert.match(main, /const decision = decideManualStart\(\{ blockers: context\.blockers, defaults \}\);/);
+  assert.match(main, /openRecordPanel\(decision\.formMode\);/);
+  assert.match(main, /closeRecordWindow\(\);\s*void startRecording\(decision\.options\);/);
+  assert.match(main, /\{ label: "Start recording", accelerator: "CommandOrControl\+Shift\+0", click: startManualRecording \}/);
+  assert.match(main, /\{ label: "Start with options\.\.\.", click: \(\) => openRecordPanel\("override"\) \}/);
+  assert.match(main, /else if \(recordingSession\.idle\) startManualRecording\(\);/);
+  assert.match(main, /if \(formMode === "initial" && !readRecordingDefaults\(fs, DATA_DIR\)\.configured\)/);
+  assert.match(main, /saveRecordingDefaults\(\s*fs,\s*DATA_DIR/);
+  assert.match(main, /async function startRecording\(\{ title: requestedTitle = "", isPrivate: requestedPrivate = false, liveEnabled: requestedLive = false, source = null, occurredAt = null \} = \{\}\)/);
   const importBody = main.slice(main.indexOf("async function importAudio"), main.indexOf("function updateMenu"));
   assert.match(importBody, /if \(choice\.response !== 0\) return;/);
   assert.match(importBody, /choice\.checkboxChecked === true/);
@@ -323,7 +367,7 @@ test("main gates the live sidebar on a live adapter and keeps it reopenable", ()
   assert.match(main, /onOpenSetup: openSetupWindow/);
   assert.match(main, /openExternal: \(url\) => \{ void shell\.openExternal\(url\); \}/);
   const start = main.slice(main.indexOf("async function startRecording"), main.indexOf("// The limit, the user, and quit"));
-  assert.match(start, /if \(liveDecision\.liveStarts\) startLiveSession\(capture\.active\.micPath, isPrivate, liveDecision\);/);
+  assert.match(start, /if \(liveEnabled && liveDecision\.liveStarts\) startLiveSession\(capture\.active\.micPath, isPrivate, liveDecision\);/);
   const live = main.slice(main.indexOf("function startLiveSession"), main.indexOf("function readConfigText"));
   assert.match(live, /if \(live\.live === "ready"\) createLiveSidebarWindow\(\{ BrowserWindow \}\);/);
   assert.match(live, /destroyLiveSidebar\(\);/);

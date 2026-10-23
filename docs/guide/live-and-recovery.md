@@ -4,10 +4,12 @@
 
 ## Live sidebar
 
-When a recording starts with a provider that supports live captions, Meeting
-Wiki opens a **Meeting Wiki Live** window beside your meeting. With a provider
-that has no live adapter (such as Other online API key), no live window opens
-and nothing is started for live captions. It shows:
+When live captions are enabled for a recording, either by the saved default or
+**Start with options...**, and the provider supports them, Meeting Wiki opens
+a **Meeting Wiki Live** window beside your meeting. Automatic recordings keep
+live features off until recording defaults are saved. With a provider that has
+no live adapter (such as Other online API key), no live window opens and
+nothing is started for live captions. It shows:
 
 - a status line and any live issue;
 - a **Private session** badge for private recordings;

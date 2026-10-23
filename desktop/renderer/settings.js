@@ -9,7 +9,7 @@
 //   getGeminiSettings()  -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveGeminiSettings(values) -> { ok: true, values } | { error }
 //   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
-//   saveRecordingSettings({ maxDurationMinutes }) -> { ok: true, values } | { error }
+//   saveRecordingSettings({ maxDurationMinutes, defaultPrivacyMode, liveEnabled }) -> { ok: true, values } | { error }
 //   getIntegrationSettings() -> { ready: true, values, readiness } | { ready: false, reason } | { error }
 //   saveIntegrationSettings({ zoomAutoRecord, googleMeetAutoRecord, autoRecordPrivacy }) -> { ok: true, values, readiness } | { error }
 //   showMeetExtension()  -> { ok: true } | { error }
@@ -251,8 +251,21 @@
     input.min = String(bounds.min);
     input.max = String(bounds.max);
     input.value = String(values.maxDurationMinutes ?? "");
+    if (values.defaultsConfigured === true) {
+      $(values.defaultPrivacyMode === "private" ? "default-privacy-private" : "default-privacy-shared").checked = true;
+    } else {
+      $("default-privacy-private").checked = false;
+      $("default-privacy-shared").checked = false;
+    }
+    $("recording-defaults-notice").hidden = values.defaultsConfigured === true;
+    $("recording-live-enabled").checked = values.liveEnabled !== false;
     $("max-duration-minutes-hint").textContent = `From ${bounds.min} to ${bounds.max} minutes.`;
-    let savedMinutes = values.maxDurationMinutes;
+    let savedValues = {
+      maxDurationMinutes: values.maxDurationMinutes,
+      defaultPrivacyMode: values.defaultPrivacyMode,
+      liveEnabled: values.liveEnabled,
+      defaultsConfigured: values.defaultsConfigured === true,
+    };
     $("panel-recording-settings").hidden = false;
 
     $("recording-settings-form").addEventListener("submit", async (event) => {
@@ -262,15 +275,24 @@
       const minutes = Number(raw);
       const valid = /^\d+$/.test(raw) && minutes >= bounds.min && minutes <= bounds.max;
       showFieldError(input, valid ? "" : `Enter a whole number from ${bounds.min} to ${bounds.max}.`);
-      if (!valid) {
+      const privacy = document.querySelector('input[name="defaultPrivacyMode"]:checked');
+      if (!valid || !privacy) {
         setRecordingStatus("Fix the highlighted field.", "error");
         return;
       }
+      const next = {
+        maxDurationMinutes: minutes,
+        defaultPrivacyMode: privacy.value,
+        liveEnabled: $("recording-live-enabled").checked,
+        expectedDefaultsConfigured: savedValues.defaultsConfigured,
+        expectedDefaultPrivacyMode: savedValues.defaultPrivacyMode,
+        expectedLiveEnabled: savedValues.liveEnabled,
+      };
       busy = true;
       const button = $("recording-save");
       button.setAttribute("aria-disabled", "true");
-      setRecordingStatus("Saving the recording limit.", "");
-      const saved = await call("saveRecordingSettings", { maxDurationMinutes: minutes });
+      setRecordingStatus("Saving recording defaults.", "");
+      const saved = await call("saveRecordingSettings", next);
       busy = false;
       button.removeAttribute("aria-disabled");
       const saveError = errorOf(saved);
@@ -279,8 +301,14 @@
         return;
       }
       input.value = String(saved.values.maxDurationMinutes);
-      const changed = saved.values.maxDurationMinutes === savedMinutes ? [] : ["maxDurationMinutes"];
-      savedMinutes = saved.values.maxDurationMinutes;
+      $(saved.values.defaultPrivacyMode === "private" ? "default-privacy-private" : "default-privacy-shared").checked = true;
+      $("recording-live-enabled").checked = saved.values.liveEnabled;
+      const changed = [];
+      if (saved.values.maxDurationMinutes !== savedValues.maxDurationMinutes) changed.push("maxDurationMinutes");
+      if (!savedValues.defaultsConfigured || saved.values.defaultPrivacyMode !== savedValues.defaultPrivacyMode) changed.push("defaultPrivacyMode");
+      if (!savedValues.defaultsConfigured || saved.values.liveEnabled !== savedValues.liveEnabled) changed.push("recordingLiveEnabled");
+      savedValues = { ...saved.values, defaultsConfigured: true };
+      $("recording-defaults-notice").hidden = true;
       setRecordingStatus(savedMessage(changed), "ok");
     });
   }

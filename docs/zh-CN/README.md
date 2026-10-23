@@ -13,8 +13,8 @@ Meeting Wiki 是一个本地优先的 macOS 会议记忆工具。它录下会议
 ## 快速开始
 
 1. 在 Apple Silicon Mac 上从源码**构建 App**。见[安装](guide/installation.md)。
-2. **打开 Meeting Wiki** 完成设置：选择 Gemini、其他 OpenAI 兼容服务或纯本地模式，并授予麦克风和“屏幕与系统音频录制”权限。见[设置与 API Key](guide/setup.md)。
-3. **开始录音**：在菜单栏选择 **Start recording...**（Cmd+Shift+0），选择 Shared wiki 或 Private，会议结束后停止。处理完成后，会议出现在 `~/.meeting-wiki/wiki/` 下。见[录音](guide/recording.md)。
+2. **打开 Meeting Wiki** 完成设置：选择 Gemini 或其他 OpenAI 兼容服务，并授予麦克风和“屏幕与系统音频录制”权限。Local only 设置入口在当前版本不可用。见[设置与 API Key](guide/setup.md)。
+3. **开始录音**：第一次选择 **Start recording**（Cmd+Shift+0）时，明确保存 privacy 和 live 默认值。之后普通 Start 会直接沿用这些设置；选择 **Start with options...** 可以只覆盖当前一次。处理完成后，会议出现在 `~/.meeting-wiki/wiki/` 下。见[录音](guide/recording.md)。
 
 ## 用户指南
 

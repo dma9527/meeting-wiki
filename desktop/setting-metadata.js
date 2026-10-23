@@ -29,6 +29,8 @@ const SETTINGS = Object.freeze({
   languageModel: Object.freeze({ form: "gemini", applies: "processingAndLive" }),
   translationTargetLanguage: Object.freeze({ form: "gemini", applies: "liveSession" }),
   summaryContextCharacters: Object.freeze({ form: "gemini", applies: "liveSession" }),
+  defaultPrivacyMode: Object.freeze({ form: "recording", applies: "nextRecording" }),
+  recordingLiveEnabled: Object.freeze({ form: "recording", applies: "nextRecording" }),
   maxDurationMinutes: Object.freeze({ form: "recording", applies: "nextRecording" }),
   zoomAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),
   googleMeetAutoRecord: Object.freeze({ form: "integrations", applies: "integration" }),

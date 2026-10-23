@@ -8,13 +8,19 @@ workplace, or the platform requires. Read [PRIVACY.md](../../PRIVACY.md).
 
 ## Manual recording
 
-1. In the menu bar, choose **Start recording...** or press Cmd+Shift+0.
-2. The confirmation panel opens. Choose **Shared wiki** or **Private**, and
-   optionally enter a title. The panel also shows capture permissions, where
-   audio is processed, the length limit, and live caption readiness. Nothing is
-   recorded until you confirm.
+1. The first time, choose **Start recording** or press Cmd+Shift+0. The
+   options panel asks for **Shared wiki** or **Private** and whether live
+   captions, translation, and rolling summary should start. Starting saves
+   those defaults.
+2. Later **Start recording** actions use the saved defaults immediately. Choose
+   **Start with options...** to enter an optional title or override privacy and
+   live behavior for one recording. The override does not change the defaults.
+   If setup is unfinished or the microphone is blocked, normal **Start
+   recording** opens the options panel with the available fix actions.
 
-   **Start recording** is disabled, with a button to fix it, when:
+   The options panel also shows capture permissions, processing destination,
+   the length limit, and live readiness. **Start recording** is disabled, with
+   a button to fix it, when:
    - setup is not finished (**Open setup**), or
    - microphone access is denied or restricted (**Open Microphone
      settings**).
@@ -32,7 +38,8 @@ workplace, or the platform requires. Read [PRIVACY.md](../../PRIVACY.md).
 
 Recording stops on its own at the maximum length, then saves and processes the
 meeting the same way as a manual stop. The default is 120 minutes. Change it
-in **Settings... > Recording length** (15 to 480 minutes).
+in **Settings... > Recording defaults** (15 to 480 minutes). The same panel
+changes the saved manual privacy and live behavior.
 
 ### Import existing audio
 
@@ -60,8 +67,11 @@ off until you enable them.
 - There is no countdown. The tray icon switches to the recording icon and a
   "Recording started" notification appears.
 - A meeting that ends within 10 seconds is discarded, not processed.
-- Automatic recording uses the same setup check as the record panel. It does
-  not start while setup is unfinished.
+- Automatic recording uses the same setup check as manual recording and the
+  saved live default. When live is enabled and supported, the sidebar,
+  translation, and rolling summary start automatically. Until recording
+  defaults are saved, automatic live features stay off. Automatic recording
+  does not start while setup is unfinished.
 
 **Where automatic recordings go.** Choose one option in Settings:
 

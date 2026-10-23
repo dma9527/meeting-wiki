@@ -98,7 +98,14 @@ function validateStartRequest(raw) {
   const title = rawTitle.normalize("NFC").replace(/\s+/gu, " ").trim();
   if ([...title].length > TITLE_MAX) throw new RecordError(`Keep the title to ${TITLE_MAX} characters or fewer.`);
   if (/[\u0000-\u001f\u007f]/.test(title)) throw new RecordError("Remove control characters from the title.");
-  return { title, isPrivate: source.private === true };
+  const privacyMode = source.privacyMode;
+  if (privacyMode !== "private" && privacyMode !== "shared") {
+    throw new RecordError("Choose where the notes go before starting.");
+  }
+  if (source.liveEnabled !== undefined && typeof source.liveEnabled !== "boolean") {
+    throw new RecordError("Choose whether live captions, translation, and summary start for this recording.");
+  }
+  return { title, isPrivate: privacyMode === "private", liveEnabled: source.liveEnabled === true };
 }
 
 function createRecordController({ getContext, onStart, onCancel = () => {}, onOpenSetup = () => {}, openExternal = () => {} }) {
@@ -175,6 +182,11 @@ function closeRecordWindow() {
 
 function createRecordWindow(electron, context) {
   const { app, BrowserWindow, ipcMain } = electron;
+  if (recordWindow && !recordWindow.isDestroyed()) {
+    recordWindow.show();
+    recordWindow.focus();
+    return recordWindow;
+  }
   // The window closes before capture starts, so the start never races window focus.
   recordController = createRecordController({
     getContext: context.getContext,
@@ -194,11 +206,6 @@ function createRecordWindow(electron, context) {
   if (!handlersRegistered) {
     handlersRegistered = true;
     registerRecordHandlers(ipcMain, () => recordController, isRecordSender);
-  }
-  if (recordWindow && !recordWindow.isDestroyed()) {
-    recordWindow.show();
-    recordWindow.focus();
-    return recordWindow;
   }
   if (app.focus) app.focus({ steal: true });
   recordWindow = new BrowserWindow({

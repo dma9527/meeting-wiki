@@ -25,6 +25,11 @@ const VALID = Object.freeze({
 
 const IDENTITY = Object.freeze({ primaryProfileName: "Avery Test", aliases: ["Ave", "A. Test"] });
 const ONLINE_SETTINGS = Object.freeze({ baseUrl: "https://provider.example.test/v1", transcriptionModel: "a", languageModel: "b" });
+const EXPECTED_UNCONFIGURED_RECORDING = Object.freeze({
+  expectedDefaultsConfigured: false,
+  expectedDefaultPrivacyMode: "shared",
+  expectedLiveEnabled: true,
+});
 
 function tempDataDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "meeting-wiki-settings-"));
@@ -470,7 +475,12 @@ test("recording limit settings are offered for every completed online setup, not
     writeState(dataDir, state);
     assert.deepEqual(controllerFor(dataDir).controller.getRecordingSettings(), {
       ready: true,
-      values: { maxDurationMinutes: 120 },
+      values: {
+        maxDurationMinutes: 120,
+        defaultsConfigured: false,
+        defaultPrivacyMode: "shared",
+        liveEnabled: true,
+      },
       bounds: { maxDurationMinutes: { min: 15, max: 480 } },
     });
   }
@@ -485,26 +495,97 @@ test("recording limit settings are offered for every completed online setup, not
   }
 });
 
+test("saving recording settings requires an explicit first privacy and live choice", () => {
+  const dataDir = geminiDataDir();
+  const { controller } = controllerFor(dataDir);
+
+  assert.throws(
+    () => controller.saveRecordingSettings({ maxDurationMinutes: 60 }),
+    /Choose private or shared/,
+  );
+  assert.throws(
+    () => controller.saveRecordingSettings({
+      maxDurationMinutes: 60,
+      defaultPrivacyMode: "shared",
+      liveEnabled: "true",
+    }),
+    /Choose whether live captions/,
+  );
+  assert.ok(!fs.existsSync(path.join(dataDir, "desktop-settings.json")));
+});
+
+test("a stale Settings window cannot overwrite defaults saved by first use", () => {
+  const dataDir = geminiDataDir();
+  const { controller } = controllerFor(dataDir);
+  const loaded = controller.getRecordingSettings().values;
+  const settingsFile = path.join(dataDir, "desktop-settings.json");
+  const current = {
+    recording: {
+      max_duration_minutes: 120,
+      defaults: { version: 1, privacy_mode: "private", live_enabled: false },
+    },
+  };
+  fs.writeFileSync(settingsFile, JSON.stringify(current));
+
+  assert.throws(
+    () => controller.saveRecordingSettings({
+      maxDurationMinutes: 90,
+      defaultPrivacyMode: "shared",
+      liveEnabled: true,
+      expectedDefaultsConfigured: loaded.defaultsConfigured,
+      expectedDefaultPrivacyMode: loaded.defaultPrivacyMode,
+      expectedLiveEnabled: loaded.liveEnabled,
+    }),
+    /changed.*reopen Settings/i,
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, "utf8")), current);
+});
+
 test("saveRecordingSettings persists owner-only, keeps the config and other keys, and never restarts processing", () => {
   const dataDir = geminiDataDir();
   const { controller, calls, configPath } = controllerFor(dataDir);
   const configBefore = fs.readFileSync(configPath, "utf8");
   const settingsFile = path.join(dataDir, "desktop-settings.json");
   fs.writeFileSync(settingsFile, JSON.stringify({ other: { keep: true }, recording: { extra: "x", max_duration_minutes: 30 } }));
-  assert.deepEqual(controller.saveRecordingSettings({ maxDurationMinutes: "90" }), { ok: true, values: { maxDurationMinutes: 90 } });
+  assert.deepEqual(
+    controller.saveRecordingSettings({
+      ...EXPECTED_UNCONFIGURED_RECORDING,
+      maxDurationMinutes: "90",
+      defaultPrivacyMode: "private",
+      liveEnabled: false,
+    }),
+    {
+      ok: true,
+      values: { maxDurationMinutes: 90, defaultPrivacyMode: "private", liveEnabled: false },
+    },
+  );
   assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, "utf8")), {
     other: { keep: true },
-    recording: { extra: "x", max_duration_minutes: 90 },
+    recording: {
+      extra: "x",
+      max_duration_minutes: 90,
+      defaults: { version: 1, privacy_mode: "private", live_enabled: false },
+    },
   });
   assert.equal(fs.statSync(settingsFile).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(configPath, "utf8"), configBefore);
   assert.equal(calls.saved, 0);
   assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
-  assert.equal(controller.getRecordingSettings().values.maxDurationMinutes, 90);
-  // Identity and Gemini saves rewrite only config.toml, so the recording limit survives them.
+  assert.deepEqual(controller.getRecordingSettings().values, {
+    maxDurationMinutes: 90,
+    defaultsConfigured: true,
+    defaultPrivacyMode: "private",
+    liveEnabled: false,
+  });
+  // Identity and Gemini saves rewrite only config.toml, so recording defaults survive them.
   controller.saveIdentitySettings(IDENTITY);
   controller.saveGeminiSettings({ ...VALID });
-  assert.equal(controller.getRecordingSettings().values.maxDurationMinutes, 90);
+  assert.deepEqual(controller.getRecordingSettings().values, {
+    maxDurationMinutes: 90,
+    defaultsConfigured: true,
+    defaultPrivacyMode: "private",
+    liveEnabled: false,
+  });
 });
 
 test("saveRecordingSettings rejects out-of-range values and unreadable files without writing", () => {
@@ -513,13 +594,28 @@ test("saveRecordingSettings rejects out-of-range values and unreadable files wit
   const settingsFile = path.join(dataDir, "desktop-settings.json");
   for (const value of [14, 481, 90.5, "1e2", "", null, -30]) {
     assert.throws(
-      () => controller.saveRecordingSettings({ maxDurationMinutes: value }),
+      () => controller.saveRecordingSettings({
+        ...EXPECTED_UNCONFIGURED_RECORDING,
+        maxDurationMinutes: value,
+        defaultPrivacyMode: "shared",
+        liveEnabled: true,
+      }),
       (error) => error instanceof settings.SettingsError && /from 15 to 480/.test(error.message),
     );
   }
   assert.ok(!fs.existsSync(settingsFile));
   fs.writeFileSync(settingsFile, "{ not json");
-  assert.throws(() => controller.saveRecordingSettings({ maxDurationMinutes: 60 }), /left unchanged/);
+  assert.throws(
+    () => controller.saveRecordingSettings({
+      expectedDefaultsConfigured: false,
+      expectedDefaultPrivacyMode: "shared",
+      expectedLiveEnabled: false,
+      maxDurationMinutes: 60,
+      defaultPrivacyMode: "shared",
+      liveEnabled: true,
+    }),
+    /left unchanged/,
+  );
   assert.equal(fs.readFileSync(settingsFile, "utf8"), "{ not json");
 });
 
@@ -612,7 +708,13 @@ test("the settings bridge exposes the named actions and forwards only the named 
   await exposed.api.getGeminiSettings("ignored");
   await exposed.api.saveGeminiSettings({ ...VALID, apiKey: TEST_KEY, chunkSeconds: 2, path: "/etc/passwd" });
   await exposed.api.getRecordingSettings("ignored");
-  await exposed.api.saveRecordingSettings({ maxDurationMinutes: 90, path: "/etc/passwd" });
+  await exposed.api.saveRecordingSettings({
+    ...EXPECTED_UNCONFIGURED_RECORDING,
+    maxDurationMinutes: 90,
+    defaultPrivacyMode: "private",
+    liveEnabled: true,
+    path: "/etc/passwd",
+  });
   await exposed.api.saveRecordingSettings({ maxDurationMinutes: { nested: 1 } });
   await exposed.api.rerunSetup({ provider: "x" });
   await exposed.api.getIntegrationSettings("ignored");
@@ -627,8 +729,20 @@ test("the settings bridge exposes the named actions and forwards only the named 
     { channel: settings.CHANNELS.getGeminiSettings, args: [] },
     { channel: settings.CHANNELS.saveGeminiSettings, args: [{ ...VALID }] },
     { channel: settings.CHANNELS.getRecordingSettings, args: [] },
-    { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: 90 }] },
-    { channel: settings.CHANNELS.saveRecordingSettings, args: [{ maxDurationMinutes: "" }] },
+    { channel: settings.CHANNELS.saveRecordingSettings, args: [{
+      maxDurationMinutes: 90,
+      defaultPrivacyMode: "private",
+      liveEnabled: true,
+      ...EXPECTED_UNCONFIGURED_RECORDING,
+    }] },
+    { channel: settings.CHANNELS.saveRecordingSettings, args: [{
+      maxDurationMinutes: "",
+      defaultPrivacyMode: "",
+      liveEnabled: false,
+      expectedDefaultsConfigured: false,
+      expectedDefaultPrivacyMode: "",
+      expectedLiveEnabled: false,
+    }] },
     { channel: settings.CHANNELS.rerunSetup, args: [] },
     { channel: settings.CHANNELS.getIntegrationSettings, args: [] },
     { channel: settings.CHANNELS.saveIntegrationSettings, args: [{ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "" }] },

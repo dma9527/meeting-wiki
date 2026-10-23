@@ -20,7 +20,12 @@ const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths"
 const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("./skill-installer");
 const { formatSelfCheck, runSelfCheck } = require("./self-check");
 const { presentShimInstall } = require("./cli-installer");
-const { readMaxDurationMinutes } = require("./recording-settings");
+const {
+  decideManualStart,
+  readMaxDurationMinutes,
+  readRecordingDefaults,
+  saveRecordingDefaults,
+} = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
 const { AutoRecordCoordinator, SHORT_DISCARD_NOTICE, SOURCES } = require("./auto-record");
 const { autoRecordStartOptions, readAutoRecordPrivacy, readIntegrationSettings } = require("./integration-settings");
@@ -528,27 +533,70 @@ function recordContext() {
   });
 }
 
-// Every start goes through this explicit confirmation of title, privacy, capture, length, and live view.
-function openRecordPanel() {
+// The first manual start captures defaults. Later starts use them without opening a window.
+function openRecordPanel(formMode = "override") {
   if (!recordingSession.idle || quitRequested) return;
   createRecordWindow(
     { app, BrowserWindow, ipcMain },
     {
-      getContext: recordContext,
-      onStart: (request) => { void startRecording(request); },
+      getContext: () => ({
+        ...recordContext(),
+        formMode,
+        defaults: readRecordingDefaults(fs, DATA_DIR).values,
+      }),
+      onStart: (request) => {
+        if (formMode === "initial" && !readRecordingDefaults(fs, DATA_DIR).configured) {
+          try {
+            saveRecordingDefaults(
+              fs,
+              DATA_DIR,
+              {
+                privacyMode: request.isPrivate ? "private" : "shared",
+                liveEnabled: request.liveEnabled,
+              },
+              atomicWriteFile,
+            );
+          } catch (_) {
+            notify("Recording defaults not saved", "This recording will start, but Meeting Wiki will ask again next time.");
+          }
+        }
+        void startRecording(request);
+      },
       onOpenSetup: openSetupWindow,
       openExternal: (url) => { void shell.openExternal(url); },
     },
   );
 }
 
-// Manual starts come from the record panel; integration starts pass source and the join time.
-// Both run the same capture, limit, live view, and notification. Returns true when recording began.
-// Automatic starts ignore any caller privacy and use the saved automatic-recording mode.
-async function startRecording({ title: requestedTitle = "", isPrivate: requestedPrivate = false, source = null, occurredAt = null } = {}) {
+function startManualRecording() {
+  if (!recordingSession.idle || quitRequested) return;
+  let context;
+  try {
+    context = recordContext();
+  } catch (_) {
+    openRecordPanel("override");
+    return;
+  }
+  const defaults = readRecordingDefaults(fs, DATA_DIR);
+  const decision = decideManualStart({ blockers: context.blockers, defaults });
+  if (decision.action === "options") {
+    openRecordPanel(decision.formMode);
+    return;
+  }
+  closeRecordWindow();
+  void startRecording(decision.options);
+}
+
+// Manual quick starts and integrations use saved live defaults. The options panel can override
+// privacy and live behavior for one manual recording without changing the saved defaults.
+async function startRecording({ title: requestedTitle = "", isPrivate: requestedPrivate = false, liveEnabled: requestedLive = false, source = null, occurredAt = null } = {}) {
   if (capture.active || !recordingSession.idle || quitRequested) return false;
+  const recordingDefaults = readRecordingDefaults(fs, DATA_DIR);
   const auto = source ? autoRecordStartOptions(readAutoRecordPrivacy(fs, DATA_DIR).mode) : null;
   const isPrivate = auto ? auto.isPrivate : requestedPrivate === true;
+  const liveEnabled = source
+    ? recordingDefaults.configured && recordingDefaults.values.liveEnabled
+    : requestedLive === true;
   const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
   // Integration titles are placeholders, so processing still names the meeting from its content.
   const titleExplicit = Boolean(requestedTitle) && !source;
@@ -572,7 +620,7 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
   capture.active.recordingStartedAt = new Date().toISOString();
   let liveDecision = { liveStarts: false };
   try { liveDecision = recordContext(); } catch (_) {}
-  if (liveDecision.liveStarts) startLiveSession(capture.active.micPath, isPrivate, liveDecision);
+  if (liveEnabled && liveDecision.liveStarts) startLiveSession(capture.active.micPath, isPrivate, liveDecision);
   return true;
 }
 
@@ -674,7 +722,8 @@ function updateMenu() {
   } else {
     if (recordingSession.lastStopReason === "limit") items.push({ label: LIMIT_REACHED_LABEL, enabled: false });
     items.push(
-      { label: "Start recording...", accelerator: "CommandOrControl+Shift+0", click: openRecordPanel },
+      { label: "Start recording", accelerator: "CommandOrControl+Shift+0", click: startManualRecording },
+      { label: "Start with options...", click: () => openRecordPanel("override") },
       { label: "Import audio...", click: importAudio },
     );
   }
@@ -724,7 +773,7 @@ app.whenReady().then(async () => {
   tray.on("click", () => tray.popUpContextMenu());
   globalShortcut.register("CommandOrControl+Shift+0", () => {
     if (recordingSession.recording) void stopRecording("user");
-    else if (recordingSession.idle) openRecordPanel();
+    else if (recordingSession.idle) startManualRecording();
   });
   startWorker();
   recoverPendingCaptures();

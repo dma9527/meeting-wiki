@@ -11,7 +11,10 @@ function pickStartRequest(request) {
   const source = request && typeof request === "object" ? request : {};
   return {
     title: typeof source.title === "string" ? source.title.slice(0, MAX_FORWARDED_TITLE) : "",
-    private: source.private === true,
+    privacyMode: source.privacyMode === "private" || source.privacyMode === "shared"
+      ? source.privacyMode
+      : "",
+    liveEnabled: source.liveEnabled === true,
   };
 }
 

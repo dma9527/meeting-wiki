@@ -4,8 +4,8 @@
 // window.meetingWikiRecord and writes every dynamic value with textContent.
 //
 // Expected bridge (implemented by record-preload.js):
-//   getContext() -> { blockers, maxDurationMinutes, microphone, systemAudio, destination, host, live, liveStarts, liveScope, recording } | { error }
-//   start({ title, private }) -> { ok: true } | { error }
+//   getContext() -> { blockers, maxDurationMinutes, microphone, systemAudio, destination, host, live, liveStarts, liveScope, recording, formMode, defaults } | { error }
+//   start({ title, privacyMode, liveEnabled }) -> { ok: true } | { error }
 //   cancel() -> { ok: true }
 //   openSetup() -> { ok: true }
 //   openPrivacySettings("microphone" | "systemAudio") -> { ok: true } | { error }
@@ -74,14 +74,26 @@
     return note ? `${label} (${note})` : label;
   }
 
+  function privacyMode() {
+    const selected = document.querySelector('input[name="privacy"]:checked');
+    return selected && (selected.value === "private" || selected.value === "shared")
+      ? selected.value
+      : "";
+  }
+
   function isPrivate() {
-    return $("record-private").checked;
+    return privacyMode() === "private";
+  }
+
+  function liveEnabled() {
+    return $("record-live-enabled").checked;
   }
 
   function render() {
     if (!context) return;
     const blockers = Array.isArray(context.blockers) ? context.blockers.filter((code) => Object.prototype.hasOwnProperty.call(BLOCKERS, code)) : [];
-    const blocked = blockers.length > 0 || !Array.isArray(context.blockers);
+    const systemBlocked = blockers.length > 0 || !Array.isArray(context.blockers);
+    const privacyMissing = context.formMode === "initial" && !privacyMode();
     const micBlocked = blockers.includes("microphone_blocked");
     setLine(
       "record-capture",
@@ -90,9 +102,9 @@
     );
     setLine("record-system-audio", SYSTEM_AUDIO_NOTE, false);
     $("record-blockers-text").textContent = blockers.map((code) => BLOCKERS[code]).join(" ")
-      || (blocked ? BLOCKERS.setup_incomplete : "");
-    $("record-blockers").hidden = !blocked;
-    $("record-open-setup").hidden = !(blockers.includes("setup_incomplete") || (blocked && blockers.length === 0));
+      || (systemBlocked ? BLOCKERS.setup_incomplete : "");
+    $("record-blockers").hidden = !systemBlocked;
+    $("record-open-setup").hidden = !(blockers.includes("setup_incomplete") || (systemBlocked && blockers.length === 0));
     $("record-open-microphone").hidden = !micBlocked;
 
     const where = destinationName(context);
@@ -108,8 +120,10 @@
       !minutes,
     );
 
-    let live = Object.prototype.hasOwnProperty.call(LIVE, context.live) ? LIVE[context.live] : LIVE.manual;
-    if (context.live === "ready") {
+    let live = !liveEnabled()
+      ? "Off for this recording. Batch processing still runs after you stop."
+      : Object.prototype.hasOwnProperty.call(LIVE, context.live) ? LIVE[context.live] : LIVE.manual;
+    if (liveEnabled() && context.live === "ready") {
       live += context.liveScope === "external"
         ? ` Microphone audio is sent to ${where} for captions${isPrivate() ? ", including for this private meeting" : ""}.`
         : " They run on this Mac.";
@@ -122,7 +136,9 @@
       start.disabled = true;
       setStatus("A recording is already running. Stop it from the menu bar first.", "error");
     } else {
-      start.disabled = blocked;
+      start.disabled = systemBlocked || privacyMissing;
+      if (privacyMissing) setStatus("Choose where the notes go before starting.", "error");
+      else if ($("record-status").textContent === "Choose where the notes go before starting.") setStatus("", "");
     }
   }
 
@@ -150,12 +166,17 @@
       $("record-title").focus();
       return;
     }
+    const selectedPrivacy = privacyMode();
+    if (!selectedPrivacy) {
+      setStatus("Choose where the notes go before starting.", "error");
+      return;
+    }
     showTitleError("");
     busy = true;
     const button = $("record-start");
     button.setAttribute("aria-disabled", "true");
     setStatus(isPrivate() ? "Starting a private recording." : "Starting the recording.", "");
-    const result = await call("start", { title, private: isPrivate() });
+    const result = await call("start", { title, privacyMode: selectedPrivacy, liveEnabled: liveEnabled() });
     busy = false;
     button.removeAttribute("aria-disabled");
     const message = errorOf(result);
@@ -177,6 +198,7 @@
     $("record-open-microphone").addEventListener("click", () => { void open("openPrivacySettings", "microphone"); });
     $("record-open-system-audio").addEventListener("click", () => { void open("openPrivacySettings", "systemAudio"); });
     for (const radio of document.querySelectorAll('input[name="privacy"]')) radio.addEventListener("change", render);
+    $("record-live-enabled").addEventListener("change", render);
     $("record-title").addEventListener("input", () => showTitleError(""));
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") void call("cancel");
@@ -190,6 +212,15 @@
       return;
     }
     context = result;
+    const defaults = context.defaults && typeof context.defaults === "object" ? context.defaults : {};
+    if (context.formMode !== "initial") {
+      $(defaults.privacyMode === "private" ? "record-private" : "record-shared").checked = true;
+    }
+    $("record-live-enabled").checked = defaults.liveEnabled === true;
+    if (context.formMode === "initial") {
+      $("record-heading").textContent = "Choose recording defaults";
+      $("record-intro").textContent = "Choose once. Future starts use these defaults until you change them in Settings.";
+    }
     render();
     $("record-start").focus();
   }
