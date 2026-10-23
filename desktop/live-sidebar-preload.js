@@ -10,6 +10,7 @@ const CHANNEL = "live:event";
 const PHASES = ["starting", "listening", "stopped", "unavailable"];
 const SCOPES = ["local", "external"];
 const SPEAKERS = ["you", "others"];
+const LOCALES = ["system", "en", "zh-CN"];
 let listener = null;
 
 function text(value, limit) {
@@ -18,6 +19,9 @@ function text(value, limit) {
 
 function pickLiveEvent(event) {
   if (!event || typeof event !== "object") return null;
+  if (event.type === "locale") {
+    return LOCALES.includes(event.uiLanguage) ? { type: "locale", uiLanguage: event.uiLanguage } : null;
+  }
   if (event.type === "state") {
     if (!PHASES.includes(event.phase)) return null;
     return {

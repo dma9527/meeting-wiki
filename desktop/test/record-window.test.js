@@ -28,6 +28,7 @@ test("a managed Gemini setup reports external live captions ready", () => {
   const context = record.buildRecordContext({ ...BASE, configText: setup.renderGeminiConfig() });
   assert.deepEqual(context, {
     setupComplete: true,
+    uiLanguage: "system",
     blockers: [],
     maxDurationMinutes: 90,
     microphone: "granted",
@@ -39,6 +40,14 @@ test("a managed Gemini setup reports external live captions ready", () => {
     liveScope: "external",
     recording: false,
   });
+});
+
+test("the recording context carries the saved UI language, defaulting to Follow macOS", () => {
+  const managed = require("../managed-config");
+  const chinese = setup.renderGeminiConfig({}, managed.EMPTY_IDENTITY, { ...managed.DEFAULT_LANGUAGE_SETTINGS, uiLanguage: "zh-CN" });
+  assert.equal(record.buildRecordContext({ ...BASE, configText: chinese }).uiLanguage, "zh-CN");
+  assert.equal(record.buildRecordContext({ ...BASE, configText: "# hand written\n" }).uiLanguage, "system");
+  assert.equal(record.buildRecordContext({ ...BASE, configText: chinese.replace('ui = "zh-CN"', 'ui = "fr"') }).uiLanguage, "system");
 });
 
 test("system audio readiness is never derived from the screen recording status", () => {
@@ -388,7 +397,7 @@ test("main gates the live sidebar on a live adapter and keeps it reopenable", ()
   assert.match(start, /const beginLive = \(\) => \{[\s\S]*startLiveSession\(activeCapture\.micPath, systemPath, isPrivate, liveDecision\);[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
   assert.match(start, /liveIssue = liveDecision\.live \|\| "startup_failed";[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
   const live = main.slice(main.indexOf("function startLiveSession"), main.indexOf("function readConfigText"));
-  assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}\); \} catch \(_\) \{\}\s*\}/);
+  assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}, \{ uiLanguage: currentUiLanguage\(\) \}\); \} catch \(_\) \{\}\s*\}/);
   assert.match(live, /destroyLiveSidebar\(\);/);
   assert.doesNotMatch(live, /onClosed/);
   assert.match(main, /label: "Show live captions", click: \(\) => \{ showLiveSidebar\(\); \}/);

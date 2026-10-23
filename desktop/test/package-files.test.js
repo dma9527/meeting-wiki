@@ -70,7 +70,7 @@ test("every packaged path exists on disk", () => {
       assert.ok(fs.existsSync(path.join(ROOT, entry)), `missing file ${entry}`);
     }
   }
-  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css", "renderer/live-sidebar.html", "renderer/live-sidebar.js", "renderer/live-sidebar.css", "renderer/record.html", "renderer/record.js", "renderer/record.css", "renderer/i18n.js", "renderer/setup-localization.js", "renderer/settings-localization.js"]) {
+  for (const asset of ["renderer/index.html", "renderer/app.js", "renderer/styles.css", "renderer/settings.html", "renderer/settings.js", "renderer/settings.css", "renderer/live-sidebar.html", "renderer/live-sidebar.js", "renderer/live-sidebar.css", "renderer/record.html", "renderer/record.js", "renderer/record.css", "renderer/i18n.js", "renderer/setup-localization.js", "renderer/settings-localization.js", "renderer/record-localization.js", "renderer/live-sidebar-localization.js"]) {
     assert.ok(fs.existsSync(path.join(ROOT, asset)), `missing renderer asset ${asset}`);
   }
 });

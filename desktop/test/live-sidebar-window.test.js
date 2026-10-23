@@ -89,9 +89,51 @@ test("events are buffered until load, re-sanitized, and sent on one channel", ()
   window.webContents.emit("did-finish-load");
   sidebar.publishLiveEvent({ type: "translation", sequence: 1, text: "你好" });
   assert.deepEqual(window.sent, [
+    { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "locale", uiLanguage: "system" } },
     { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "state", phase: "starting", private: true } },
     { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "transcript", sequence: 1, text: "Hello" } },
     { channel: sidebar.LIVE_EVENT_CHANNEL, payload: { type: "translation", sequence: 1, text: "你好" } },
+  ]);
+  sidebar.destroyLiveSidebar();
+});
+
+test("the saved UI language is sent first on every load and unknown values follow macOS", () => {
+  const sidebar = freshSidebarModule();
+  const { electron, windows } = fakeElectron();
+  sidebar.createLiveSidebarWindow(electron, { uiLanguage: "zh-CN" });
+  const [window] = windows;
+  sidebar.publishLiveEvent({ type: "transcript", sequence: 1, text: "Hello" });
+  window.webContents.emit("did-finish-load");
+  assert.deepEqual(window.sent.map(({ payload }) => payload.type), ["locale", "transcript"]);
+  assert.deepEqual(window.sent[0].payload, { type: "locale", uiLanguage: "zh-CN" });
+  window.webContents.emit("did-finish-load");
+  assert.deepEqual(window.sent.at(-1).payload, { type: "locale", uiLanguage: "zh-CN" });
+  sidebar.destroyLiveSidebar();
+
+  const fallback = fakeElectron();
+  sidebar.createLiveSidebarWindow(fallback.electron, { uiLanguage: "fr" });
+  fallback.windows[0].webContents.emit("did-finish-load");
+  assert.deepEqual(fallback.windows[0].sent[0].payload, { type: "locale", uiLanguage: "system" });
+  sidebar.destroyLiveSidebar();
+});
+
+test("a reload buffers events and replays the locale and the last state first", () => {
+  const sidebar = freshSidebarModule();
+  const { electron, windows } = fakeElectron();
+  sidebar.createLiveSidebarWindow(electron, { uiLanguage: "en" });
+  const [window] = windows;
+  window.webContents.emit("did-finish-load");
+  sidebar.publishLiveEvent({ type: "state", phase: "listening", private: true, scope: "external" });
+  sidebar.publishLiveEvent({ type: "transcript", sequence: 1, text: "Before" });
+  window.sent = [];
+  window.webContents.emit("did-start-loading");
+  sidebar.publishLiveEvent({ type: "transcript", sequence: 2, text: "During" });
+  assert.deepEqual(window.sent, []);
+  window.webContents.emit("did-finish-load");
+  assert.deepEqual(window.sent.map(({ payload }) => payload), [
+    { type: "locale", uiLanguage: "en" },
+    { type: "state", phase: "listening", private: true, scope: "external" },
+    { type: "transcript", sequence: 2, text: "During" },
   ]);
   sidebar.destroyLiveSidebar();
 });
@@ -173,10 +215,13 @@ test("the preload exposes only subscribe and unsubscribe on the main channel", (
   listener({}, { type: "state", phase: "listening", private: true, scope: "external", path: "/x" });
   listener({}, { type: "exec", command: "rm" });
   listener({}, { type: "summary", sequence: 2, points: ["A", "B"] });
+  listener({}, { type: "locale", uiLanguage: "zh-CN", path: "/x" });
+  listener({}, { type: "locale", uiLanguage: "fr" });
   assert.deepEqual(received, [
     { type: "transcript", sequence: 2, text: "Hi" },
     { type: "state", phase: "listening", private: true, scope: "external", issue: "" },
     { type: "summary", sequence: 2, points: ["A", "B"] },
+    { type: "locale", uiLanguage: "zh-CN" },
   ]);
   exposed.api.unsubscribe();
   assert.equal(listeners.size, 0);

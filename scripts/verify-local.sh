@@ -93,6 +93,8 @@ node --check desktop/renderer/setup.js
 node --check desktop/renderer/i18n.js
 node --check desktop/renderer/setup-localization.js
 node --check desktop/renderer/settings-localization.js
+node --check desktop/renderer/record-localization.js
+node --check desktop/renderer/live-sidebar-localization.js
 node --check desktop/renderer/settings.js
 node --check desktop/renderer/live-sidebar.js
 node --check desktop/renderer/record.js

@@ -9,7 +9,14 @@
 
 (function liveSidebar() {
   const bridge = window.meetingWikiLive;
+  const localization = window.meetingWikiLiveLocalization;
   const $ = (id) => document.getElementById(id);
+  let locale = "system";
+  let lastState = null;
+
+  function t(message) {
+    return localization ? localization.translateLiveMessage(message, locale, navigator.language) : message;
+  }
   const MAX_LINES = 40;
   const PHASE_TEXT = Object.freeze({
     starting: "Starting live view.",
@@ -37,17 +44,22 @@
   const lines = new Map();
 
   function setState(event) {
-    $("live-status").textContent = PHASE_TEXT[event.phase] || "";
+    renderState(event);
+    if (event.phase === "starting") reset();
+  }
+
+  function renderState(event) {
+    lastState = event;
+    $("live-status").textContent = t(PHASE_TEXT[event.phase] || "");
     $("live-private").hidden = !event.private;
     const scope = $("live-scope");
     scope.hidden = !event.scope;
-    scope.textContent = event.scope === "external" ? "External provider" : "Local only";
+    scope.textContent = t(event.scope === "external" ? "External provider" : "Local only");
     scope.classList.toggle("live-badge-external", event.scope === "external");
     const issue = $("live-issue");
     const message = ISSUE_TEXT[event.issue] || "";
     issue.hidden = !message;
-    issue.textContent = message;
-    if (event.phase === "starting") reset();
+    issue.textContent = t(message);
   }
 
   function reset() {
@@ -96,13 +108,26 @@
     $("live-summary-empty").hidden = list.childElementCount > 0;
   }
 
+  // The saved UI language arrives first after load; re-render without clearing captions.
+  function setLocale(choice) {
+    locale = choice;
+    if (localization) localization.applyLiveLocale(document, choice, navigator.language);
+    for (const entry of lines.values()) {
+      const speaker = entry.item.dataset.speaker;
+      if (SPEAKER_TEXT[speaker]) entry.speaker.textContent = t(SPEAKER_TEXT[speaker]);
+    }
+    if (lastState) renderState(lastState);
+    else $("live-status").textContent = t(PHASE_TEXT.starting);
+  }
+
   function handle(event) {
-    if (event.type === "state") setState(event);
+    if (event.type === "locale") setLocale(event.uiLanguage);
+    else if (event.type === "state") setState(event);
     else if (event.type === "transcript") {
       const entry = lineFor(event.sequence);
       entry.original.textContent = event.text;
       const label = SPEAKER_TEXT[event.speaker] || "";
-      entry.speaker.textContent = label;
+      entry.speaker.textContent = t(label);
       entry.speaker.hidden = !label;
       entry.item.dataset.speaker = label ? event.speaker : "";
     }

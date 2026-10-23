@@ -32,6 +32,7 @@ const {
   saveRecordingDefaults,
 } = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
+const { LANGUAGE_VALUES, readManagedLanguage } = require("./managed-config");
 const {
   AutoLiveStartGate,
   AutoRecordCoordinator,
@@ -134,7 +135,7 @@ const liveSession = new LiveSessionManager({
       }
       // Hand-edited configs open the sidebar only once the child proves it has an adapter.
       if (event.phase === "listening" && liveSession.active && !liveSidebarAvailable()) {
-        try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
+        try { createLiveSidebarWindow({ BrowserWindow }, { uiLanguage: currentUiLanguage() }); } catch (_) {}
       }
       if (tray) updateMenu();
     }
@@ -527,7 +528,7 @@ function recoverPendingCaptures() {
 function startLiveSession(micPath, systemPath, isPrivate, live) {
   if (!pythonAvailable() || !micPath) return false;
   if (live.live === "ready") {
-    try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
+    try { createLiveSidebarWindow({ BrowserWindow }, { uiLanguage: currentUiLanguage() }); } catch (_) {}
   }
   try {
     return liveSession.start({ micPath, systemPath, isPrivate }) === true;
@@ -539,6 +540,12 @@ function startLiveSession(micPath, systemPath, isPrivate, live) {
 function stopLiveSession() {
   liveSession.stop().catch(() => {});
   destroyLiveSidebar();
+}
+
+// The saved Settings language; a hand-edited or unreadable config follows macOS.
+function currentUiLanguage() {
+  const languages = readManagedLanguage(readConfigText());
+  return languages && LANGUAGE_VALUES.uiLanguage.includes(languages.uiLanguage) ? languages.uiLanguage : "system";
 }
 
 function readConfigText() {

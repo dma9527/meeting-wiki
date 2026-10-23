@@ -7,7 +7,7 @@
 const path = require("path");
 const { pathToFileURL } = require("url");
 
-const { parseManagedConfig } = require("./managed-config");
+const { DEFAULT_LANGUAGE_SETTINGS, LANGUAGE_VALUES, languageFromTables, parseManagedConfig } = require("./managed-config");
 
 const CHANNELS = Object.freeze({
   getContext: "record:getContext",
@@ -74,6 +74,7 @@ function hostOf(url) {
 // Pure: every field is a code, a number, or the host the user configured.
 function buildRecordContext({ setupComplete, configText, pythonAvailable, keyAvailable, maxDurationMinutes, microphone, recording }) {
   const tables = parseManagedConfig(configText);
+  const uiLanguage = tables ? languageFromTables(tables).uiLanguage : DEFAULT_LANGUAGE_SETTINGS.uiLanguage;
   const providers = (tables && tables.providers) || {};
   let destination = "manual";
   let host = "";
@@ -96,6 +97,7 @@ function buildRecordContext({ setupComplete, configText, pythonAvailable, keyAva
   if (microphoneStatus === "denied" || microphoneStatus === "restricted") blockers.push("microphone_blocked");
   return {
     setupComplete: setupComplete === true,
+    uiLanguage: LANGUAGE_VALUES.uiLanguage.includes(uiLanguage) ? uiLanguage : DEFAULT_LANGUAGE_SETTINGS.uiLanguage,
     blockers,
     maxDurationMinutes,
     microphone: microphoneStatus,
