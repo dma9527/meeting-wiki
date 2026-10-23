@@ -12,7 +12,7 @@
 
 每个处理完的会议都会被索引到 `memory.db`：人物、话题、决策、待办和转写行，每条都链接回来源会议。
 
-在 **Settings... > Languages** 中选择 **Memory and wiki content**，它会影响之后处理的会议。生成的摘要、决策详情、action 文本、topic insight、问题和风险使用所选语言；会议标题、topic 名称、decision 标题、人物、due 值、标识符、日期、URL 和稳定的 Markdown 标题保持来源形式。更改设置不会重写已有会议或已完成的 analysis snapshot。明确执行更正重处理时会使用当前 memory 语言。
+在 **Settings... > Languages** 中选择 **Memory and wiki content**，它会影响之后处理的会议。默认值 **Same as the meeting** 会按会议原来的语言保存生成内容，不做翻译，避免翻译带来的错误；选择 English 或简体中文时会翻译成该语言。生成的摘要、决策详情、action 文本、topic insight、问题和风险使用所选语言；会议标题、topic 名称、decision 标题、人物、due 值、标识符、日期、URL 和稳定的 Markdown 标题保持来源形式。更改设置不会重写已有会议或已完成的 analysis snapshot。明确执行更正重处理时会使用当前 memory 语言。
 
 在窗口中，**Memory search** 提供类型筛选，以及默认不勾选的 “Include private memory on this Mac” 选项。
 

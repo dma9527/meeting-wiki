@@ -19,9 +19,11 @@
 //       callback({ id, receivedBytes?, totalBytes?, status: "downloading" | "installed" | "error", error? })
 //   completeSetup({ mode, provider? }) -> { ok: true } | { error: string }   (the only commit point)
 //       Gemini completes as { mode: "online", provider: "gemini" }.
+//   setAppLanguage(choice)          -> { ok: true } | { error }   (system | en | zh-CN, staged until finish)
 
 (function setupWizard() {
   const bridge = window.meetingWikiSetup;
+  const localization = window.meetingWikiSetupLocalization;
   const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
   const GEMINI_DESTINATION = "Google Gemini";
 
@@ -36,7 +38,34 @@
     models: [],
     progress: new Map(),
     busy: false,
+    locale: "system",
+    languageTouched: false,
   };
+
+  // Every dynamic text node keeps its renderer, so a language change can redraw it.
+  const rendered = new Map();
+
+  function t(message, vars = null) {
+    if (localization) return localization.translateSetupMessage(message, state.locale, navigator.language, vars);
+    return vars ? message.replace(/\{([a-zA-Z]+)\}/g, (whole, name) => (name in vars ? String(vars[name]) : whole)) : message;
+  }
+
+  // Main-process errors can join fixed sentences, so unknown text is translated sentence by sentence.
+  function tText(message) {
+    if (typeof message !== "string" || !message) return "";
+    const whole = t(message);
+    if (whole !== message || !localization) return whole;
+    return joinParts(message.split(/(?<=\.)\s+/).map((sentence) => t(sentence)));
+  }
+
+  function joinParts(parts) {
+    return localization ? localization.joinSentences(parts, state.locale, navigator.language) : parts.filter(Boolean).join(" ");
+  }
+
+  function show(node, render) {
+    rendered.set(node, render);
+    node.textContent = render();
+  }
 
   // A revealed key is masked again after this delay, on submit, and when the step changes.
   const REVEAL_MS = 20_000;
@@ -65,6 +94,7 @@
 
   function announce(message) {
     const node = $("announcer");
+    message = t(message);
     node.textContent = "";
     // A fresh text node lets screen readers repeat an identical message.
     window.setTimeout(() => {
@@ -89,9 +119,10 @@
     }
   }
 
+  // message is an English source string or a function that renders the localized text.
   function setStatus(id, message, tone) {
     const node = $(id);
-    node.textContent = message;
+    show(node, typeof message === "function" ? message : () => tText(message));
     node.dataset.tone = tone || "";
   }
 
@@ -99,7 +130,7 @@
     state.busy = busy;
     if (busy) {
       button.dataset.label = button.textContent;
-      button.textContent = busyLabel;
+      button.textContent = t(busyLabel);
       button.setAttribute("aria-disabled", "true");
     } else {
       if (button.dataset.label) button.textContent = button.dataset.label;
@@ -112,7 +143,7 @@
   function showFieldError(input, message) {
     const node = $(`${input.id}-error`);
     if (!node) return;
-    node.textContent = message;
+    show(node, () => tText(message));
     node.hidden = !message;
     if (message) input.setAttribute("aria-invalid", "true");
     else input.removeAttribute("aria-invalid");
@@ -131,7 +162,7 @@
     const wasShown = input.type === "text";
     input.type = "password";
     if (toggle) {
-      toggle.textContent = "Show key";
+      toggle.textContent = t("Show key");
       toggle.setAttribute("aria-pressed", "false");
     }
     if (wasShown && announceIt) announce("API key hidden.");
@@ -149,7 +180,7 @@
       return;
     }
     input.type = "text";
-    event.currentTarget.textContent = "Hide key";
+    event.currentTarget.textContent = t("Hide key");
     event.currentTarget.setAttribute("aria-pressed", "true");
     announce("API key shown. It hides again in 20 seconds.");
     revealTimers.set(input.id, window.setTimeout(() => maskKey(input, { announceIt: true }), REVEAL_MS));
@@ -189,10 +220,11 @@
     setBusy(button, false);
     const message = errorOf(result);
     if (message || !result.ok) {
-      setStatus("current-setup-status", `Check failed: ${message || "no response from the engine."}`, "error");
+      setStatus("current-setup-status", () => t("Check failed: {reason}", { reason: message ? tText(message) : t("no response from the engine.") }), "error");
       return;
     }
-    setStatus("current-setup-status", typeof result.detail === "string" ? result.detail : "Your saved provider responded.", "ok");
+    const detail = typeof result.detail === "string" ? result.detail : "Your saved provider responded.";
+    setStatus("current-setup-status", detail, "ok");
   }
 
   // ---- Endpoint parsing ----
@@ -226,10 +258,10 @@
     const parsed = parseEndpoint($("online-base-url").value);
     const host = gemini ? GEMINI_DESTINATION : parsed.error ? "" : parsed.host;
     state.onlineHost = host;
-    $("boundary-host").textContent = host || "the endpoint you enter";
+    $("boundary-host").textContent = host || t("the endpoint you enter");
     $("boundary-loopback").hidden = gemini || !(host && parsed.loopback);
     for (const node of document.querySelectorAll("[data-host-ref]")) {
-      node.textContent = host || "the provider above";
+      node.textContent = host || t("the provider above");
     }
   }
 
@@ -272,7 +304,7 @@
     if (heading) {
       heading.setAttribute("tabindex", "-1");
       heading.focus();
-      document.title = `${heading.textContent} · Meeting Wiki setup`;
+      document.title = `${heading.textContent} · ${t("Meeting Wiki setup")}`;
     }
     if (step === "local") loadModels();
     if (step === "confirm") renderSummary();
@@ -299,7 +331,7 @@
     const mode = selectedMode();
     if (!mode || !SELECTABLE_MODES.has(mode)) {
       const node = $("choose-error");
-      node.textContent = "Choose Gemini or Other online API key to continue.";
+      show(node, () => t("Choose Gemini or Other online API key to continue."));
       node.hidden = false;
       $("mode-gemini").focus();
       return;
@@ -328,7 +360,7 @@
     if (problems.length) {
       setStatus("gemini-status", "", "");
       problems[0].focus();
-      announce(`${problems.length} ${problems.length === 1 ? "field needs" : "fields need"} attention.`);
+      announceProblems(problems.length);
       return;
     }
 
@@ -357,14 +389,14 @@
 
     const testError = errorOf(tested);
     if (testError || !tested.ok) {
-      setStatus("gemini-status", `Check failed: ${testError || "no response from the engine."}`, "error");
+      setStatus("gemini-status", () => t("Check failed: {reason}", { reason: testError ? tText(testError) : t("no response from the engine.") }), "error");
       apiKey.focus();
       return;
     }
 
     state.usedSavedKey = useSavedKey;
-    const detail = typeof tested.detail === "string" && tested.detail ? ` ${tested.detail}` : "";
-    setStatus("gemini-status", `Gemini check passed.${detail} Finish setup to switch to it.`, "ok");
+    const detail = typeof tested.detail === "string" ? tested.detail : "";
+    setStatus("gemini-status", () => joinParts([t("Gemini check passed."), tText(detail), t("Finish setup to switch to it.")]), "ok");
     goTo("confirm");
   }
 
@@ -411,7 +443,7 @@
     if (problems.length) {
       setStatus("online-status", "", "");
       problems[0].focus();
-      announce(`${problems.length} ${problems.length === 1 ? "field needs" : "fields need"} attention.`);
+      announceProblems(problems.length);
       return;
     }
 
@@ -439,7 +471,7 @@
       return;
     }
 
-    setStatus("online-status", `Testing the connection to ${parsed.host}.`, "");
+    setStatus("online-status", () => t("Testing the connection to {host}.", { host: parsed.host }), "");
     const tested = await call("testOnlineProvider");
     setBusy(button, false);
 
@@ -448,7 +480,10 @@
       state.onlineSaved = false;
       setStatus(
         "online-status",
-        `Connection test failed: ${testError || "no response from the provider."} Check the URL, model names, and key, then try again.`,
+        () => joinParts([
+          t("Connection test failed: {reason}", { reason: testError ? tText(testError) : t("no response from the provider.") }),
+          t("Check the URL, model names, and key, then try again."),
+        ]),
         "error",
       );
       apiKey.focus();
@@ -457,15 +492,15 @@
 
     state.onlineSaved = true;
     state.usedSavedKey = useSavedKey;
-    const detail = typeof tested.detail === "string" && tested.detail ? ` ${tested.detail}` : "";
-    setStatus("online-status", `Connected to ${parsed.host}.${detail} Finish setup to switch to it.`, "ok");
+    const detail = typeof tested.detail === "string" ? tested.detail : "";
+    setStatus("online-status", () => joinParts([t("Connected to {host}.", { host: parsed.host }), tText(detail), t("Finish setup to switch to it.")]), "ok");
     goTo("confirm");
   }
 
   // ---- Step 2c: local ----
 
   function formatBytes(bytes) {
-    if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) return "Size not reported";
+    if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) return t("Size not reported");
     const units = ["bytes", "KB", "MB", "GB", "TB"];
     let value = bytes;
     let unit = 0;
@@ -499,19 +534,19 @@
     const nameId = `model-${model.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-name`;
 
     const meta = el("dl", { class: "model-meta" }, [
-      el("dt", { text: "Used for" }),
-      el("dd", { text: model.role || "Not specified" }),
-      el("dt", { text: "Size" }),
+      el("dt", { text: t("Used for") }),
+      el("dd", { text: model.role || t("Not specified") }),
+      el("dt", { text: t("Size") }),
       el("dd", { text: formatBytes(model.sizeBytes) }),
-      el("dt", { text: "Source" }),
-      el("dd", {}, el("code", { text: model.source || "Not reported" })),
-      model.license ? el("dt", { text: "License" }) : null,
+      el("dt", { text: t("Source") }),
+      el("dd", {}, el("code", { text: model.source || t("Not reported") })),
+      model.license ? el("dt", { text: t("License") }) : null,
       model.license ? el("dd", { text: model.license }) : null,
     ]);
 
     let control;
     if (installed) {
-      control = el("p", { class: "model-state model-state-ok", text: "Installed" });
+      control = el("p", { class: "model-state model-state-ok", text: t("Installed") });
     } else if (downloading) {
       const total = typeof progress.totalBytes === "number" ? progress.totalBytes : model.sizeBytes;
       const received = typeof progress.receivedBytes === "number" ? progress.receivedBytes : 0;
@@ -524,21 +559,21 @@
         bar,
         el("p", {
           class: "model-state",
-          text: total ? `${formatBytes(received)} of ${formatBytes(total)}` : "Downloading",
+          text: total ? t("{received} of {total}", { received: formatBytes(received), total: formatBytes(total) }) : t("Downloading"),
         }),
       ]);
     } else {
       const button = el("button", {
         type: "button",
         class: "button button-secondary",
-        text: progress.status === "error" ? "Retry download" : "Download",
+        text: progress.status === "error" ? t("Retry download") : t("Download"),
         "aria-describedby": nameId,
       });
       button.addEventListener("click", () => startDownload(model));
       control = el("div", { class: "model-actions" }, [
         button,
         progress.status === "error"
-          ? el("p", { class: "field-error", text: progress.error || "Download failed." })
+          ? el("p", { class: "field-error", text: tText(progress.error || "Download failed.") })
           : null,
       ]);
     }
@@ -546,7 +581,7 @@
     return el("li", { class: "model", "data-installed": String(installed) }, [
       el("div", { class: "model-head" }, [
         el("h3", { id: nameId, class: "model-name", text: model.name || model.id }),
-        model.required === false ? el("span", { class: "tag tag-quiet", text: "Optional" }) : null,
+        model.required === false ? el("span", { class: "tag tag-quiet", text: t("Optional") }) : null,
       ]),
       meta,
       control,
@@ -561,7 +596,7 @@
       host.appendChild(
         el("p", {
           class: "list-empty",
-          text: "No local models are available in this build. Go back and choose Online API key.",
+          text: t("No local models are available in this build. Go back and choose Online API key."),
         }),
       );
     } else {
@@ -578,7 +613,7 @@
     if (message) {
       $("models-list").setAttribute("aria-busy", "false");
       clear($("models-list"));
-      $("models-list").appendChild(el("p", { class: "field-error", text: message }));
+      $("models-list").appendChild(el("p", { class: "field-error", text: tText(message) }));
       return;
     }
     modelsLoaded = true;
@@ -591,12 +626,12 @@
   async function startDownload(model) {
     state.progress.set(model.id, { status: "downloading", receivedBytes: 0, totalBytes: model.sizeBytes });
     renderModels();
-    setStatus("local-status", `Downloading ${model.name || model.id}.`, "");
+    setStatus("local-status", () => t("Downloading {name}.", { name: model.name || model.id }), "");
     const result = await call("downloadLocalModel", model.id);
     const message = errorOf(result);
     if (message) {
       state.progress.set(model.id, { status: "error", error: message });
-      setStatus("local-status", `${model.name || model.id}: ${message}`, "error");
+      setStatus("local-status", () => `${model.name || model.id}: ${tText(message)}`, "error");
       renderModels();
     }
   }
@@ -609,9 +644,9 @@
     state.progress.set(event.id, { ...previous, ...event });
     const label = model.name || model.id;
     if (event.status === "installed" && previous.status !== "installed") {
-      setStatus("local-status", `${label} installed.`, "ok");
+      setStatus("local-status", () => t("{name} installed.", { name: label }), "ok");
     } else if (event.status === "error") {
-      setStatus("local-status", `${label}: ${event.error || "Download failed."}`, "error");
+      setStatus("local-status", () => `${label}: ${tText(event.error || "Download failed.")}`, "error");
     }
     renderModels();
     if (event.status === "installed" && requiredReady()) {
@@ -622,37 +657,40 @@
   // ---- Step 3: confirm ----
 
   function keyRow() {
-    return state.usedSavedKey
+    return t(state.usedSavedKey
       ? "Keeps the key already saved in the Keychain"
-      : "Saved in the Keychain when you finish setup";
+      : "Saved in the Keychain when you finish setup");
   }
+
+  const LANGUAGE_NAMES = Object.freeze({ system: "Follow macOS", en: "English", "zh-CN": "简体中文" });
 
   function renderSummary() {
     const list = $("confirm-summary");
     clear(list);
     const rows = [];
     if (state.mode === "gemini") {
-      rows.push(["Path", "Gemini"]);
-      rows.push(["Used for", "Transcription, live captions, translation, and summaries"]);
+      rows.push(["Path", t("Gemini")]);
+      rows.push(["Used for", t("Transcription, live captions, translation, and summaries")]);
       rows.push(["API key", keyRow()]);
-      rows.push(["Data egress", `Audio and transcript text are sent to ${GEMINI_DESTINATION}.`]);
+      rows.push(["Data egress", t("Audio and transcript text are sent to {host}.", { host: GEMINI_DESTINATION })]);
     } else if (state.mode === "online") {
-      rows.push(["Path", "Online API key"]);
-      rows.push(["Provider", state.onlineHost || "Not set"]);
+      rows.push(["Path", t("Online API key")]);
+      rows.push(["Provider", state.onlineHost || t("Not set")]);
       rows.push(["Transcription model", $("online-transcription-model").value.trim()]);
       rows.push(["Summary and translation model", $("online-language-model").value.trim()]);
       rows.push(["API key", keyRow()]);
-      rows.push(["Data egress", `Audio and transcript text are sent to ${state.onlineHost || "the provider"}.`]);
+      rows.push(["Data egress", t("Audio and transcript text are sent to {host}.", { host: state.onlineHost || t("the provider") })]);
     } else {
       const installed = state.models.filter(isInstalled).map((model) => model.name || model.id);
-      rows.push(["Path", "Local only"]);
-      rows.push(["Models", installed.length ? installed.join(", ") : "None installed"]);
-      rows.push(["Data egress", "None. Meeting content stays on this Mac."]);
+      rows.push(["Path", t("Local only")]);
+      rows.push(["Models", installed.length ? installed.join(", ") : t("None installed")]);
+      rows.push(["Data egress", t("None. Meeting content stays on this Mac.")]);
     }
+    rows.push(["Language", t(LANGUAGE_NAMES[$("app-language").value] || "Follow macOS")]);
     rows.push(["Storage", $("boundary-storage").textContent]);
-    if (state.appliesAfter) rows.push(["When it applies", state.appliesAfter]);
+    if (state.appliesAfter) rows.push(["When it applies", tText(state.appliesAfter)]);
     for (const [term, value] of rows) {
-      list.appendChild(el("dt", { text: term }));
+      list.appendChild(el("dt", { text: t(term) }));
       list.appendChild(el("dd", { text: value }));
     }
   }
@@ -662,6 +700,15 @@
     const button = $("confirm-finish");
     setBusy(button, true, "Finishing");
     setStatus("confirm-status", "Saving setup.", "");
+    // A first run always records the chosen language; a rerun changes it only when touched.
+    if (state.languageTouched) {
+      const staged = await call("setAppLanguage", $("app-language").value);
+      if (errorOf(staged)) {
+        setBusy(button, false);
+        setStatus("confirm-status", errorOf(staged), "error");
+        return;
+      }
+    }
     const completion = state.mode === "gemini" ? { mode: "online", provider: "gemini" } : { mode: state.mode };
     const result = await call("completeSetup", completion);
     setBusy(button, false);
@@ -672,6 +719,36 @@
     }
     setStatus("confirm-status", "", "");
     goTo("done");
+  }
+
+  function announceProblems(count) {
+    announce(count === 1 ? "1 field needs attention." : t("{count} fields need attention.", { count }));
+  }
+
+  // ---- Language ----
+
+  function applyLocale(choice) {
+    state.locale = choice;
+    maskAllKeys();
+    if (localization) localization.applySetupLocale(document, choice, navigator.language);
+    for (const [node, render] of rendered) node.textContent = render();
+    renderBoundary();
+    if (state.step === "confirm") renderSummary();
+    if (modelsLoaded) renderModels();
+    const heading = $(PANEL_FOR_STEP[state.step]).querySelector("h1");
+    if (heading) document.title = `${heading.textContent} · ${t("Meeting Wiki setup")}`;
+  }
+
+  async function onLanguageChange() {
+    const choice = $("app-language").value;
+    state.languageTouched = true;
+    applyLocale(choice);
+    const staged = await call("setAppLanguage", choice);
+    const node = $("choose-error");
+    if (errorOf(staged)) {
+      show(node, () => t("The language could not be applied. Try again."));
+      node.hidden = false;
+    }
   }
 
   // ---- Wiring ----
@@ -685,6 +762,8 @@
     }
 
     $("choose-form").addEventListener("submit", onChooseSubmit);
+    $("app-language").addEventListener("change", onLanguageChange);
+    applyLocale("system");
     for (const radio of document.querySelectorAll('input[name="mode"]')) {
       radio.addEventListener("change", onModeChange);
     }
@@ -731,10 +810,17 @@
       state.savedKeys = { gemini: keys.gemini === true, openai_compatible: keys.openai_compatible === true };
       renderSavedKeyHints();
       if (typeof initial.appliesAfter === "string") state.appliesAfter = initial.appliesAfter;
+      if (Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, initial.uiLanguage)) {
+        $("app-language").value = initial.uiLanguage;
+        applyLocale(initial.uiLanguage);
+      }
+      // A first run always saves the visible choice, including Follow macOS.
+      state.languageTouched = initial.mode !== "online" && initial.mode !== "local";
       if (initial.mode === "online") {
-        $("current-setup-summary").textContent = initial.provider === "gemini"
+        const summary = initial.provider === "gemini"
           ? "Gemini is set up and in use."
           : "An online API key provider is set up and in use.";
+        show($("current-setup-summary"), () => t(summary));
         $("current-setup").hidden = false;
       }
       if (initial.mode === "online") {

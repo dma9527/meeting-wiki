@@ -58,11 +58,19 @@ Return only data matching the supplied JSON schema. Never invent speakers,
 decisions, owners, dates, commitments, or customer promises. Distinguish a
 proposal from an accepted decision. Keep summaries concise. The renderer owns
 Markdown; do not return Markdown pages."""
-    language = "Simplified Chinese" if output_language == "zh-CN" else "English"
+    fields = (
+        "summaries, blocker descriptions, decision details and rationale, action descriptions, "
+        "topic insights, open questions, risks, and participant roles"
+    )
+    if output_language == "source":
+        system += (
+            f" Write {fields} in the language the speakers used. Do not translate. When speakers "
+            "switch languages, keep each item in the language it was discussed in. "
+        )
+    else:
+        language = "Simplified Chinese" if output_language == "zh-CN" else "English"
+        system += f" Write {fields} in {language}. "
     system += (
-        f" Write summaries, blocker descriptions, decision details and rationale, "
-        f"action descriptions, topic insights, open questions, risks, and participant roles in "
-        f"{language}. "
         "Keep the meeting title, topic names, decision titles, participant and owner names, due "
         "values, quotes, JSON keys, enum values, identifiers, dates, and URLs unchanged."
     )

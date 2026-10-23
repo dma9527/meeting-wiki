@@ -31,6 +31,7 @@ function pickGeminiSettings(settings) {
 }
 
 const COMPLETION_PROVIDERS = new Set(["gemini", "openai_compatible"]);
+const APP_LANGUAGES = new Set(["system", "en", "zh-CN"]);
 
 function pickCompletion(options) {
   const source = options && typeof options === "object" ? options : {};
@@ -55,6 +56,7 @@ contextBridge.exposeInMainWorld("meetingWikiSetup", {
   testOnlineProvider: () => ipcRenderer.invoke("setup:testOnlineProvider"),
   saveGeminiProvider: (settings) => ipcRenderer.invoke("setup:saveGeminiProvider", pickGeminiSettings(settings)),
   testGeminiProvider: (settings) => ipcRenderer.invoke("setup:testGeminiProvider", pickGeminiSettings(settings)),
+  setAppLanguage: (choice) => ipcRenderer.invoke("setup:setAppLanguage", APP_LANGUAGES.has(choice) ? choice : ""),
   testSavedProvider: () => ipcRenderer.invoke("setup:testSavedProvider"),
   readClipboardApiKey: () => ipcRenderer.invoke("setup:readClipboardApiKey"),
   listLocalModels: () => ipcRenderer.invoke("setup:listLocalModels"),

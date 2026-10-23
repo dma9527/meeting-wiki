@@ -70,7 +70,7 @@ test("a hand-edited config is flagged so Settings explains it is never changed",
 
 test("setup and the tray take their copy from the registry", () => {
   const setupJs = fs.readFileSync(path.join(RENDERER, "setup.js"), "utf8");
-  assert.match(setupJs, /\["When it applies", state\.appliesAfter\]/);
+  assert.match(setupJs, /\["When it applies", tText\(state\.appliesAfter\)\]/);
   const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
   assert.match(main, /label: "Edit configuration", toolTip: APPLIES\.manualEdit/);
 });

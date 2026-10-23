@@ -98,6 +98,14 @@ def test_analysis_prompt_applies_memory_language_only_to_user_visible_text(meeti
     assert "Keep the meeting title, topic names, decision titles" in system
 
 
+def test_analysis_prompt_keeps_source_language_without_translation(meeting, transcript):
+    system, _, _ = analysis_messages(meeting, transcript, PrivacyConfig(), "source")
+
+    assert "in the language the speakers used. Do not translate." in system
+    assert "Simplified Chinese" not in system
+    assert "Keep the meeting title, topic names, decision titles" in system
+
+
 def test_validation_keeps_explicit_meeting_title_across_output_languages(meeting, transcript):
     payload = valid_analysis_payload()
     payload["title"] = "架构评审"

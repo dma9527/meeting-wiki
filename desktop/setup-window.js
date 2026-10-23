@@ -12,6 +12,7 @@ const { pathToFileURL } = require("url");
 const {
   DEFAULT_LANGUAGE_SETTINGS,
   EMPTY_IDENTITY,
+  LANGUAGE_VALUES,
   MANAGED_HEADER,
   languageFromTables,
   parseManagedConfig,
@@ -45,6 +46,7 @@ const CHANNELS = Object.freeze({
   saveOnlineProvider: "setup:saveOnlineProvider",
   testOnlineProvider: "setup:testOnlineProvider",
   saveGeminiProvider: "setup:saveGeminiProvider",
+  setAppLanguage: "setup:setAppLanguage",
   testGeminiProvider: "setup:testGeminiProvider",
   testSavedProvider: "setup:testSavedProvider",
   readClipboardApiKey: "setup:readClipboardApiKey",
@@ -402,24 +404,40 @@ function createSetupController({
   now = () => new Date(),
   onComplete = () => {},
   readClipboard = () => "",
+  systemLocale = () => "en",
 }) {
   // A candidate lives only in this window session's memory. Disk, Keychain, and setup state
   // change once, at completeSetup, and only after the candidate passed its own check.
-  const session = { candidate: null, testedProvider: null };
+  const session = { candidate: null, testedProvider: null, appLanguage: null };
 
   // Rerunning setup keeps the name and aliases saved in Settings.
   function currentIdentity() {
     return readManagedIdentity(readText(fs, configPath)) || EMPTY_IDENTITY;
   }
 
-  // Rerunning setup keeps the language preferences saved in Settings.
+  // The setup language picks the UI language and the live translation and summary language.
+  function appLanguageOverlay() {
+    const choice = session.appLanguage;
+    if (!choice) return {};
+    let resolved = choice;
+    if (choice === "system") {
+      let locale = "en";
+      try { locale = String(systemLocale() || "en"); } catch (_) { /* default */ }
+      resolved = locale.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+    }
+    return { uiLanguage: choice, liveTranslationLanguage: resolved, liveSummaryLanguage: resolved };
+  }
+
+  // Rerunning setup keeps the language preferences saved in Settings unless one is chosen here.
   function currentLanguages() {
     const text = readText(fs, configPath);
     const tables = parseManagedConfig(text);
-    if (tables && unsupportedLanguageFields(tables).length > 0) {
+    const values = { ...((tables && languageFromTables(tables)) || DEFAULT_LANGUAGE_SETTINGS), ...appLanguageOverlay() };
+    const unsupported = Object.entries(LANGUAGE_VALUES).some(([field, allowed]) => !allowed.includes(values[field]));
+    if (tables && unsupported) {
       throw new SetupError("Open Settings and choose supported languages before switching providers.");
     }
-    return (tables && languageFromTables(tables)) || DEFAULT_LANGUAGE_SETTINGS;
+    return values;
   }
 
   function readSecret(secretId) {
@@ -540,6 +558,9 @@ function createSetupController({
           [OPENAI_PROVIDER]: savedKeyPresent(SECRET_ID),
         },
       };
+      const tables = parseManagedConfig(readText(fs, configPath));
+      const uiLanguage = tables ? languageFromTables(tables).uiLanguage : DEFAULT_LANGUAGE_SETTINGS.uiLanguage;
+      result.uiLanguage = LANGUAGE_VALUES.uiLanguage.includes(uiLanguage) ? uiLanguage : DEFAULT_LANGUAGE_SETTINGS.uiLanguage;
       if (completed && (completed.mode === "online" || completed.mode === "local")) result.mode = completed.mode;
       if (result.mode === "online" && completed.provider === GEMINI_PROVIDER) result.provider = GEMINI_PROVIDER;
       return result;
@@ -572,6 +593,13 @@ function createSetupController({
         useSavedKey,
         (identity, languages) => renderGeminiConfig({}, identity, languages),
       );
+    },
+
+    // Staged in memory and written with the provider config when setup finishes.
+    setAppLanguage(choice) {
+      if (!LANGUAGE_VALUES.uiLanguage.includes(choice)) throw new SetupError("Choose a supported language.");
+      session.appLanguage = choice;
+      return { ok: true };
     },
 
     // The renderer never resends the key; only the egress acknowledgement is checked.
@@ -653,6 +681,7 @@ function registerSetupHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.saveOnlineProvider, (controller, settings) => controller.saveOnlineProvider(settings));
   handle(CHANNELS.testOnlineProvider, (controller) => controller.testOnlineProvider());
   handle(CHANNELS.saveGeminiProvider, (controller, settings) => controller.saveGeminiProvider(settings));
+  handle(CHANNELS.setAppLanguage, (controller, choice) => controller.setAppLanguage(choice));
   handle(CHANNELS.testGeminiProvider, (controller, settings) => controller.testGeminiProvider(settings));
   handle(CHANNELS.testSavedProvider, (controller) => controller.testSavedProvider());
   handle(CHANNELS.readClipboardApiKey, (controller) => controller.readClipboardApiKey());

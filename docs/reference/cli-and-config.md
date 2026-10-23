@@ -86,7 +86,7 @@ Language preferences use fixed values under `[languages]`:
 transcript = "auto"          # auto | en | zh-CN
 live_translation = "zh-CN"  # en | zh-CN
 live_summary = "zh-CN"      # en | zh-CN
-memory = "en"                # en | zh-CN
+memory = "source"            # source (no translation) | en | zh-CN
 ui = "system"               # system | en | zh-CN
 ```
 

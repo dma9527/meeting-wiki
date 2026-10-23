@@ -1,6 +1,9 @@
 "use strict";
 
 (function settingsLocalization(globalObject) {
+  const i18n = typeof module !== "undefined" && module.exports
+    ? require("./i18n")
+    : globalObject.meetingWikiI18n;
   const ZH = Object.freeze({
     title: "Meeting Wiki 设置",
     ".wordmark-sub": "设置",
@@ -21,7 +24,8 @@
     "label[for='live-translation-language']": "实时翻译",
     "label[for='live-summary-language']": "实时总结",
     "label[for='memory-language']": "记忆与 Wiki 内容",
-    "#memory-language-hint": "影响之后生成的内容。稳定的 Markdown 标题仍使用英文。",
+    "#memory-language-hint": "影响之后生成的内容。“与会议相同”会按会议原来的语言保存，不做翻译。稳定的 Markdown 标题仍使用英文。",
+    "#memory-language option[value='source']": "与会议相同",
     "label[for='ui-language']": "设置界面语言",
     "#ui-language option[value='system']": "跟随 macOS",
     "#ui-language option[value='en']": "English",
@@ -236,28 +240,8 @@
       : `${name}：已找到浏览器，但连接未安装。请开启自动录音并保存。`;
   }
 
-  function resolveSettingsLocale(choice, systemLocale = "en") {
-    if (choice === "zh-CN" || choice === "en") return choice;
-    return String(systemLocale).toLowerCase().startsWith("zh") ? "zh-CN" : "en";
-  }
-
-  const originalText = new WeakMap();
-  const originalTitles = new WeakMap();
-
-  function applySettingsLocale(documentObject, choice, systemLocale = "en") {
-    const locale = resolveSettingsLocale(choice, systemLocale);
-    documentObject.documentElement.lang = locale;
-    if (!originalTitles.has(documentObject)) originalTitles.set(documentObject, documentObject.title);
-    documentObject.title = locale === "zh-CN" ? ZH.title : originalTitles.get(documentObject);
-    for (const [selector, text] of Object.entries(ZH)) {
-      if (selector === "title") continue;
-      const node = documentObject.querySelector(selector);
-      if (!node) continue;
-      if (!originalText.has(node)) originalText.set(node, node.textContent);
-      node.textContent = locale === "zh-CN" ? text : originalText.get(node);
-    }
-    return locale;
-  }
+  const resolveSettingsLocale = i18n.resolveLocale;
+  const applySettingsLocale = i18n.createStaticApplier(ZH);
 
   const api = Object.freeze({
     applySettingsLocale,

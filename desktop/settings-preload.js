@@ -9,7 +9,7 @@ const LANGUAGE_VALUES = Object.freeze({
   transcriptLanguage: new Set(["auto", "en", "zh-CN"]),
   liveTranslationLanguage: new Set(["en", "zh-CN"]),
   liveSummaryLanguage: new Set(["en", "zh-CN"]),
-  memoryLanguage: new Set(["en", "zh-CN"]),
+  memoryLanguage: new Set(["source", "en", "zh-CN"]),
   uiLanguage: new Set(["system", "en", "zh-CN"]),
 });
 

@@ -90,7 +90,8 @@ class LanguageConfig(BaseModel):
     transcript: Literal["auto", "en", "zh-CN"] = "auto"
     live_translation: Literal["en", "zh-CN"] = "zh-CN"
     live_summary: Literal["en", "zh-CN"] = "zh-CN"
-    memory: Literal["en", "zh-CN"] = "en"
+    # "source" keeps generated memory in the language the speakers used, with no translation.
+    memory: Literal["source", "en", "zh-CN"] = "source"
     ui: Literal["system", "en", "zh-CN"] = "system"
 
 

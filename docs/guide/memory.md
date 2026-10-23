@@ -18,7 +18,9 @@ Each processed meeting is indexed into `memory.db`: people, topics, decisions,
 action items, and transcript lines, each linked to its source meeting.
 
 Choose **Memory and wiki content** under **Settings... > Languages** for new
-processing. This changes generated summaries, decision details, action text,
+processing. The default, **Same as the meeting**, keeps generated text in the
+language the speakers used and never translates it, so translation cannot
+introduce errors. English or 简体中文 translates instead. This changes generated summaries, decision details, action text,
 topic insights, questions, and risks. Meeting titles, topic names, decision
 titles, people, due values, identifiers, dates, URLs, and stable Markdown
 headings keep their source form. Changing the setting does not rewrite existing

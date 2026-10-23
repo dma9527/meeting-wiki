@@ -54,6 +54,7 @@ test("the setup bridge exposes only the named setup actions", () => {
     "readClipboardApiKey",
     "saveGeminiProvider",
     "saveOnlineProvider",
+    "setAppLanguage",
     "testGeminiProvider",
     "testOnlineProvider",
     "testSavedProvider",
@@ -164,5 +165,18 @@ test("saved-key test and clipboard paste take no arguments from the renderer", a
     { channel: CHANNELS.testSavedProvider, args: [] },
     { channel: CHANNELS.readClipboardApiKey, args: [] },
     { channel: CHANNELS.saveGeminiProvider, args: [{ apiKey: "", useSavedKey: true, acknowledgedEgress: true }] },
+  ]);
+});
+
+
+test("setAppLanguage forwards only a supported language on its own channel", async () => {
+  const { exposed, invocations } = loadPreload();
+  await exposed.api.setAppLanguage("zh-CN");
+  await exposed.api.setAppLanguage("../../etc");
+  await exposed.api.setAppLanguage({ choice: "en" });
+  assert.deepEqual(invocations.slice(-3), [
+    { channel: CHANNELS.setAppLanguage, args: ["zh-CN"] },
+    { channel: CHANNELS.setAppLanguage, args: [""] },
+    { channel: CHANNELS.setAppLanguage, args: [""] },
   ]);
 });

@@ -9,7 +9,7 @@ aliases = []
 transcript = "auto"
 live_translation = "zh-CN"
 live_summary = "zh-CN"
-memory = "en"
+memory = "source"
 ui = "system"
 
 [providers]

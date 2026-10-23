@@ -27,14 +27,14 @@ const DEFAULT_LANGUAGE_SETTINGS = Object.freeze({
   transcriptLanguage: "auto",
   liveTranslationLanguage: "zh-CN",
   liveSummaryLanguage: "zh-CN",
-  memoryLanguage: "en",
+  memoryLanguage: "source",
   uiLanguage: "system",
 });
 const LANGUAGE_VALUES = Object.freeze({
   transcriptLanguage: Object.freeze(["auto", "en", "zh-CN"]),
   liveTranslationLanguage: Object.freeze(["en", "zh-CN"]),
   liveSummaryLanguage: Object.freeze(["en", "zh-CN"]),
-  memoryLanguage: Object.freeze(["en", "zh-CN"]),
+  memoryLanguage: Object.freeze(["source", "en", "zh-CN"]),
   uiLanguage: Object.freeze(["system", "en", "zh-CN"]),
 });
 

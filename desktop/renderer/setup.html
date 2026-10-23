@@ -17,9 +17,9 @@
       <header class="setup-head">
         <p class="wordmark">Meeting Wiki <span class="wordmark-sub">first-run setup</span></p>
         <ol class="steps" aria-label="Setup progress">
-          <li class="step" data-step="choose" aria-current="step"><span class="step-index">1</span> Choose a path</li>
-          <li class="step" data-step="configure"><span class="step-index">2</span> Configure</li>
-          <li class="step" data-step="confirm"><span class="step-index">3</span> Confirm</li>
+          <li class="step" data-step="choose" aria-current="step"><span class="step-index">1</span> <span class="step-label">Choose a path</span></li>
+          <li class="step" data-step="configure"><span class="step-index">2</span> <span class="step-label">Configure</span></li>
+          <li class="step" data-step="confirm"><span class="step-index">3</span> <span class="step-label">Confirm</span></li>
         </ol>
       </header>
 
@@ -30,6 +30,19 @@
 
         <!-- Step 1: choose a processing path -->
         <section id="panel-choose" class="panel" aria-labelledby="choose-heading" tabindex="-1">
+          <div class="field language-field">
+            <label for="app-language"><span lang="en">Language</span> · <span lang="zh-CN">语言</span></label>
+            <select id="app-language" name="appLanguage" aria-describedby="app-language-hint">
+              <option value="system">Follow macOS · 跟随 macOS</option>
+              <option value="en">English</option>
+              <option value="zh-CN">简体中文</option>
+            </select>
+            <p id="app-language-hint" class="hint">
+              Used for Meeting Wiki windows, live translation, and live summaries. Saved memory keeps the language
+              the speakers used. Change any of these later in Settings.
+            </p>
+          </div>
+
           <h1 id="choose-heading" class="display">Where should your meetings be processed?</h1>
           <p class="lede">
             Recordings, transcripts, and your wiki are stored on this Mac either way. This choice decides
@@ -222,8 +235,9 @@
             <div class="consent">
               <input id="online-egress-ack" name="egressAck" type="checkbox" aria-describedby="online-egress-ack-error" />
               <label for="online-egress-ack">
-                I understand that meeting audio and transcript text will be sent to
-                <span class="host-ref" data-host-ref>the provider above</span> whenever I record.
+                <span id="online-egress-before">I understand that meeting audio and transcript text will be sent to</span>
+                <span class="host-ref" data-host-ref>the provider above</span>
+                <span id="online-egress-after">whenever I record.</span>
               </label>
             </div>
             <p id="online-egress-ack-error" class="field-error" hidden></p>
@@ -294,7 +308,7 @@
         <h2 id="boundary-heading" class="boundary-title">Data boundary</h2>
 
         <div class="enclosure">
-          <p class="enclosure-label">This Mac</p>
+          <p class="enclosure-label" id="boundary-this-mac">This Mac</p>
           <ul class="keeps">
             <li>Meeting audio files</li>
             <li>Transcripts and the Markdown wiki</li>
@@ -340,6 +354,8 @@
     </div>
 
     <p id="announcer" class="visually-hidden" role="status" aria-live="polite"></p>
+    <script src="i18n.js" defer></script>
+    <script src="setup-localization.js" defer></script>
     <script src="setup.js" defer></script>
   </body>
 </html>

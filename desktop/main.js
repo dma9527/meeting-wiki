@@ -316,6 +316,7 @@ function openSetupWindow() {
       spawnFn: spawn,
       // Read only on an explicit Paste click; validated in setup-window.js and never stored.
       readClipboard: () => clipboard.readText(),
+      systemLocale: () => app.getLocale(),
       onComplete: restartProcessing,
     },
   );

@@ -886,3 +886,22 @@ progress {
     color: HighlightText;
   }
 }
+
+.language-field {
+  max-width: 360px;
+  margin-bottom: 24px;
+}
+
+.language-field select {
+  width: 100%;
+}
+
+select {
+  padding: 9px 12px;
+  background: var(--sheet);
+  color: var(--graphite);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  font-family: var(--body);
+  font-size: 14px;
+}

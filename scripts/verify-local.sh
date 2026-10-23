@@ -90,6 +90,9 @@ node --check desktop/browser-extension/google-meet/background.js
 node --check desktop/browser-extension/google-meet/content.js
 node --check desktop/renderer/app.js
 node --check desktop/renderer/setup.js
+node --check desktop/renderer/i18n.js
+node --check desktop/renderer/setup-localization.js
+node --check desktop/renderer/settings-localization.js
 node --check desktop/renderer/settings.js
 node --check desktop/renderer/live-sidebar.js
 node --check desktop/renderer/record.js

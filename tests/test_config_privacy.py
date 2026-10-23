@@ -180,7 +180,7 @@ def test_language_preferences_have_safe_defaults_and_legacy_fallbacks():
     assert config.transcription_language is None
     assert config.live_translation_language == "zh-CN"
     assert config.live_summary_language == "zh-CN"
-    assert config.memory_output_language == "en"
+    assert config.memory_output_language == "source"
     assert config.ui_language == "system"
 
     legacy = AppConfig.model_validate(
