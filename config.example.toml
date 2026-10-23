@@ -1,10 +1,16 @@
 user_name = "Your Name"
-language = "en"
 
 [identity]
 # The local microphone channel is always attributed to this profile.
 primary_profile_name = ""
 aliases = []
+
+[languages]
+transcript = "auto"
+live_translation = "zh-CN"
+live_summary = "zh-CN"
+memory = "en"
+ui = "system"
 
 [providers]
 transcription = "mlx_whisper"  # mlx_whisper | openai_compatible | gemini | text
@@ -26,7 +32,6 @@ timeout_seconds = 300
 num_ctx = 32768
 
 [live]
-translation_target_language = "zh"
 chunk_seconds = 8
 overlap_seconds = 2
 summary_context_characters = 12000

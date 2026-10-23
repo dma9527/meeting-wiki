@@ -988,14 +988,14 @@ def test_live_language_translate_requests_plain_text():
     models = FakeModels("  你好，团队  ")
     provider = live_language_provider(fake_client(models=models))
 
-    assert provider.translate("Hello team", "zh") == "你好，团队"
+    assert provider.translate("Hello team", "zh-CN") == "你好，团队"
 
     call = models.calls[0]
     assert call["model"] == LANGUAGE_MODEL
     assert call["contents"] == "Hello team"
     assert call["config"]["response_mime_type"] == "text/plain"
     assert call["config"]["temperature"] == 0
-    assert "Chinese" in call["config"]["system_instruction"]
+    assert "Simplified Chinese" in call["config"]["system_instruction"]
     assert "plain text" in call["config"]["system_instruction"]
 
 
@@ -1003,7 +1003,7 @@ def test_live_language_summarize_requests_concise_bullets():
     models = FakeModels("- Chose option B\n\n* Ship Friday\n  - Alex owns docs  \n")
     provider = live_language_provider(fake_client(models=models))
 
-    assert provider.summarize("Alex: we chose option B") == [
+    assert provider.summarize("Alex: we chose option B", "zh-CN") == [
         "Chose option B",
         "Ship Friday",
         "Alex owns docs",
@@ -1013,6 +1013,7 @@ def test_live_language_summarize_requests_concise_bullets():
     assert call["contents"] == "Alex: we chose option B"
     assert call["config"]["response_mime_type"] == "text/plain"
     assert "concise bullet points" in call["config"]["system_instruction"]
+    assert "Simplified Chinese" in call["config"]["system_instruction"]
 
 
 @pytest.mark.parametrize("text", [None, ""])
@@ -1020,22 +1021,22 @@ def test_live_language_handles_empty_model_output(text):
     provider = live_language_provider(fake_client(models=FakeModels(text)))
 
     assert provider.translate("Hello", "fr") == ""
-    assert provider.summarize("Hello") == []
+    assert provider.summarize("Hello", "en") == []
 
 
 @pytest.mark.parametrize("blank", ["", "   \n\t"])
 def test_live_language_empty_input_never_constructs_client(blank):
     provider = live_language_provider()
 
-    assert provider.translate(blank, "zh") == ""
-    assert provider.summarize(blank) == []
+    assert provider.translate(blank, "zh-CN") == ""
+    assert provider.summarize(blank, "zh-CN") == []
 
 
 @pytest.mark.parametrize(
     ("call", "expected"),
     [
-        (lambda provider: provider.translate("Alex: secret plan", "zh"), "translation"),
-        (lambda provider: provider.summarize("Alex: secret plan"), "summary"),
+        (lambda provider: provider.translate("Alex: secret plan", "zh-CN"), "translation"),
+        (lambda provider: provider.summarize("Alex: secret plan", "en"), "summary"),
     ],
 )
 def test_live_language_errors_are_redacted(call, expected):

@@ -304,7 +304,7 @@ class MeetingEngine:
         if meeting.transcript_path:
             result = TextImportTranscriber().transcribe(
                 meeting.transcript_path,
-                self.config.language,
+                self.config.transcription_language,
                 shared_context,
             )
             return self._apply_speaker_corrections(result, meeting.speaker_corrections)
@@ -339,7 +339,7 @@ class MeetingEngine:
                 try:
                     result = self.providers.transcription.transcribe(
                         path,
-                        self.config.language,
+                        self.config.transcription_language,
                         context,
                     )
                 except EmptyTranscriptError:
@@ -354,7 +354,7 @@ class MeetingEngine:
             raise ValueError("Meeting requires audio_path or transcript_path")
         result = self.providers.transcription.transcribe(
             meeting.audio_path,
-            self.config.language,
+            self.config.transcription_language,
             shared_context,
         )
         return self._apply_speaker_corrections(result, meeting.speaker_corrections)

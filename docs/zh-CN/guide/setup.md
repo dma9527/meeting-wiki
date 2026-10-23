@@ -42,8 +42,8 @@ Meeting Wiki 可以读取麦克风权限，麦克风被拒绝时录音面板会�
 
 菜单栏的 **Settings...** 包含不需要更换 Key 的选项：
 
-- Gemini 模型，包括实时转写模型。
-- 实时翻译语言（例如 `zh` 这样的代码，或 Japanese 这样的名称）和摘要上下文长度。
+- Gemini 模型和 live summary 上下文长度。
+- 转写检测、实时翻译、实时总结、生成的 memory 内容和 Settings 界面的语言。支持 English 和简体中文，转写还支持自动检测。
 - 手动录音的 privacy、自动实时字幕、翻译、滚动总结和最长时长默认值。
 - Zoom 与 Google Meet 自动录音，以及这些录音的去向（私密、跟随日历或共享）。
 

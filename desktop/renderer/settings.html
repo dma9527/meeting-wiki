@@ -65,6 +65,71 @@
           <p id="gemini-unavailable" class="hint" hidden></p>
         </section>
 
+        <section id="panel-language-settings" class="panel" aria-labelledby="language-settings-heading" tabindex="-1" hidden>
+          <h1 id="language-settings-heading" class="display">Languages</h1>
+          <p class="lede">
+            Choose separate languages for speech recognition, live translation, live summary, saved memory, and this
+            Settings window. Changing these values does not automatically rewrite existing meetings or completed
+            analysis snapshots. An explicit correction reprocess uses the current memory language.
+          </p>
+
+          <form id="language-settings-form" novalidate>
+            <p id="language-migration-notice" class="notice" role="note" hidden>
+              This config uses a custom legacy language value. Choose a supported value for each empty field before saving.
+            </p>
+            <div class="field-row">
+              <div class="field">
+                <label for="transcript-language">Spoken language</label>
+                <select id="transcript-language" name="transcriptLanguage" aria-describedby="transcript-language-hint transcript-language-applies">
+                  <option value="auto">Auto detect</option>
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                </select>
+                <p id="transcript-language-hint" class="hint">Used by live and batch transcription.</p>
+                <p id="transcript-language-applies" class="hint applies" data-applies-for="transcriptLanguage"></p>
+              </div>
+              <div class="field">
+                <label for="live-translation-language">Live translation</label>
+                <select id="live-translation-language" name="liveTranslationLanguage" aria-describedby="live-translation-language-applies">
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                </select>
+                <p id="live-translation-language-applies" class="hint applies" data-applies-for="liveTranslationLanguage"></p>
+              </div>
+              <div class="field">
+                <label for="live-summary-language">Live summary</label>
+                <select id="live-summary-language" name="liveSummaryLanguage" aria-describedby="live-summary-language-applies">
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                </select>
+                <p id="live-summary-language-applies" class="hint applies" data-applies-for="liveSummaryLanguage"></p>
+              </div>
+              <div class="field">
+                <label for="memory-language">Memory and wiki content</label>
+                <select id="memory-language" name="memoryLanguage" aria-describedby="memory-language-hint memory-language-applies">
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                </select>
+                <p id="memory-language-hint" class="hint">Applies to generated facts for new processing. Stable Markdown headings remain English.</p>
+                <p id="memory-language-applies" class="hint applies" data-applies-for="memoryLanguage"></p>
+              </div>
+              <div class="field">
+                <label for="ui-language">Settings language</label>
+                <select id="ui-language" name="uiLanguage" aria-describedby="ui-language-applies">
+                  <option value="system">Follow macOS</option>
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                </select>
+                <p id="ui-language-applies" class="hint applies" data-applies-for="uiLanguage"></p>
+              </div>
+            </div>
+            <p id="language-status" class="status" role="status" aria-live="polite"></p>
+            <div class="actions">
+              <button type="submit" class="button button-primary" id="language-save">Save languages</button>
+            </div>
+          </form>
+        </section>
+
         <section id="panel-recording-settings" class="panel" aria-labelledby="recording-settings-heading" tabindex="-1" hidden>
           <h1 id="recording-settings-heading" class="display">Recording defaults</h1>
           <p class="lede">
@@ -153,7 +218,7 @@
               <p id="auto-record-privacy-applies" class="hint applies" data-applies-for="autoRecordPrivacy"></p>
             </fieldset>
 
-            <h2 class="subhead">Zoom app</h2>
+            <h2 id="zoom-heading" class="subhead">Zoom app</h2>
             <div class="consent">
               <input id="zoom-auto-record" name="zoomAutoRecord" type="checkbox" aria-describedby="zoom-auto-record-boundary zoom-auto-record-applies" />
               <label for="zoom-auto-record">Record Zoom meetings automatically</label>
@@ -167,7 +232,7 @@
             <p id="zoom-auto-record-applies" class="hint applies" data-applies-for="zoomAutoRecord"></p>
             <ul id="zoom-readiness" class="local-facts"></ul>
 
-            <h2 class="subhead">Google Meet in Chrome, Edge, Brave, or Chromium</h2>
+            <h2 id="google-meet-heading" class="subhead">Google Meet in Chrome, Edge, Brave, or Chromium</h2>
             <div class="consent">
               <input id="google-meet-auto-record" name="googleMeetAutoRecord" type="checkbox" aria-describedby="google-meet-auto-record-boundary google-meet-auto-record-applies" />
               <label for="google-meet-auto-record">Record Google Meet calls automatically</label>
@@ -183,7 +248,7 @@
             <div class="actions">
               <button type="button" class="button button-quiet" id="show-meet-extension">Show extension folder</button>
             </div>
-            <p class="hint">
+            <p id="meet-load-instructions" class="hint">
               In the browser, open the extensions page, turn on Developer mode, choose Load unpacked, and pick the
               folder that opens. This is needed once per browser.
             </p>
@@ -204,7 +269,7 @@
           </p>
 
           <form id="gemini-settings-form" novalidate>
-            <h2 class="subhead">Models</h2>
+            <h2 id="gemini-models-heading" class="subhead">Models</h2>
             <div class="field">
               <label for="batch-audio-model">Recording transcription model</label>
               <input id="batch-audio-model" name="batchAudioModel" type="text" autocomplete="off" spellcheck="false" required aria-describedby="batch-audio-model-applies batch-audio-model-error" />
@@ -224,15 +289,8 @@
               <p id="language-model-error" class="field-error" hidden></p>
             </div>
 
-            <h2 class="subhead">Live</h2>
+            <h2 id="gemini-live-heading" class="subhead">Live</h2>
             <div class="field-row">
-              <div class="field">
-                <label for="translation-target-language">Translation language</label>
-                <input id="translation-target-language" name="translationTargetLanguage" type="text" autocomplete="off" spellcheck="false" required aria-describedby="translation-target-language-hint translation-target-language-applies translation-target-language-error" />
-                <p id="translation-target-language-hint" class="hint">A code such as zh or a name such as Japanese.</p>
-                <p id="translation-target-language-applies" class="hint applies" data-applies-for="translationTargetLanguage"></p>
-              <p id="translation-target-language-error" class="field-error" hidden></p>
-              </div>
               <div class="field">
                 <label for="summary-context-characters">Summary context characters</label>
                 <input id="summary-context-characters" name="summaryContextCharacters" type="number" inputmode="numeric" step="1" required aria-describedby="summary-context-characters-hint summary-context-characters-applies summary-context-characters-error" />
@@ -248,12 +306,13 @@
               <button type="button" class="button button-quiet" id="settings-rerun">Run setup again</button>
               <button type="submit" class="button button-primary" id="settings-save">Save</button>
             </div>
-            <p class="hint">Run setup again to change the API key or switch to another provider.</p>
+            <p id="gemini-rerun-hint" class="hint">Run setup again to change the API key or switch to another provider.</p>
           </form>
         </section>
       </main>
     </div>
 
+    <script src="settings-localization.js" defer></script>
     <script src="settings.js" defer></script>
   </body>
 </html>

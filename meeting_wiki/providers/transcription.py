@@ -11,6 +11,12 @@ from ..models import TranscriptResult, TranscriptSegment
 from .base import EmptyTranscriptError, TranscriptionCapabilities, TranscriptionContext
 
 
+def transcription_language_code(language: str | None) -> str | None:
+    if language == "zh-CN":
+        return "zh"
+    return language
+
+
 class TextImportTranscriber:
     name = "text"
     capabilities = TranscriptionCapabilities()
@@ -61,7 +67,7 @@ class MLXWhisperTranscriber:
             ) from error
         kwargs = {"path_or_hf_repo": self.model}
         if language:
-            kwargs["language"] = language
+            kwargs["language"] = transcription_language_code(language)
         result = mlx_whisper.transcribe(str(audio_path), **kwargs)
         text = str(result.get("text", "")).strip()
         if not text:
@@ -115,7 +121,7 @@ class OpenAITranscriber:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         data = {"model": self.model, "response_format": "verbose_json"}
         if language:
-            data["language"] = language
+            data["language"] = transcription_language_code(language)
         with audio_path.open("rb") as handle:
             response = httpx.post(
                 f"{self.base_url}/audio/transcriptions",

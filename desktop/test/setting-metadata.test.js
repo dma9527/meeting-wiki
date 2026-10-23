@@ -25,7 +25,8 @@ test("every setting maps to a known applies-after code with fixed copy", () => {
 test("the codes match where each value is read", () => {
   assert.equal(SETTINGS.maxDurationMinutes.applies, "nextRecording");
   assert.equal(SETTINGS.liveModel.applies, "liveSession");
-  assert.equal(SETTINGS.translationTargetLanguage.applies, "liveSession");
+  assert.equal(SETTINGS.liveTranslationLanguage.applies, "liveSession");
+  assert.equal(SETTINGS.liveSummaryLanguage.applies, "liveSession");
   assert.equal(SETTINGS.summaryContextCharacters.applies, "liveSession");
   assert.equal(SETTINGS.batchAudioModel.applies, "processing");
   assert.equal(SETTINGS.languageModel.applies, "processingAndLive");

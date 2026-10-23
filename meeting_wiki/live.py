@@ -262,6 +262,7 @@ class LiveRuntime:
         private: bool,
         external: bool,
         target_language: str,
+        summary_language: str,
         chunk_seconds: int,
         overlap_seconds: int,
         summary_context_characters: int,
@@ -279,6 +280,7 @@ class LiveRuntime:
         self.private = private
         self.external = external
         self.target_language = target_language
+        self.summary_language = summary_language
         self.chunk_bytes = chunk_seconds * BYTES_PER_SECOND
         self.overlap_bytes = overlap_seconds * BYTES_PER_SECOND
         self.summary_context_characters = summary_context_characters
@@ -450,7 +452,9 @@ class LiveRuntime:
                 # Coalesce summaries so a backlog does not trigger one call per segment.
                 if self._language_queue.empty():
                     points = await self.run_blocking(
-                        self.language.summarize, self._summary_context()
+                        self.language.summarize,
+                        self._summary_context(),
+                        self.summary_language,
                     )
                     cleaned = [_clip(str(point), 400) for point in points if str(point).strip()]
                     await self.publisher.publish(
@@ -541,11 +545,12 @@ async def run_live_session(
             work_dir=work_dir,
             private=private,
             external=external,
-            target_language=config.live.translation_target_language,
+            target_language=config.live_translation_language,
+            summary_language=config.live_summary_language,
             chunk_seconds=config.live.chunk_seconds,
             overlap_seconds=config.live.overlap_seconds,
             summary_context_characters=config.live.summary_context_characters,
-            transcription_language=config.language,
+            transcription_language=config.transcription_language,
         )
         await runtime.run()
         return 0

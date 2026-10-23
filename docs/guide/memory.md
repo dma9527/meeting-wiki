@@ -17,6 +17,14 @@ tick "Include private memory on this Mac".
 Each processed meeting is indexed into `memory.db`: people, topics, decisions,
 action items, and transcript lines, each linked to its source meeting.
 
+Choose **Memory and wiki content** under **Settings... > Languages** for new
+processing. This changes generated summaries, decision details, action text,
+topic insights, questions, and risks. Meeting titles, topic names, decision
+titles, people, due values, identifiers, dates, URLs, and stable Markdown
+headings keep their source form. Changing the setting does not rewrite existing
+meetings or completed analysis snapshots. An explicit correction reprocess uses
+the current memory language.
+
 In the window, **Memory search** has type filters and an "Include private
 memory on this Mac" checkbox that starts unchecked.
 

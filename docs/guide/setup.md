@@ -60,9 +60,10 @@ Running setup again is transactional:
 
 **Settings...** in the menu bar holds options that do not need a new key:
 
-- Gemini models, including the live transcription model.
-- Live translation language (a code such as `zh` or a name such as Japanese)
-  and summary context size.
+- Gemini models and live summary context size.
+- Languages for transcript detection, live translation, live summary, generated
+  memory content, and the Settings interface. English and Simplified Chinese
+  are available; transcript also supports auto detection.
 - Recording defaults for privacy, automatic live captions, translation,
   rolling summary, and maximum length.
 - Automatic recording for Zoom and Google Meet, and where those recordings go

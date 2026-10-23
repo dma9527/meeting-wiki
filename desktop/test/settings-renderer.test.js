@@ -21,6 +21,7 @@ test("settings.html enforces a self-only CSP with no network and loads only loca
   for (const directive of ["default-src 'none'", "script-src 'self'", "style-src 'self'", "connect-src 'none'", "form-action 'none'"]) {
     assert.ok(csp[1].includes(directive), `CSP is missing ${directive}`);
   }
+  assert.match(html, /<script src="settings-localization\.js" defer><\/script>/);
   assert.match(html, /<script src="settings\.js" defer><\/script>/);
   assert.match(html, /<link rel="stylesheet" href="setup\.css" \/>/);
   assert.match(html, /<link rel="stylesheet" href="settings\.css" \/>/);
@@ -28,18 +29,17 @@ test("settings.html enforces a self-only CSP with no network and loads only loca
   assert.doesNotMatch(html, /<script>|\sstyle="|\son[a-z]+="/, "settings.html has inline script or style");
 });
 
-test("the Gemini form edits exactly the five feature values and no key or chunk controls", () => {
+test("the Gemini form edits exactly the four model and context values with no key controls", () => {
   const panel = section(read("settings.html"), "panel-gemini-settings");
   const names = [...panel.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(names, [
     "batchAudioModel",
     "liveModel",
     "languageModel",
-    "translationTargetLanguage",
     "summaryContextCharacters",
   ]);
   assert.doesNotMatch(panel, /type="password"|chunk|overlap|api[_-]?key/i);
-  for (const id of ["batch-audio-model", "live-model", "language-model", "translation-target-language", "summary-context-characters"]) {
+  for (const id of ["batch-audio-model", "live-model", "language-model", "summary-context-characters"]) {
     assert.match(panel, new RegExp(`<label for="${id}">`));
     assert.match(panel, new RegExp(`id="${id}-error" class="field-error"`));
   }
@@ -94,6 +94,66 @@ test("settings.css loads no external resources", () => {
   assert.doesNotMatch(read("settings.css"), /@import|url\(/);
 });
 
+test("the language panel exposes five provider-independent choices", () => {
+  const html = read("settings.html");
+  const panel = section(html, "panel-language-settings");
+  const names = [...panel.matchAll(/<select\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(names, [
+    "transcriptLanguage",
+    "liveTranslationLanguage",
+    "liveSummaryLanguage",
+    "memoryLanguage",
+    "uiLanguage",
+  ]);
+  for (const id of [
+    "transcript-language",
+    "live-translation-language",
+    "live-summary-language",
+    "memory-language",
+    "ui-language",
+  ]) {
+    assert.match(panel, new RegExp(`<label for="${id}">`));
+  }
+  assert.match(panel, /does not automatically rewrite existing meetings or completed[\s\S]*analysis snapshots/);
+  assert.match(panel, /explicit correction reprocess uses the current memory language/);
+  assert.match(panel, /id="language-status"[^>]*role="status"/);
+  assert.match(panel, /id="language-migration-notice"[^>]*role="note"/);
+});
+
+test("Settings localization covers dynamic readiness and privacy notices", () => {
+  const html = read("settings.html");
+  const js = read("settings.js");
+  for (const id of ["language-migration-notice", "auto-record-privacy-notice", "meet-load-instructions"]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  for (const helper of [
+    "microphonePermissionLine",
+    "systemAudioPermissionLine",
+    "detectorLine",
+    "browserConnectionLine",
+  ]) {
+    assert.match(js, new RegExp(`localization\\.${helper}`));
+  }
+  assert.doesNotMatch(js, /message\.includes\("allowed"\)/);
+});
+
+test("settings.js applies the saved locale before rendering dynamic panel text", () => {
+  const js = read("settings.js");
+  const localeStart = js.indexOf("if (languageReady) {");
+  const identityStart = js.indexOf("if (identityReady) showIdentity(identity);");
+  assert.ok(localeStart >= 0 && localeStart < identityStart);
+  assert.match(js, /for \(const \[node, message\] of localizedNodeMessages\)/);
+  assert.match(js, /for \(const renderer of localeRenderers\) renderer\(\)/);
+  assert.match(js, /registerLocaleRenderer\(\(\) => renderReadiness\(currentReadiness\)\)/);
+});
+
+test("settings.js loads and saves provider-independent languages", () => {
+  const js = read("settings.js");
+  assert.match(js, /call\("getLanguageSettings"\)/);
+  assert.match(js, /call\("saveLanguageSettings", next\)/);
+  assert.match(js, /showLanguages\(languages\)/);
+});
+
 test("the recording form edits duration, privacy, and live defaults with labels and status", () => {
   const html = read("settings.html");
   const panel = section(html, "panel-recording-settings");
@@ -121,5 +181,5 @@ test("settings.js loads and saves recording defaults through the bridge without 
   assert.match(js, /recording-live-enabled/);
   assert.match(js, /setRecordingStatus\(savedMessage\(changed\), "ok"\)/);
   assert.doesNotMatch(js, /restarted/);
-  assert.match(js, /!identityReady && !geminiReady && !recordingReady/);
+  assert.match(js, /!identityReady && !languageReady && !geminiReady && !recordingReady/);
 });

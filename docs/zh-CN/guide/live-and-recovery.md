@@ -9,14 +9,14 @@
 - 状态行和实时问题提示；
 - 私密录音的 **Private session** 标记；
 - 实时字幕是在本机运行还是由外部服务处理的标记；
-- **Summary**：滚动摘要，在最初几句话之后出现；
-- **Transcript and translation**：最终转写行，以及翻译成 Settings 中所设语言的译文。
+- **Summary**：使用 Settings 中选择的 live summary 语言生成滚动总结；
+- **Transcript and translation**：最终转写行，以及使用 Settings 中选择的 live translation 语言生成的译文。
 
 需要了解的行为：
 
 - 实时文本只用于显示，不会改变保存的笔记。停止录音后，会基于完整录音处理并保存会议。
 - 实时字幕只使用你的麦克风。通过系统音频传入的其他参会者不会出现在实时文本中，但会出现在保存的会议里。选择在线服务时，麦克风音频会发送给该服务。
-- 如果实时字幕无法启动，菜单会显示 “Live captions unavailable. Recording continues.”，录音和处理仍然正常。
+- 如果 live 功能无法启动，菜单会显示 “Live captions, translation, and summary unavailable. Recording continues.”。Provider、audio、启动和连接失败不会停止录音或 batch processing。Key 缺失会暂停 provider processing，runtime 缺失时录音无法进入队列，直到 App 被修复。
 - 关闭实时窗口只是隐藏它。实时字幕继续运行，可在菜单栏选择 **Show live captions** 重新显示。录音停止时实时字幕才会停止。
 - 使用手动编辑的配置时，只有在实时进程报告正在监听后才会打开窗口。
 - 实时相关设置从下一次录音开始生效，已打开的实时窗口保持原设置。

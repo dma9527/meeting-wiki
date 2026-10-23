@@ -46,13 +46,26 @@ def openai_strict_schema(schema: dict[str, object]) -> dict[str, object]:
     return strict
 
 
-def analysis_messages(meeting: MeetingInput, transcript: TranscriptResult, policy: PrivacyConfig):
+def analysis_messages(
+    meeting: MeetingInput,
+    transcript: TranscriptResult,
+    policy: PrivacyConfig,
+    output_language: str = "en",
+):
     meeting_type = classify(meeting, policy)
     system = """You extract structured facts from a meeting transcript.
 Return only data matching the supplied JSON schema. Never invent speakers,
 decisions, owners, dates, commitments, or customer promises. Distinguish a
 proposal from an accepted decision. Keep summaries concise. The renderer owns
 Markdown; do not return Markdown pages."""
+    language = "Simplified Chinese" if output_language == "zh-CN" else "English"
+    system += (
+        f" Write summaries, blocker descriptions, decision details and rationale, "
+        f"action descriptions, topic insights, open questions, risks, and participant roles in "
+        f"{language}. "
+        "Keep the meeting title, topic names, decision titles, participant and owner names, due "
+        "values, quotes, JSON keys, enum values, identifiers, dates, and URLs unchanged."
+    )
     if meeting_type.value == "standup":
         system += " Focus on status by person, blockers, coordination and actions."
     elif meeting_type.value == "design-review":
@@ -132,7 +145,7 @@ def _validate(
         update={
             "meeting_type": meeting_type,
             "private": meeting.private or meeting_type.value == "one-on-one",
-            "title": analysis.title or meeting.title,
+            "title": meeting.title if meeting.title_explicit else analysis.title or meeting.title,
             "participants": participants,
             "action_items": actions,
             "decisions": decisions,
@@ -150,15 +163,19 @@ class OllamaProvider:
         timeout_seconds: float,
         num_ctx: int,
         privacy: PrivacyConfig,
+        output_language: str = "en",
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout_seconds
         self.num_ctx = num_ctx
         self.privacy = privacy
+        self.output_language = output_language
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
-        system, user, meeting_type = analysis_messages(meeting, transcript, self.privacy)
+        system, user, meeting_type = analysis_messages(
+            meeting, transcript, self.privacy, self.output_language
+        )
         response = httpx.post(
             f"{self.base_url}/api/chat",
             json={
@@ -204,15 +221,19 @@ class OpenAICompatibleProvider:
         api_key: str,
         timeout_seconds: float,
         privacy: PrivacyConfig,
+        output_language: str = "en",
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout = timeout_seconds
         self.privacy = privacy
+        self.output_language = output_language
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
-        system, user, meeting_type = analysis_messages(meeting, transcript, self.privacy)
+        system, user, meeting_type = analysis_messages(
+            meeting, transcript, self.privacy, self.output_language
+        )
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         schema = openai_strict_schema(MeetingAnalysis.model_json_schema())
         payload = {

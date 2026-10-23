@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 
 from meeting_wiki.config import PrivacyConfig
-from meeting_wiki.models import MeetingAnalysis
-from meeting_wiki.providers.llm import OpenAICompatibleProvider, openai_strict_schema
+from meeting_wiki.models import MeetingAnalysis, MeetingType
+from meeting_wiki.providers.llm import (
+    OpenAICompatibleProvider,
+    _validate,
+    analysis_messages,
+    openai_strict_schema,
+)
 
 
 def valid_analysis_payload() -> dict[str, object]:
@@ -84,3 +89,23 @@ def test_openai_fallback_supplies_output_schema_and_wraps_input(monkeypatch, mee
     fallback_input = json.loads(fallback_messages[1]["content"])
     assert set(fallback_input) == {"input"}
     assert "attendees" in fallback_input["input"]
+
+
+def test_analysis_prompt_applies_memory_language_only_to_user_visible_text(meeting, transcript):
+    system, _, _ = analysis_messages(meeting, transcript, PrivacyConfig(), "zh-CN")
+
+    assert "Write summaries, blocker descriptions, decision details" in system
+    assert "Keep the meeting title, topic names, decision titles" in system
+
+
+def test_validation_keeps_explicit_meeting_title_across_output_languages(meeting, transcript):
+    payload = valid_analysis_payload()
+    payload["title"] = "架构评审"
+    explicit = meeting.model_copy(update={"title": "Architecture Review", "title_explicit": True})
+    automatic = meeting.model_copy(update={"title": "Meeting 2026", "title_explicit": False})
+
+    assert (
+        _validate(payload, explicit, MeetingType.DESIGN_REVIEW, transcript).title
+        == "Architecture Review"
+    )
+    assert _validate(payload, automatic, MeetingType.DESIGN_REVIEW, transcript).title == "架构评审"

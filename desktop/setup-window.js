@@ -10,11 +10,16 @@ const path = require("path");
 const { pathToFileURL } = require("url");
 
 const {
+  DEFAULT_LANGUAGE_SETTINGS,
   EMPTY_IDENTITY,
   MANAGED_HEADER,
+  languageFromTables,
+  parseManagedConfig,
   readManagedIdentity,
   renderIdentityLines,
+  renderLanguageLines,
   tomlString,
+  unsupportedLanguageFields,
 } = require("./managed-config");
 const { appliesCopy } = require("./setting-metadata");
 
@@ -115,13 +120,18 @@ function validateGeminiSettings(raw) {
   return { apiKey };
 }
 
-function renderOnlineConfig(settings, identity = EMPTY_IDENTITY) {
+function renderOnlineConfig(
+  settings,
+  identity = EMPTY_IDENTITY,
+  languages = DEFAULT_LANGUAGE_SETTINGS,
+) {
   return [
     MANAGED_HEADER,
     "# Secrets are not stored here. The API key lives in the macOS Keychain and is",
     `# provided to Meeting Wiki processes through ${API_KEY_ENV}.`,
     "",
     ...renderIdentityLines(identity),
+    ...renderLanguageLines(languages),
     "[providers]",
     'transcription = "openai_compatible"',
     'llm = "openai_compatible"',
@@ -146,12 +156,13 @@ function renderOnlineConfig(settings, identity = EMPTY_IDENTITY) {
 }
 
 // Settings may override the models and add the two live keys; setup passes nothing.
-function renderGeminiConfig(settings = {}, identity = EMPTY_IDENTITY) {
+function renderGeminiConfig(
+  settings = {},
+  identity = EMPTY_IDENTITY,
+  languages = DEFAULT_LANGUAGE_SETTINGS,
+) {
   const models = { ...GEMINI_MODELS, ...pickDefined(settings, ["batchAudioModel", "liveModel", "languageModel"]) };
   const liveLines = [];
-  if (settings.translationTargetLanguage !== undefined) {
-    liveLines.push(`translation_target_language = ${tomlString(settings.translationTargetLanguage)}`);
-  }
   if (settings.summaryContextCharacters !== undefined) {
     liveLines.push(`summary_context_characters = ${Number(settings.summaryContextCharacters)}`);
   }
@@ -161,6 +172,7 @@ function renderGeminiConfig(settings = {}, identity = EMPTY_IDENTITY) {
     `# is provided to Meeting Wiki processes through ${GEMINI_API_KEY_ENV}.`,
     "",
     ...renderIdentityLines(identity),
+    ...renderLanguageLines(languages),
     "[providers]",
     'transcription = "gemini"',
     'llm = "gemini"',
@@ -400,6 +412,16 @@ function createSetupController({
     return readManagedIdentity(readText(fs, configPath)) || EMPTY_IDENTITY;
   }
 
+  // Rerunning setup keeps the language preferences saved in Settings.
+  function currentLanguages() {
+    const text = readText(fs, configPath);
+    const tables = parseManagedConfig(text);
+    if (tables && unsupportedLanguageFields(tables).length > 0) {
+      throw new SetupError("Open Settings and choose supported languages before switching providers.");
+    }
+    return (tables && languageFromTables(tables)) || DEFAULT_LANGUAGE_SETTINGS;
+  }
+
   function readSecret(secretId) {
     try {
       return secretStore.read(secretId) || "";
@@ -433,8 +455,9 @@ function createSetupController({
   // check and Finish is kept.
   function candidateConfig(candidate) {
     try {
-      return candidate.renderConfig(currentIdentity());
-    } catch (_) {
+      return candidate.renderConfig(currentIdentity(), currentLanguages());
+    } catch (error) {
+      if (error instanceof SetupError) throw error;
       throw new SetupError("The provider settings could not be prepared.");
     }
   }
@@ -527,7 +550,12 @@ function createSetupController({
       // A blank key with useSavedKey reuses the Keychain key; the placeholder only passes validation.
       const useSavedKey = source.useSavedKey === true && !String(source.apiKey || "").trim();
       const { settings, apiKey } = validateOnlineSettings(useSavedKey ? { ...source, apiKey: "saved" } : source);
-      return stageProvider(OPENAI_PROVIDER, useSavedKey ? "" : apiKey, useSavedKey, (identity) => renderOnlineConfig(settings, identity));
+      return stageProvider(
+        OPENAI_PROVIDER,
+        useSavedKey ? "" : apiKey,
+        useSavedKey,
+        (identity, languages) => renderOnlineConfig(settings, identity, languages),
+      );
     },
 
     testOnlineProvider() {
@@ -538,7 +566,12 @@ function createSetupController({
       const source = raw && typeof raw === "object" ? raw : {};
       const useSavedKey = source.useSavedKey === true && !String(source.apiKey || "").trim();
       const { apiKey } = validateGeminiSettings(useSavedKey ? { ...source, apiKey: "saved" } : source);
-      return stageProvider(GEMINI_PROVIDER, useSavedKey ? "" : apiKey, useSavedKey, (identity) => renderGeminiConfig({}, identity));
+      return stageProvider(
+        GEMINI_PROVIDER,
+        useSavedKey ? "" : apiKey,
+        useSavedKey,
+        (identity, languages) => renderGeminiConfig({}, identity, languages),
+      );
     },
 
     // The renderer never resends the key; only the egress acknowledgement is checked.

@@ -17,11 +17,16 @@ const {
   renderGeminiConfig,
 } = require("./setup-window");
 const {
+  DEFAULT_LANGUAGE_SETTINGS,
   IDENTITY_LIMITS,
   IdentityError,
+  LANGUAGE_VALUES,
   identityFromTables,
+  languageFromTables,
   parseManagedConfig,
   replaceIdentitySection,
+  replaceLanguageSection,
+  unsupportedLanguageFields,
   validateIdentity,
 } = require("./managed-config");
 const {
@@ -39,6 +44,8 @@ const { IntegrationError } = require("./integration-service");
 const CHANNELS = Object.freeze({
   getIdentitySettings: "settings:getIdentitySettings",
   saveIdentitySettings: "settings:saveIdentitySettings",
+  getLanguageSettings: "settings:getLanguageSettings",
+  saveLanguageSettings: "settings:saveLanguageSettings",
   getGeminiSettings: "settings:getGeminiSettings",
   saveGeminiSettings: "settings:saveGeminiSettings",
   getRecordingSettings: "settings:getRecordingSettings",
@@ -52,9 +59,7 @@ const CHANNELS = Object.freeze({
 
 // Mirrors LiveConfig in meeting_wiki/config.py; a test keeps the two in sync.
 const SUMMARY_CONTEXT_BOUNDS = Object.freeze({ min: 500, max: 100000 });
-const LIVE_DEFAULTS = Object.freeze({ translationTargetLanguage: "zh", summaryContextCharacters: 12000 });
-// A language code (zh, pt-BR) or plain name (Japanese); it is interpolated into a prompt.
-const LANGUAGE_PATTERN = /^[A-Za-z][A-Za-z0-9 -]{0,39}$/;
+const LIVE_DEFAULTS = Object.freeze({ summaryContextCharacters: 12000 });
 
 const NOT_GEMINI = "These settings cover Gemini only. Run setup again to configure another provider.";
 const NOT_MANAGED =
@@ -66,7 +71,7 @@ const NO_INTEGRATIONS = "Automatic recording is not available in this build.";
 const SAVE_FAILED = "The settings could not be saved.";
 
 // Tables a Gemini config may contain. Anything else counts as a manual edit.
-const GEMINI_TABLES = new Set(["", "identity", "providers", "live", "gemini"]);
+const GEMINI_TABLES = new Set(["", "identity", "languages", "providers", "live", "gemini"]);
 
 class SettingsError extends Error {}
 
@@ -82,7 +87,6 @@ function parseManagedGeminiConfig(text) {
     batchAudioModel: gemini.batch_audio_model ?? GEMINI_MODELS.batchAudioModel,
     liveModel: gemini.live_model ?? GEMINI_MODELS.liveModel,
     languageModel: gemini.language_model ?? GEMINI_MODELS.languageModel,
-    translationTargetLanguage: live.translation_target_language ?? LIVE_DEFAULTS.translationTargetLanguage,
     summaryContextCharacters: live.summary_context_characters ?? LIVE_DEFAULTS.summaryContextCharacters,
   };
 }
@@ -99,11 +103,6 @@ function validateGeminiFeatureSettings(raw) {
     if (!MODEL_PATTERN.test(value)) throw new SettingsError(`Enter a valid ${label} name.`);
     values[field] = value;
   }
-  const language = typeof source.translationTargetLanguage === "string" ? source.translationTargetLanguage.trim() : "";
-  if (!LANGUAGE_PATTERN.test(language)) {
-    throw new SettingsError("Enter a translation language code such as zh or a name such as Japanese.");
-  }
-  values.translationTargetLanguage = language;
   const rawCharacters = source.summaryContextCharacters;
   const characters =
     typeof rawCharacters === "number" ? rawCharacters : /^\s*\d{1,9}\s*$/.test(String(rawCharacters ?? "")) ? Number(rawCharacters) : NaN;
@@ -112,6 +111,18 @@ function validateGeminiFeatureSettings(raw) {
     throw new SettingsError(`Enter a whole number of summary context characters from ${min} to ${max}.`);
   }
   values.summaryContextCharacters = characters;
+  return values;
+}
+
+function validateLanguageSettings(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const values = {};
+  for (const [field, allowed] of Object.entries(LANGUAGE_VALUES)) {
+    if (!allowed.includes(source[field])) {
+      throw new SettingsError("Choose one of the available language options.");
+    }
+    values[field] = source[field];
+  }
   return values;
 }
 
@@ -130,6 +141,13 @@ function withoutIdentity(tables) {
   return JSON.stringify({ topLevel: otherTopLevel, ...rest });
 }
 
+function withoutLanguages(tables) {
+  const { languages: _languages, "": topLevel = {}, live = {}, ...rest } = tables;
+  const { language: _legacyLanguage, ...topLevelRest } = topLevel;
+  const { translation_target_language: _legacyTranslation, ...liveRest } = live;
+  return JSON.stringify({ "": topLevelRest, ...rest, live: liveRest });
+}
+
 function createSettingsController({ fs, dataDir, configPath, onSaved = () => {}, onRerunSetup = () => {}, integrations = null }) {
   // Re-read on every call so a save never trusts state rendered earlier.
   function identityReadiness() {
@@ -141,13 +159,21 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     return { ready: true, text, tables, identity: identityFromTables(tables) };
   }
 
+  function languageReadiness() {
+    const text = readText(fs, configPath);
+    const tables = parseManagedConfig(text);
+    if (!tables) return { ready: false, reason: NOT_MANAGED, manualConfig: true };
+    return { ready: true, text, tables, values: languageFromTables(tables) };
+  }
+
   function readiness() {
     const state = readSetupState(fs, dataDir);
     if (!state || state.mode !== "online" || state.provider !== GEMINI_PROVIDER) return { ready: false, reason: NOT_GEMINI };
     const text = readText(fs, configPath);
+    const tables = parseManagedConfig(text);
     const values = parseManagedGeminiConfig(text);
-    if (!values) return { ready: false, reason: NOT_MANAGED, manualConfig: true };
-    return { ready: true, values, identity: identityFromTables(parseManagedConfig(text)) };
+    if (!values || !tables) return { ready: false, reason: NOT_MANAGED, manualConfig: true };
+    return { ready: true, values, identity: identityFromTables(tables), tables };
   }
 
   function recordingReady() {
@@ -201,6 +227,36 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       return { ok: true, values };
     },
 
+    getLanguageSettings() {
+      const current = languageReadiness();
+      if (!current.ready) return current;
+      return {
+        ready: true,
+        values: current.values,
+        unsupportedFields: unsupportedLanguageFields(current.tables),
+        choices: Object.fromEntries(
+          Object.entries(LANGUAGE_VALUES).map(([field, values]) => [field, [...values]]),
+        ),
+      };
+    },
+
+    saveLanguageSettings(raw) {
+      const current = languageReadiness();
+      if (!current.ready) throw new SettingsError(current.reason);
+      const values = validateLanguageSettings(raw);
+      const config = replaceLanguageSection(current.text, values);
+      const readBack = parseManagedConfig(config);
+      if (
+        !readBack
+        || withoutLanguages(readBack) !== withoutLanguages(current.tables)
+        || JSON.stringify(languageFromTables(readBack)) !== JSON.stringify(values)
+      ) {
+        throw new SettingsError(SAVE_FAILED);
+      }
+      write(config);
+      return { ok: true, values };
+    },
+
     getGeminiSettings() {
       const current = readiness();
       if (!current.ready) return current;
@@ -210,8 +266,15 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     saveGeminiSettings(raw) {
       const current = readiness();
       if (!current.ready) throw new SettingsError(current.reason);
+      if (unsupportedLanguageFields(current.tables).length > 0) {
+        throw new SettingsError("Open Languages and choose supported values before saving Gemini settings.");
+      }
       const values = validateGeminiFeatureSettings(raw);
-      const config = renderGeminiConfig(values, current.identity);
+      const config = renderGeminiConfig(
+        values,
+        current.identity,
+        languageFromTables(current.tables),
+      );
       // The regenerated file must read back as the same Gemini values and identity.
       if (
         JSON.stringify(parseManagedGeminiConfig(config)) !== JSON.stringify(values) ||
@@ -337,6 +400,8 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
     );
   handle(CHANNELS.getIdentitySettings, (controller) => controller.getIdentitySettings());
   handle(CHANNELS.saveIdentitySettings, (controller, settings) => controller.saveIdentitySettings(settings));
+  handle(CHANNELS.getLanguageSettings, (controller) => controller.getLanguageSettings());
+  handle(CHANNELS.saveLanguageSettings, (controller, settings) => controller.saveLanguageSettings(settings));
   handle(CHANNELS.getGeminiSettings, (controller) => controller.getGeminiSettings());
   handle(CHANNELS.saveGeminiSettings, (controller, settings) => controller.saveGeminiSettings(settings));
   handle(CHANNELS.getRecordingSettings, (controller) => controller.getRecordingSettings());
@@ -415,7 +480,6 @@ function createSettingsWindow(electron, context) {
 
 module.exports = {
   CHANNELS,
-  LANGUAGE_PATTERN,
   LIVE_DEFAULTS,
   NOT_GEMINI,
   NOT_MANAGED,
@@ -431,4 +495,5 @@ module.exports = {
   parseManagedGeminiConfig,
   registerSettingsHandlers,
   validateGeminiFeatureSettings,
+  validateLanguageSettings,
 };

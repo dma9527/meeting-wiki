@@ -19,9 +19,9 @@ runtime prevents queueing until the app is repaired. It shows:
 - a **Private session** badge for private recordings;
 - a badge for whether live captions run on this Mac or at an external
   provider;
-- **Summary**: a rolling summary that appears after the first few sentences;
+- **Summary**: a rolling summary in the live-summary language selected in Settings;
 - **Transcript and translation**: final transcript lines with a translation
-  into the language set in Settings.
+  into the live-translation language selected in Settings.
 
 Behavior to know:
 
@@ -31,8 +31,11 @@ Behavior to know:
   through system audio, do not appear in live text; they are in the saved
   meeting. With an online provider, the microphone audio is sent to the
   provider.
-- If live captions cannot start, the menu shows "Live captions unavailable.
-  Recording continues." Recording and processing still work.
+- If live features cannot start, the menu shows "Live captions, translation,
+  and summary unavailable. Recording continues." Provider, audio, startup, and
+  connection failures do not stop recording or batch processing. A missing key
+  pauses provider processing, and a missing runtime prevents queueing until the
+  app is repaired.
 - Closing the live window only hides it. Live captions keep running, and
   **Show live captions** in the menu bar shows the window again. Live captions
   stop when the recording stops.

@@ -8,10 +8,11 @@ const TOP_LEVEL = "";
 
 // "" holds top-level keys; user_name is the legacy primary profile name.
 const MANAGED_SCHEMA = Object.freeze({
-  [TOP_LEVEL]: { user_name: "string" },
+  [TOP_LEVEL]: { user_name: "string", language: "string" },
   identity: { primary_profile_name: "string", aliases: "string[]" },
   providers: { transcription: "string", llm: "string", live_transcription: "string", live_language: "string" },
   live: { allow_external_providers: "boolean", translation_target_language: "string", summary_context_characters: "integer" },
+  languages: { transcript: "string", live_translation: "string", live_summary: "string", memory: "string", ui: "string" },
   gemini: { api_key_env: "string", batch_audio_model: "string", live_model: "string", language_model: "string" },
   openai_compatible: { base_url: "string", model: "string", api_key_env: "string" },
   openai_transcription: { base_url: "string", model: "string", api_key_env: "string" },
@@ -22,6 +23,20 @@ const IDENTITY_LIMITS = Object.freeze({ nameMaxLength: 100, maxAliases: 20 });
 const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'\u2019()_-]*$/u;
 const EMPTY_IDENTITY = Object.freeze({ primaryProfileName: "", aliases: Object.freeze([]), legacyUserName: "" });
 const IDENTITY_COMMENT = "# The local microphone channel is always attributed to this profile.";
+const DEFAULT_LANGUAGE_SETTINGS = Object.freeze({
+  transcriptLanguage: "auto",
+  liveTranslationLanguage: "zh-CN",
+  liveSummaryLanguage: "zh-CN",
+  memoryLanguage: "en",
+  uiLanguage: "system",
+});
+const LANGUAGE_VALUES = Object.freeze({
+  transcriptLanguage: Object.freeze(["auto", "en", "zh-CN"]),
+  liveTranslationLanguage: Object.freeze(["en", "zh-CN"]),
+  liveSummaryLanguage: Object.freeze(["en", "zh-CN"]),
+  memoryLanguage: Object.freeze(["en", "zh-CN"]),
+  uiLanguage: Object.freeze(["system", "en", "zh-CN"]),
+});
 
 const STRING_SOURCE = '"(?:[^"\\\\\\u0000-\\u001f]|\\\\["\\\\]|\\\\u[0-9a-fA-F]{4})*"';
 const STRING_VALUE = new RegExp(`^${STRING_SOURCE}$`);
@@ -84,6 +99,76 @@ function identityFromTables(tables) {
   };
 }
 
+function canonicalLanguage(value, fallback) {
+  if (value === undefined) return fallback;
+  return value === "zh" ? "zh-CN" : value;
+}
+
+function configuredLanguage(languages, key, fallback) {
+  return Object.prototype.hasOwnProperty.call(languages, key) ? languages[key] : fallback;
+}
+
+function languageFromTables(tables) {
+  const languages = tables.languages || {};
+  const legacyTranscript = canonicalLanguage(
+    tables[TOP_LEVEL].language,
+    DEFAULT_LANGUAGE_SETTINGS.transcriptLanguage,
+  );
+  const legacyTranslation = canonicalLanguage(
+    tables.live && tables.live.translation_target_language,
+    DEFAULT_LANGUAGE_SETTINGS.liveTranslationLanguage,
+  );
+  return {
+    transcriptLanguage: configuredLanguage(languages, "transcript", legacyTranscript),
+    liveTranslationLanguage: configuredLanguage(languages, "live_translation", legacyTranslation),
+    liveSummaryLanguage: configuredLanguage(
+      languages,
+      "live_summary",
+      DEFAULT_LANGUAGE_SETTINGS.liveSummaryLanguage,
+    ),
+    memoryLanguage: configuredLanguage(languages, "memory", DEFAULT_LANGUAGE_SETTINGS.memoryLanguage),
+    uiLanguage: configuredLanguage(languages, "ui", DEFAULT_LANGUAGE_SETTINGS.uiLanguage),
+  };
+}
+
+function unsupportedLanguageFields(tables) {
+  const values = languageFromTables(tables);
+  return Object.entries(LANGUAGE_VALUES)
+    .filter(([field, allowed]) => !allowed.includes(values[field]))
+    .map(([field]) => field);
+}
+
+function readManagedLanguage(text) {
+  const tables = parseManagedConfig(text);
+  return tables ? languageFromTables(tables) : null;
+}
+
+function renderLanguageLines(values = DEFAULT_LANGUAGE_SETTINGS) {
+  return [
+    "[languages]",
+    `transcript = ${tomlString(values.transcriptLanguage)}`,
+    `live_translation = ${tomlString(values.liveTranslationLanguage)}`,
+    `live_summary = ${tomlString(values.liveSummaryLanguage)}`,
+    `memory = ${tomlString(values.memoryLanguage)}`,
+    `ui = ${tomlString(values.uiLanguage)}`,
+    "",
+  ];
+}
+
+function replaceLanguageSection(text, values) {
+  const lines = text.split("\n");
+  const kept = [];
+  let section = TOP_LEVEL;
+  for (const line of lines) {
+    const match = /^\[([a-z_]+)\]$/.exec(line);
+    if (match) section = match[1];
+    const legacyLanguage = section === TOP_LEVEL && /^language = /.test(line);
+    const legacyTranslation = section === "live" && /^translation_target_language = /.test(line);
+    if (section !== "languages" && !legacyLanguage && !legacyTranslation) kept.push(line);
+  }
+  return [...kept.join("\n").trimEnd().split("\n"), "", ...renderLanguageLines(values)].join("\n");
+}
+
 function readManagedIdentity(text) {
   const tables = parseManagedConfig(text);
   return tables ? identityFromTables(tables) : null;
@@ -109,14 +194,20 @@ function replaceIdentitySection(text, identity) {
   let start = 0;
   while (start < lines.length && lines[start].startsWith("#")) start += 1;
   const header = lines.slice(0, start);
+  const topLevel = [];
   const kept = [];
   let section = TOP_LEVEL;
   for (const line of lines.slice(start)) {
     const match = /^\[([a-z_]+)\]$/.exec(line);
     if (match) section = match[1];
-    if (section !== TOP_LEVEL && section !== "identity") kept.push(line);
+    if (section === TOP_LEVEL) {
+      if (line && !/^user_name = /.test(line)) topLevel.push(line);
+    } else if (section !== "identity") {
+      kept.push(line);
+    }
   }
-  return [...header, "", ...renderIdentityLines(identity), ...kept].join("\n");
+  const separator = topLevel.length ? [""] : [];
+  return [...header, "", ...topLevel, ...separator, ...renderIdentityLines(identity), ...kept].join("\n");
 }
 
 function normalizeName(value) {
@@ -166,18 +257,25 @@ function validateIdentity(raw) {
 }
 
 module.exports = {
+  DEFAULT_LANGUAGE_SETTINGS,
   EMPTY_IDENTITY,
   IDENTITY_LIMITS,
   IdentityError,
+  LANGUAGE_VALUES,
   MANAGED_HEADER,
   MANAGED_SCHEMA,
   NAME_PATTERN,
   TOP_LEVEL,
   identityFromTables,
+  languageFromTables,
   parseManagedConfig,
   readManagedIdentity,
+  readManagedLanguage,
   renderIdentityLines,
+  renderLanguageLines,
   replaceIdentitySection,
+  replaceLanguageSection,
   tomlString,
+  unsupportedLanguageFields,
   validateIdentity,
 };

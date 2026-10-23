@@ -6,6 +6,8 @@
 // Expected bridge (implemented by settings-preload.js):
 //   getIdentitySettings() -> { ready: true, values, legacyUserName, limits } | { ready: false, reason } | { error }
 //   saveIdentitySettings({ primaryProfileName, aliases }) -> { ok: true, values } | { error }
+//   getLanguageSettings() -> { ready: true, values, choices } | { ready: false, reason } | { error }
+//   saveLanguageSettings(values) -> { ok: true, values } | { error }
 //   getGeminiSettings()  -> { ready: true, values, bounds } | { ready: false, reason } | { error }
 //   saveGeminiSettings(values) -> { ok: true, values } | { error }
 //   getRecordingSettings() -> { ready: true, values, bounds } | { ready: false, reason } | { error }
@@ -18,23 +20,51 @@
 
 (function settingsWindow() {
   const bridge = window.meetingWikiSettings;
+  const localization = window.meetingWikiSettingsLocalization;
   const $ = (id) => document.getElementById(id);
   const FIELDS = Object.freeze({
     batchAudioModel: "batch-audio-model",
     liveModel: "live-model",
     languageModel: "language-model",
-    translationTargetLanguage: "translation-target-language",
     summaryContextCharacters: "summary-context-characters",
+  });
+  const LANGUAGE_FIELDS = Object.freeze({
+    transcriptLanguage: "transcript-language",
+    liveTranslationLanguage: "live-translation-language",
+    liveSummaryLanguage: "live-summary-language",
+    memoryLanguage: "memory-language",
+    uiLanguage: "ui-language",
   });
   const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'\u2019()_-]*$/u;
   const NAME_RULE = "Use letters, numbers, spaces, and . , ' - _ ( ) starting with a letter or number.";
   let busy = false;
-  // Applies-after copy comes only from setting-metadata.js, delivered over the bridge.
   let metadata = { settings: {}, manualEdit: "" };
+  let localeChoice = "system";
+  const localizedNodeMessages = new Map();
+  const localeRenderers = new Set();
+
+  function localizedMessage(message) {
+    return localization && typeof localization.translateSettingsMessage === "function"
+      ? localization.translateSettingsMessage(message, localeChoice, navigator.language)
+      : message;
+  }
+
+  function setLocalizedNode(node, message) {
+    localizedNodeMessages.set(node, message);
+    node.textContent = localizedMessage(message);
+  }
+
+  function registerLocaleRenderer(renderer) {
+    localeRenderers.add(renderer);
+    renderer();
+  }
 
   function copyFor(key) {
     const entry = metadata.settings[key];
-    return entry && typeof entry.copy === "string" ? entry.copy : "";
+    if (!entry || typeof entry.copy !== "string") return "";
+    return localization && typeof localization.localizedApplies === "function"
+      ? localization.localizedApplies(entry.appliesAfter, entry.copy, localeChoice, navigator.language)
+      : entry.copy;
   }
 
   function applyMetadata(result) {
@@ -73,13 +103,13 @@
 
   function setStatus(message, tone) {
     const node = $("settings-status");
-    node.textContent = message;
+    setLocalizedNode(node, message);
     node.dataset.tone = tone || "";
   }
 
   function showFieldError(input, message) {
     const node = $(`${input.id}-error`);
-    node.textContent = message;
+    setLocalizedNode(node, message);
     node.hidden = !message;
     if (message) input.setAttribute("aria-invalid", "true");
     else input.removeAttribute("aria-invalid");
@@ -87,13 +117,14 @@
 
   function showUnsupported(reason, manualConfig) {
     $("settings-loading").hidden = true;
-    $("unsupported-manual").textContent = manualConfig ? metadata.manualEdit : "";
+    $("unsupported-manual").textContent = manualConfig ? localizedMessage(metadata.manualEdit) : "";
     $("unsupported-manual").hidden = !(manualConfig && metadata.manualEdit);
     $("panel-identity-settings").hidden = true;
+    $("panel-language-settings").hidden = true;
     $("panel-gemini-settings").hidden = true;
     $("panel-recording-settings").hidden = true;
     $("panel-integration-settings").hidden = true;
-    $("unsupported-reason").textContent = reason;
+    $("unsupported-reason").textContent = localizedMessage(reason);
     $("panel-unsupported").hidden = false;
     $("panel-unsupported").focus();
   }
@@ -118,9 +149,6 @@
     if (!model.test(values.batchAudioModel)) errors.batchAudioModel = "Enter a valid model name.";
     if (!model.test(values.liveModel)) errors.liveModel = "Enter a valid model name.";
     if (!model.test(values.languageModel)) errors.languageModel = "Enter a valid model name.";
-    if (!/^[A-Za-z][A-Za-z0-9 -]{0,39}$/.test(values.translationTargetLanguage)) {
-      errors.translationTargetLanguage = "Use a code such as zh or a name such as Japanese.";
-    }
     const characters = Number(values.summaryContextCharacters);
     if (!/^\d+$/.test(values.summaryContextCharacters) || characters < bounds.min || characters > bounds.max) {
       errors.summaryContextCharacters = `Enter a whole number from ${bounds.min} to ${bounds.max}.`;
@@ -187,7 +215,7 @@
 
   function setIdentityStatus(message, tone) {
     const node = $("identity-status");
-    node.textContent = message;
+    setLocalizedNode(node, message);
     node.dataset.tone = tone || "";
   }
 
@@ -196,13 +224,23 @@
     const legacy = typeof result.legacyUserName === "string" ? result.legacyUserName : "";
     const values = result.values || {};
     fillIdentity(values);
-    if (!values.primaryProfileName && legacy) $("primary-profile-name").value = legacy;
-    $("primary-profile-name-hint").textContent = values.primaryProfileName
-      ? "Shown on your microphone channel and owned action items."
-      : legacy
-        ? "Taken from the older user_name setting. Save to keep it as your primary name."
-        : "Not set yet, so your microphone is labeled User.";
-    $("profile-aliases-hint").textContent = `One per line, up to ${limits.maxAliases}. For example a nickname or how a calendar spells your name.`;
+    let primaryNameSaved = Boolean(values.primaryProfileName);
+    if (!primaryNameSaved && legacy) $("primary-profile-name").value = legacy;
+    const renderIdentityHints = () => {
+      setLocalizedNode(
+        $("primary-profile-name-hint"),
+        primaryNameSaved
+          ? "Shown on your microphone channel and owned action items."
+          : legacy
+            ? "Taken from the older user_name setting. Save to keep it as your primary name."
+            : "Not set yet, so your microphone is labeled User.",
+      );
+      setLocalizedNode(
+        $("profile-aliases-hint"),
+        `One per line, up to ${limits.maxAliases}. For example a nickname or how a calendar spells your name.`,
+      );
+    };
+    registerLocaleRenderer(renderIdentityHints);
     $("panel-identity-settings").hidden = false;
     let current = { primaryProfileName: values.primaryProfileName || "", aliases: Array.isArray(values.aliases) ? [...values.aliases] : [] };
 
@@ -232,15 +270,89 @@
       }
       const changed = identityChanges(before, saved.values);
       current = { primaryProfileName: saved.values.primaryProfileName, aliases: [...saved.values.aliases] };
+      primaryNameSaved = true;
       fillIdentity(saved.values);
-      $("primary-profile-name-hint").textContent = "Shown on your microphone channel and owned action items.";
+      renderIdentityHints();
       setIdentityStatus(savedMessage(changed), "ok");
+    });
+  }
+
+  function setLanguageStatus(message, tone) {
+    const node = $("language-status");
+    setLocalizedNode(node, message);
+    node.dataset.tone = tone || "";
+  }
+
+  function readLanguages() {
+    return Object.fromEntries(
+      Object.entries(LANGUAGE_FIELDS).map(([field, id]) => [field, $(id).value]),
+    );
+  }
+
+  function fillLanguages(values) {
+    for (const [field, id] of Object.entries(LANGUAGE_FIELDS)) {
+      const value = values && values[field];
+      if (typeof value === "string") $(id).value = value;
+    }
+  }
+
+  function applyLocale(choice) {
+    localeChoice = choice;
+    if (localization && typeof localization.applySettingsLocale === "function") {
+      localization.applySettingsLocale(document, choice, navigator.language);
+    }
+    for (const node of document.querySelectorAll("[data-applies-for]")) {
+      const copy = copyFor(node.dataset.appliesFor);
+      node.textContent = copy;
+      node.hidden = !copy;
+    }
+    for (const [node, message] of localizedNodeMessages) node.textContent = localizedMessage(message);
+    for (const renderer of localeRenderers) renderer();
+  }
+
+  function showLanguages(result) {
+    fillLanguages(result.values);
+    const unsupported = Array.isArray(result.unsupportedFields) ? result.unsupportedFields : [];
+    $("language-migration-notice").hidden = unsupported.length === 0;
+    applyLocale(result.values.uiLanguage);
+    let current = readLanguages();
+    $("ui-language").addEventListener("change", () => applyLocale($("ui-language").value));
+    $("panel-language-settings").hidden = false;
+    $("language-settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const next = readLanguages();
+      if (Object.values(next).some((value) => !value)) {
+        setLanguageStatus("Choose a supported value for every language.", "error");
+        return;
+      }
+      busy = true;
+      const button = $("language-save");
+      button.setAttribute("aria-disabled", "true");
+      setLanguageStatus("Saving languages.", "");
+      const saved = await call("saveLanguageSettings", next);
+      busy = false;
+      button.removeAttribute("aria-disabled");
+      const saveError = errorOf(saved);
+      if (saveError) {
+        fillLanguages(current);
+        applyLocale(current.uiLanguage);
+        setLanguageStatus(saveError, "error");
+        return;
+      }
+      $("language-migration-notice").hidden = true;
+      fillLanguages(saved.values);
+      applyLocale(saved.values.uiLanguage);
+      const after = readLanguages();
+      const changed = Object.keys(LANGUAGE_FIELDS).filter((field) => after[field] !== current[field]);
+      current = after;
+      setLanguageStatus(savedMessage(changed), "ok");
     });
   }
 
   function setRecordingStatus(message, tone) {
     const node = $("recording-status");
-    node.textContent = message;
+    setLocalizedNode(node, message);
     node.dataset.tone = tone || "";
   }
 
@@ -259,7 +371,7 @@
     }
     $("recording-defaults-notice").hidden = values.defaultsConfigured === true;
     $("recording-live-enabled").checked = values.liveEnabled !== false;
-    $("max-duration-minutes-hint").textContent = `From ${bounds.min} to ${bounds.max} minutes.`;
+    setLocalizedNode($("max-duration-minutes-hint"), `From ${bounds.min} to ${bounds.max} minutes.`);
     let savedValues = {
       maxDurationMinutes: values.maxDurationMinutes,
       defaultPrivacyMode: values.defaultPrivacyMode,
@@ -330,7 +442,7 @@
 
   function setIntegrationStatus(message, tone) {
     const node = $("integration-status");
-    node.textContent = message;
+    setLocalizedNode(node, message);
     node.dataset.tone = tone || "";
   }
 
@@ -338,7 +450,7 @@
     const list = $(id);
     list.replaceChildren(...lines.map((line) => {
       const item = document.createElement("li");
-      item.textContent = line;
+      item.textContent = localizedMessage(line);
       return item;
     }));
   }
@@ -350,10 +462,19 @@
 
   function permissionLines(permissions) {
     const source = permissions || {};
-    return [
-      accessLine("Microphone access", source.microphone, "Recordings will be silent until it is allowed in System Settings."),
-      "System audio permission cannot be checked in advance. If other participants were silent, allow Meeting Wiki under System Audio Recording in System Settings.",
-    ];
+    const microphoneFallback = accessLine(
+      "Microphone access",
+      source.microphone,
+      "Recordings cannot start until microphone access is allowed in System Settings.",
+    );
+    const microphone = localization && typeof localization.microphonePermissionLine === "function"
+      ? localization.microphonePermissionLine(source.microphone, localeChoice, navigator.language)
+      : null;
+    const systemAudioFallback = "System audio permission cannot be checked in advance. If other participants were silent, allow Meeting Wiki under System Audio Recording in System Settings.";
+    const systemAudio = localization && typeof localization.systemAudioPermissionLine === "function"
+      ? localization.systemAudioPermissionLine(localeChoice, navigator.language)
+      : null;
+    return [microphone || microphoneFallback, systemAudio || systemAudioFallback];
   }
 
   const PRIVACY_MODES = ["private", "calendar", "shared"];
@@ -369,27 +490,43 @@
     $("auto-record-privacy-notice").hidden = choiceNeeded !== true;
   }
 
+  function localizedDetector(kind, state, fallback) {
+    return localization && typeof localization.detectorLine === "function"
+      ? localization.detectorLine(kind, state, fallback, localeChoice, navigator.language)
+      : fallback;
+  }
+
+  function localizedBrowserConnection(browser) {
+    const name = String(browser.name);
+    if (localization && typeof localization.browserConnectionLine === "function") {
+      return localization.browserConnectionLine(name, browser.connected, localeChoice, navigator.language);
+    }
+    return `${name}: ${browser.connected ? "connection installed." : "found, connection not installed. Turn this on and save."}`;
+  }
+
   function renderReadiness(readiness) {
     const source = readiness && typeof readiness === "object" ? readiness : {};
     const zoom = source.zoom || {};
+    const zoomDetector = ZOOM_DETECTOR[zoom.detector] || ZOOM_DETECTOR.off;
     fillList("zoom-readiness", [
       zoom.appInstalled ? "Zoom app found in Applications." : "Zoom app not found in Applications.",
       zoom.toolsAvailable ? "macOS process tools available." : "macOS process tools are missing, so Zoom meetings cannot be detected.",
-      ZOOM_DETECTOR[zoom.detector] || ZOOM_DETECTOR.off,
+      localizedDetector("zoom", zoom.detector, zoomDetector),
       ...permissionLines(source.permissions),
     ]);
     const meet = source.googleMeet || {};
     const browsers = Array.isArray(meet.browsers) ? meet.browsers.filter((browser) => browser && browser.found) : [];
     const seenAt = Number.isFinite(meet.extensionLastSeenAt) ? new Date(meet.extensionLastSeenAt).toLocaleTimeString() : "";
+    const meetDetector = MEET_DETECTOR[meet.detector] || MEET_DETECTOR.off;
     fillList("google-meet-readiness", [
       meet.extensionBundled ? "Extension included with this app." : "Extension missing from this build.",
       ...(browsers.length
-        ? browsers.map((browser) => `${String(browser.name)}: ${browser.connected ? "connection installed." : "found, connection not installed. Turn this on and save."}`)
+        ? browsers.map(localizedBrowserConnection)
         : ["No supported browser found."]),
       seenAt
         ? `Extension last checked in at ${seenAt}.`
         : "Extension not seen since Meeting Wiki started. After loading it, open or reload a Meet tab.",
-      MEET_DETECTOR[meet.detector] || MEET_DETECTOR.off,
+      localizedDetector("meet", meet.detector, meetDetector),
       ...permissionLines(source.permissions),
     ]);
   }
@@ -407,7 +544,8 @@
       googleMeetAutoRecord: meet.checked,
       autoRecordPrivacy: values.autoRecordPrivacyChoiceNeeded === true ? "" : selectedPrivacy(),
     };
-    renderReadiness(result.readiness);
+    let currentReadiness = result.readiness;
+    registerLocaleRenderer(() => renderReadiness(currentReadiness));
     $("panel-integration-settings").hidden = false;
 
     $("show-meet-extension").addEventListener("click", async () => {
@@ -448,7 +586,8 @@
       zoom.checked = saved.zoomAutoRecord;
       meet.checked = saved.googleMeetAutoRecord;
       setPrivacy(result.values.autoRecordPrivacy, result.values.autoRecordPrivacyChoiceNeeded);
-      renderReadiness(result.readiness);
+      currentReadiness = result.readiness;
+      renderReadiness(currentReadiness);
       setIntegrationStatus(savedMessage(changed), "ok");
     });
   }
@@ -460,9 +599,11 @@
   }
 
   async function load() {
+    applyLocale("system");
     if (!bridge) $("bridge-missing").hidden = false;
-    const [identity, result, recording, meta, integrationSettings] = await Promise.all([
+    const [identity, languages, result, recording, meta, integrationSettings] = await Promise.all([
       call("getIdentitySettings"),
+      call("getLanguageSettings"),
       call("getGeminiSettings"),
       call("getRecordingSettings"),
       call("getSettingMetadata"),
@@ -470,19 +611,28 @@
     ]);
     applyMetadata(errorOf(meta) ? null : meta);
     const identityReady = !errorOf(identity) && identity.ready === true;
+    const languageReady = !errorOf(languages) && languages.ready === true;
     const geminiReady = !errorOf(result) && result.ready === true;
     const recordingReady = !errorOf(recording) && recording.ready === true;
-    if (!identityReady && !geminiReady && !recordingReady) {
+    if (languageReady) {
+      fillLanguages(languages.values);
+      applyLocale(languages.values.uiLanguage);
+    }
+    if (!identityReady && !languageReady && !geminiReady && !recordingReady) {
       showUnsupported(reasonOf(identity), identity && identity.manualConfig === true);
       return;
     }
     $("settings-loading").hidden = true;
     if (identityReady) showIdentity(identity);
+    if (languageReady) showLanguages(languages);
     if (recordingReady) showRecording(recording);
     if (!errorOf(integrationSettings) && integrationSettings.ready === true) showIntegrations(integrationSettings);
     if (!geminiReady) {
-      const manual = result && result.manualConfig === true && metadata.manualEdit ? ` ${metadata.manualEdit}` : "";
-      $("gemini-unavailable").textContent = `${reasonOf(result)}${manual}`;
+      const reason = reasonOf(result);
+      const manual = result && result.manualConfig === true && metadata.manualEdit ? metadata.manualEdit : "";
+      registerLocaleRenderer(() => {
+        $("gemini-unavailable").textContent = [localizedMessage(reason), localizedMessage(manual)].filter(Boolean).join(" ");
+      });
       $("gemini-unavailable").hidden = false;
       return;
     }
@@ -490,7 +640,10 @@
     const input = $(FIELDS.summaryContextCharacters);
     input.min = String(bounds.min);
     input.max = String(bounds.max);
-    $("summary-context-characters-hint").textContent = `From ${bounds.min} to ${bounds.max}. Recent transcript text kept for live summaries.`;
+    setLocalizedNode(
+      $("summary-context-characters-hint"),
+      `From ${bounds.min} to ${bounds.max}. Recent transcript text kept for live summaries.`,
+    );
     fill(result.values);
     let geminiValues = readForm();
     $("settings-loading").hidden = true;

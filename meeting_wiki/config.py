@@ -4,15 +4,24 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import tomllib
 import unicodedata
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_DATA_DIR = Path.home() / ".meeting-wiki"
 DEFAULT_CONFIG_PATH = DEFAULT_DATA_DIR / "config.toml"
+LEGACY_LANGUAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9 -]{0,39}$")
+
+
+def safe_legacy_language(value: str | None, fallback: str | None) -> str | None:
+    if value is None or LEGACY_LANGUAGE_PATTERN.fullmatch(value):
+        return value
+    return fallback
 
 
 class ProviderSelection(BaseModel):
@@ -64,11 +73,25 @@ class LiveConfig(BaseModel):
     summary_context_characters: int = Field(default=12000, ge=500, le=100000)
     allow_external_providers: bool = False
 
+    @field_validator("translation_target_language")
+    @classmethod
+    def validate_legacy_translation_language(cls, value: str) -> str:
+        return safe_legacy_language(value, "zh") or "zh"
+
     @model_validator(mode="after")
     def validate_overlap(self) -> LiveConfig:
         if self.overlap_seconds >= self.chunk_seconds:
             raise ValueError("overlap_seconds must be less than chunk_seconds")
         return self
+
+
+class LanguageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transcript: Literal["auto", "en", "zh-CN"] = "auto"
+    live_translation: Literal["en", "zh-CN"] = "zh-CN"
+    live_summary: Literal["en", "zh-CN"] = "zh-CN"
+    memory: Literal["en", "zh-CN"] = "en"
+    ui: Literal["system", "en", "zh-CN"] = "system"
 
 
 class OpenAITranscriptionConfig(BaseModel):
@@ -215,6 +238,7 @@ class AppConfig(BaseModel):
     mlx_whisper: MLXWhisperConfig = Field(default_factory=MLXWhisperConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)
+    languages: LanguageConfig = Field(default_factory=LanguageConfig)
     openai_compatible: OpenAICompatibleConfig = Field(default_factory=OpenAICompatibleConfig)
     openai_transcription: OpenAITranscriptionConfig = Field(
         default_factory=OpenAITranscriptionConfig
@@ -226,6 +250,11 @@ class AppConfig(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     jobs: JobConfig = Field(default_factory=JobConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
+
+    @field_validator("language")
+    @classmethod
+    def validate_legacy_transcript_language(cls, value: str | None) -> str | None:
+        return safe_legacy_language(value, None)
 
     @field_validator("user_name")
     @classmethod
@@ -266,6 +295,36 @@ class AppConfig(BaseModel):
                     f"providers.{capability} = gemini requires a nonempty gemini.{model_field}"
                 )
         return self
+
+    @property
+    def transcription_language(self) -> str | None:
+        if "transcript" in self.languages.model_fields_set:
+            return None if self.languages.transcript == "auto" else self.languages.transcript
+        if not self.language or self.language == "auto":
+            return None
+        return "zh-CN" if self.language in {"zh", "zh-CN"} else self.language
+
+    @property
+    def live_translation_language(self) -> str:
+        if "live_translation" in self.languages.model_fields_set:
+            return self.languages.live_translation
+        return (
+            "zh-CN"
+            if self.live.translation_target_language in {"zh", "zh-CN"}
+            else self.live.translation_target_language
+        )
+
+    @property
+    def live_summary_language(self) -> str:
+        return self.languages.live_summary
+
+    @property
+    def memory_output_language(self) -> str:
+        return self.languages.memory
+
+    @property
+    def ui_language(self) -> str:
+        return self.languages.ui
 
     @property
     def primary_profile_name(self) -> str:

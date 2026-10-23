@@ -60,8 +60,10 @@ def test_ollama_live_language_provider_uses_chinese_target(monkeypatch):
 
     monkeypatch.setattr("meeting_wiki.providers.live.httpx.post", fake_post)
     provider = OllamaLiveLanguageProvider("http://127.0.0.1:11434", "qwen3:8b", 30)
-    assert provider.translate("Hello", "zh") == "中文翻译"
-    assert "Chinese" in captured["json"]["messages"][0]["content"]
+    assert provider.translate("Hello", "zh-CN") == "中文翻译"
+    assert "Simplified Chinese" in captured["json"]["messages"][0]["content"]
+    provider.translate("Hello", "ja")
+    assert "into ja" in captured["json"]["messages"][0]["content"]
 
 
 # ---- Growing WAV tail ----
@@ -239,6 +241,7 @@ class FakeLanguage:
     def __init__(self, fail: bool = False):
         self.fail = fail
         self.translated: list[tuple[str, str]] = []
+        self.summarized: list[tuple[str, str]] = []
 
     def translate(self, text, target_language):
         if self.fail:
@@ -246,7 +249,8 @@ class FakeLanguage:
         self.translated.append((text, target_language))
         return f"[{target_language}] {text}"
 
-    def summarize(self, transcript):
+    def summarize(self, transcript, output_language):
+        self.summarized.append((transcript, output_language))
         return [f"points from {len(transcript)} chars"]
 
     def health(self):
@@ -302,7 +306,8 @@ def _runtime(tmp_path, transcriber, language, publisher, **overrides):
         "work_dir": work_dir,
         "private": True,
         "external": False,
-        "target_language": "zh",
+        "target_language": "zh-CN",
+        "summary_language": "zh-CN",
         "chunk_seconds": 2,
         "overlap_seconds": 1,
         "summary_context_characters": 500,
@@ -340,11 +345,13 @@ def test_chunked_runtime_publishes_ordered_deduplicated_finals_translation_and_s
         {"sequence": 3, "text": "Ship on Friday"},
     ]
     assert publisher.of("translation") == [
-        {"sequence": 1, "text": "[zh] Hello team"},
-        {"sequence": 2, "text": "[zh] Budget review"},
-        {"sequence": 3, "text": "[zh] Ship on Friday"},
+        {"sequence": 1, "text": "[zh-CN] Hello team"},
+        {"sequence": 2, "text": "[zh-CN] Budget review"},
+        {"sequence": 3, "text": "[zh-CN] Ship on Friday"},
     ]
     assert publisher.of("summary")[-1]["points"]
+    assert language.summarized
+    assert {output_language for _, output_language in language.summarized} == {"zh-CN"}
     states = publisher.of("state")
     assert states[0] == {"phase": "listening", "private": True, "scope": "local"}
     assert states[-1]["phase"] == "stopped"
@@ -447,7 +454,7 @@ def test_session_runtime_streams_pcm_and_publishes_only_final_events(tmp_path):
 
     assert bytes(session.audio) == _pcm(1)
     assert publisher.of("transcript") == [{"sequence": 1, "text": "Final words"}]
-    assert publisher.of("translation") == [{"sequence": 1, "text": "[zh] Final words"}]
+    assert publisher.of("translation") == [{"sequence": 1, "text": "[zh-CN] Final words"}]
     assert publisher.of("state")[0]["scope"] == "external"
 
 
@@ -510,9 +517,9 @@ def test_session_runtime_keeps_sequence_and_context_across_provider_renewal(tmp_
             super().__init__()
             self.contexts = []
 
-        def summarize(self, transcript):
+        def summarize(self, transcript, output_language):
             self.contexts.append(transcript)
-            return super().summarize(transcript)
+            return super().summarize(transcript, output_language)
 
     events = [
         LiveTranscriptEvent(LiveTranscriptKind.FINAL, "Before renewal"),

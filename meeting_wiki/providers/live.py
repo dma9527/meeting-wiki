@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from ..models import TranscriptSegment
-from .base import LiveTranscriptRequest
+from .base import LiveTranscriptRequest, language_display_name
 from .transcription import MLXWhisperTranscriber
 
 
@@ -51,14 +51,17 @@ class OllamaLiveLanguageProvider:
     def translate(self, text: str, target_language: str) -> str:
         if not text.strip():
             return ""
-        language = "Chinese" if target_language == "zh" else target_language
+        language = language_display_name(target_language)
         instruction = f"Translate accurately into {language}. Return only the translation."
         return self._ask(instruction, text)
 
-    def summarize(self, transcript: str) -> list[str]:
+    def summarize(self, transcript: str, output_language: str) -> list[str]:
         if not transcript.strip():
             return []
-        result = self._ask("Summarize as up to three concise bullet points.", transcript)
+        language = language_display_name(output_language)
+        result = self._ask(
+            f"Summarize in {language} as up to three concise bullet points.", transcript
+        )
         return [line.removeprefix("- ").strip() for line in result.splitlines() if line.strip()]
 
     def health(self) -> tuple[bool, str]:

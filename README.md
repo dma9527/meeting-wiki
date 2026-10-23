@@ -50,7 +50,8 @@ Join a meeting
 
 - Records microphone and system audio from the macOS menu bar.
 - Shows recording options on first use and for one-record overrides, including title, privacy, capture readiness, live status, and time limit.
-- Runs a live sidebar with transcript, translation, and rolling summary while recording.
+- Runs a live sidebar with transcript, selectable translation language, and selectable rolling-summary language while recording.
+- Lets managed Gemini and OpenAI-compatible setups choose transcript, live translation, live summary, memory, and Settings UI languages.
 - Renews Gemini Live sessions before the provider connection limit when supported.
 - Stops, saves, and processes recordings when an opt-in Zoom or Google Meet integration detects a meeting end.
 - Discards integration-started recordings of 10 seconds or less.

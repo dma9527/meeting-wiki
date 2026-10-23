@@ -79,6 +79,21 @@ Secrets are referenced by environment-variable name and never stored in TOML.
 Local providers need no account or API key. The desktop setup wizard writes
 this file for you; see [Setup](../guide/setup.md).
 
+Language preferences use fixed values under `[languages]`:
+
+```toml
+[languages]
+transcript = "auto"          # auto | en | zh-CN
+live_translation = "zh-CN"  # en | zh-CN
+live_summary = "zh-CN"      # en | zh-CN
+memory = "en"                # en | zh-CN
+ui = "system"               # system | en | zh-CN
+```
+
+The Settings UI edits these values for managed Gemini and OpenAI-compatible
+configs. Legacy top-level `language` and `live.translation_target_language`
+remain readable until the user explicitly saves supported replacements.
+
 ## Deterministic wiki
 
 The LLM returns a validated `MeetingAnalysis` object. It never rewrites

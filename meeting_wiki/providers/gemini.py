@@ -26,6 +26,7 @@ from .base import (
     LiveTranscriptKind,
     TranscriptionCapabilities,
     TranscriptionContext,
+    language_display_name,
 )
 from .llm import _validate, analysis_messages, openai_strict_schema
 
@@ -158,16 +159,20 @@ class GeminiLanguageProvider(_GeminiClientMixin):
         api_key: str,
         timeout_seconds: float,
         privacy: PrivacyConfig,
+        output_language: str = "en",
         client_factory: ClientFactory | None = None,
     ):
         self.model = model
         self.api_key = api_key
         self.timeout = timeout_seconds
         self.privacy = privacy
+        self.output_language = output_language
         self._client_factory = client_factory
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
-        system, user, meeting_type = analysis_messages(meeting, transcript, self.privacy)
+        system, user, meeting_type = analysis_messages(
+            meeting, transcript, self.privacy, self.output_language
+        )
         client = self._client()
         structured_config = {
             "system_instruction": system,
@@ -246,18 +251,19 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
     def translate(self, text: str, target_language: str) -> str:
         if not text.strip():
             return ""
-        language = "Chinese" if target_language == "zh" else target_language
+        language = language_display_name(target_language)
         instruction = (
             f"Translate accurately into {language}. "
             "Return only the translation as plain text, with no notes or formatting."
         )
         return self._ask("translation", instruction, text)
 
-    def summarize(self, transcript: str) -> list[str]:
+    def summarize(self, transcript: str, output_language: str) -> list[str]:
         if not transcript.strip():
             return []
+        language = language_display_name(output_language)
         instruction = (
-            "Summarize as up to three concise bullet points, one per line, "
+            f"Summarize in {language} as up to three concise bullet points, one per line, "
             "each starting with '- '. Return only the bullets."
         )
         result = self._ask("summary", instruction, transcript)

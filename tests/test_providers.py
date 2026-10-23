@@ -13,7 +13,16 @@ from meeting_wiki.providers.base import (
 from meeting_wiki.providers.calendar import ICSCalendarProvider
 from meeting_wiki.providers.integrations import validate_webhook_url
 from meeting_wiki.providers.s3_storage import S3Storage
-from meeting_wiki.providers.transcription import TextImportTranscriber
+from meeting_wiki.providers.transcription import (
+    TextImportTranscriber,
+    transcription_language_code,
+)
+
+
+def test_transcription_language_uses_provider_compatible_codes():
+    assert transcription_language_code("zh-CN") == "zh"
+    assert transcription_language_code("en") == "en"
+    assert transcription_language_code(None) is None
 
 
 def test_text_import_detects_speaker_labels(tmp_path):

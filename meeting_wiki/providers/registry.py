@@ -122,6 +122,7 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             config.ollama.timeout_seconds,
             config.ollama.num_ctx,
             config.privacy,
+            config.memory_output_language,
         )
     elif config.providers.llm == "openai_compatible":
         settings = config.openai_compatible
@@ -131,6 +132,7 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             config.secret(settings.api_key_env),
             settings.timeout_seconds,
             config.privacy,
+            config.memory_output_language,
         )
     elif config.providers.llm == "gemini":
         llm = GeminiLanguageProvider(
@@ -138,6 +140,7 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             config.secret(config.gemini.api_key_env),
             config.gemini.timeout_seconds,
             config.privacy,
+            config.memory_output_language,
         )
     else:
         raise ValueError(f"Unknown LLM provider: {config.providers.llm}")

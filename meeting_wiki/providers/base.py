@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass
@@ -145,6 +146,14 @@ class LLMProvider(Protocol):
     def health(self) -> tuple[bool, str]: ...
 
 
+def language_display_name(value: str) -> str:
+    if value in {"zh", "zh-CN"}:
+        return "Simplified Chinese"
+    if value == "en":
+        return "English"
+    return value if re.fullmatch(r"[A-Za-z][A-Za-z0-9 -]{0,39}", value) else "English"
+
+
 @runtime_checkable
 class LiveLanguageProvider(Protocol):
     """Translate final transcript text and derive a rolling display-only summary."""
@@ -153,7 +162,7 @@ class LiveLanguageProvider(Protocol):
 
     def translate(self, text: str, target_language: str) -> str: ...
 
-    def summarize(self, transcript: str) -> list[str]: ...
+    def summarize(self, transcript: str, output_language: str) -> list[str]: ...
 
     def health(self) -> tuple[bool, str]: ...
 

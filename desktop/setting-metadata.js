@@ -6,6 +6,7 @@
 // is read when a recording starts.
 
 const APPLIES = Object.freeze({
+  immediate: "Applies immediately to this Settings window and the next window you open.",
   processing:
     "Applies to meetings processed from now on, including any still waiting in the queue. Processing restarts automatically. Meetings already in the wiki keep their notes.",
   liveSession: "Applies from the next recording's live captions. A live view that is already open keeps its current setting.",
@@ -24,10 +25,14 @@ const APPLIES = Object.freeze({
 const SETTINGS = Object.freeze({
   primaryProfileName: Object.freeze({ form: "identity", applies: "processing" }),
   aliases: Object.freeze({ form: "identity", applies: "processing" }),
+  transcriptLanguage: Object.freeze({ form: "languages", applies: "processingAndLive" }),
+  liveTranslationLanguage: Object.freeze({ form: "languages", applies: "liveSession" }),
+  liveSummaryLanguage: Object.freeze({ form: "languages", applies: "liveSession" }),
+  memoryLanguage: Object.freeze({ form: "languages", applies: "processing" }),
+  uiLanguage: Object.freeze({ form: "languages", applies: "immediate" }),
   batchAudioModel: Object.freeze({ form: "gemini", applies: "processing" }),
   liveModel: Object.freeze({ form: "gemini", applies: "liveSession" }),
   languageModel: Object.freeze({ form: "gemini", applies: "processingAndLive" }),
-  translationTargetLanguage: Object.freeze({ form: "gemini", applies: "liveSession" }),
   summaryContextCharacters: Object.freeze({ form: "gemini", applies: "liveSession" }),
   defaultPrivacyMode: Object.freeze({ form: "recording", applies: "nextRecording" }),
   recordingLiveEnabled: Object.freeze({ form: "recording", applies: "nextRecording" }),
