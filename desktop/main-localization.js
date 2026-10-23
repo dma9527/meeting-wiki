@@ -305,7 +305,11 @@ function createMainTranslator({ readChoice, systemLocale }) {
   // One config read for a whole tray rebuild, so every line uses the same language.
   function snapshot() {
     const current = locale();
-    return { menuItems: (items) => menuItems(items, current), text: (message, vars = null) => localizeText(message, current, vars) };
+    return {
+      buttons: (options) => buttons(options, current),
+      menuItems: (items) => menuItems(items, current),
+      text: (message, vars = null) => localizeText(message, current, vars),
+    };
   }
 
   return { buttons, dialog, locale, menuItems, snapshot, text };

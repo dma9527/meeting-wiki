@@ -264,7 +264,8 @@ function timestamp() {
 // title and body are English source text; translateBody is false for user data such as titles.
 function notify(title, body, { vars = null, translateBody = true } = {}) {
   if (!Notification.isSupported()) return;
-  new Notification({ title: tr.text(title), body: translateBody ? tr.text(body, vars) : body }).show();
+  const t = tr.snapshot().text;
+  new Notification({ title: t(title), body: translateBody ? t(body, vars) : body }).show();
 }
 
 function pythonAvailable() {
@@ -371,7 +372,8 @@ async function showSelfCheck() {
       execFileFn: execFile,
     });
     app.focus({ steal: true });
-    await dialog.showMessageBox(tr.buttons(formatSelfCheck(report, tr.text)));
+    const localized = tr.snapshot();
+    await dialog.showMessageBox(localized.buttons(formatSelfCheck(report, localized.text)));
   } catch (_) {
     notify("Self-check did not finish", "Open logs or try again.");
   } finally {

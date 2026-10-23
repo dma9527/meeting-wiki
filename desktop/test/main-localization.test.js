@@ -51,6 +51,9 @@ test("every tray label and literal notification in main.js has Chinese copy", ()
   const notices = [...main.matchAll(/notify\(\s*"([^"]+)",\s*"([^"]+)"/g)].flatMap((match) => [match[1], match[2]]);
   const ternaries = [...main.matchAll(/\? "([A-Z0-9][^"]+)" : "([A-Z{][^"]+)"/g)].flatMap((match) => [match[1], match[2]]);
   assert.ok(notices.length >= 20 && ternaries.length >= 6);
+  const statusLines = [...main.matchAll(/\? "(Processing status unavailable)"|: "(Checking processing status\.\.\.)"/g)].flatMap((match) => [match[1] || match[2]]);
+  assert.equal(statusLines.length, 2);
+  for (const line of statusLines) assertCovered(line);
   const titles = [...main.matchAll(/notify\(\s*"([^"]+)",/g)].map((match) => match[1]);
   // "Imported meeting" is an ingest title for Python, never shown by main.
   const fields = [...main.matchAll(/(?:detail|checkboxLabel|title|name): "([^"]+)"/g)]
@@ -171,8 +174,9 @@ test("menus, dialogs, and notices follow the language and fall back to English",
 test("main routes every tray, notification, and dialog through the translator", () => {
   assert.match(main, /const tr = createMainTranslator\(\{ readChoice: \(\) => currentUiLanguage\(\), systemLocale: \(\) => app\.getLocale\(\) \}\);/);
   assert.match(main, /const menuText = tr\.snapshot\(\);/);
+  assert.match(main, /const localized = tr\.snapshot\(\);\s*await dialog\.showMessageBox\(localized\.buttons\(formatSelfCheck\(report, localized\.text\)\)\);/);
   assert.match(main, /tray\.setContextMenu\(Menu\.buildFromTemplate\(menuText\.menuItems\(items\)\)\);/);
-  assert.match(main, /new Notification\(\{ title: tr\.text\(title\), body: translateBody \? tr\.text\(body, vars\) : body \}\)/);
+  assert.match(main, /new Notification\(\{ title: t\(title\), body: translateBody \? t\(body, vars\) : body \}\)/);
   assert.equal((main.match(/showDialog: \(options\) => dialog\.showMessageBox\(tr\.dialog\(options\)\)/g) || []).length, 2);
   assert.match(main, /dialog\.showOpenDialog\(tr\.dialog\(\{/);
   assert.match(main, /dialog\.showMessageBox\(tr\.dialog\(importConfirmation\(count\), \{ count \}\)\)/);
@@ -180,7 +184,7 @@ test("main routes every tray, notification, and dialog through the translator", 
   assert.match(main, /notify\(code === 0 \? "Meeting queued" : "Meeting queue failed", label, \{ translateBody: false \}\);/);
   assert.match(main, /recordingLabel\(recordingSession, menuText\.text\)/);
   assert.match(main, /formatQueueLabel\(queueSummary, menuText\.text\)/);
-  assert.doesNotMatch(main, /dialog\.showMessageBox\((?!tr\.)/);
+  assert.doesNotMatch(main, /dialog\.showMessageBox\((?!tr\.|localized\.buttons\()/);
   const restart = main.slice(main.indexOf("function restartProcessing("), main.indexOf("function openSettingsWindow("));
   assert.match(restart, /if \(tray\) updateMenu\(\);\s*void refreshQueueStatus\(\);/);
 });

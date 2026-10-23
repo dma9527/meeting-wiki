@@ -244,7 +244,7 @@ test("the tray self-check shows only formatted fixed text and never doctor outpu
   assert.match(source, /\{ label: "Run self-check\.\.\.", click: \(\) => \{ void showSelfCheck\(\); \} \}/);
   const body = functionBody("showSelfCheck");
   assert.match(body, /const env = available \? processingEnv\(\) : null;/);
-  assert.match(body, /await dialog\.showMessageBox\(tr\.buttons\(formatSelfCheck\(report, tr\.text\)\)\);/);
+  assert.match(body, /await dialog\.showMessageBox\(localized\.buttons\(formatSelfCheck\(report, localized\.text\)\)\);/);
   assert.match(body, /skillStatus: \(\) => claudeSkillStatus\(\)/);
   assert.doesNotMatch(body, /error\.message|stdout|detail:/);
 });
