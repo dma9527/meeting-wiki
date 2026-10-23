@@ -59,7 +59,7 @@ A new candidate build needs a new version. Bump all of these together in one `ch
 ./scripts/build-macos.sh > /tmp/mw-build.log 2>&1; tail -n 30 /tmp/mw-build.log
 ```
 
-This stages the runtime, runs `npm ci` and the desktop tests, builds the DMG and ZIP into `desktop/dist/`, ad-hoc signs, inventories the bundle, scans it for personal paths, and writes `SHA256SUMS`.
+This stages the runtime, runs `npm ci` and the desktop tests, builds the app bundle, ad-hoc signs it, inventories it, scans it for personal paths, creates the DMG and ZIP from the signed bundle, verifies the signature of the copies inside both, and writes `SHA256SUMS`.
 
 The build stops at the audio tool check unless `MEETING_WIKI_GPL_SOURCE_OFFER` points to a source-offer file the release owner has approved (known issue KI-3, see `docs/portable-runtime.md`). When blocked it writes `desktop/runtime.blocked.json` and exits without producing artifacts. Report the blocker to the owner. Do not work around it.
 

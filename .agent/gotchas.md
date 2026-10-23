@@ -37,6 +37,8 @@ Each entry is a mistake that already happened or a trap found in review. The tes
 
 ## Packaging
 
+- `build-macos.sh` must create the DMG and ZIP from the bundle after it is re-signed. When electron-builder made them itself (`npm run build`), it skipped signing for lack of a Developer ID identity, so the installed copy had no sealed resources (`code has no resources but signature indicates they must be present`). macOS then reported "Meeting Wiki is damaged and cannot be opened" for downloaded copies. Verify the mounted DMG and extracted ZIP, not only `dist/mac-arm64` (`tests/test_release_script.py`).
+- A downloaded local build is still rejected by Gatekeeper while it carries quarantine, even with a valid ad-hoc signature. The install guide's `xattr -dr com.apple.quarantine` step is required, not optional.
 - A blocked `build-macos.sh` run leaves `desktop/runtime.blocked.json` and no staged `desktop/runtime`. Both paths are gitignored. Built artifacts from earlier versions in `desktop/dist` are untouched.
 - `desktop/runtime.previous.*` directories are stale leftovers from older runs. Do not rely on them.
 - This Mac may have no installed app. A running or installed copy is separate from `desktop/dist`. Check `/Applications` and `~/Applications` before claiming what is installed.

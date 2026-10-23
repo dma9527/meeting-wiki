@@ -50,11 +50,25 @@ def test_build_script_prepares_runtime_before_electron_builder_and_asserts_after
 
     prepare = script.index('scripts/prepare-runtime-macos.sh"')
     npm_ci = script.index("npm ci")
-    build = script.index("npm run build")
+    build = script.index("npx electron-builder --mac dir")
     assertion = script.index("scripts/assert-packaged-runtime.sh")
     checksums = script.index("shasum -a 256")
 
     assert prepare < npm_ci < build < assertion < checksums
+    assert "npm run build" not in script
+
+
+def test_build_script_packages_the_signed_app_and_verifies_installed_copies():
+    script = _script("build-macos.sh")
+
+    resign = script.index('codesign --force --deep --sign - "$APP"')
+    zip_created = script.index('ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"')
+    dmg_created = script.index('hdiutil create -volname "Meeting Wiki"')
+    zip_verified = script.index('codesign --verify --deep --strict --verbose=2 "$INSPECT_DIR/zip/')
+    dmg_verified = script.index('codesign --verify --deep --strict --verbose=2 "$INSPECT_DIR/dmg/')
+    checksums = script.index("shasum -a 256")
+
+    assert resign < zip_created < dmg_created < zip_verified < dmg_verified < checksums
 
 
 def test_packaged_runtime_assertion_covers_python_rec_and_sox():
@@ -80,7 +94,7 @@ def test_build_script_resigns_local_app_after_electron_builder():
     root = Path(__file__).parents[1]
     build_script = (root / "scripts" / "build-macos.sh").read_text()
 
-    build_after_builder = build_script.index("npm run build")
+    build_after_builder = build_script.index("npx electron-builder --mac dir")
     build_resign = build_script.index('codesign --force --deep --sign - "$APP"')
     assert build_after_builder < build_resign
 
