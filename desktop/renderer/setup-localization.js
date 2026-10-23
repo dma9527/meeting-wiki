@@ -1,8 +1,7 @@
 "use strict";
 
-// Simplified Chinese for the first-run setup window. Keys of STATIC are selectors in
-// setup.html; keys of MESSAGES are English source strings used by setup.js and setup errors
-// from the main process. {name} placeholders are filled after lookup.
+// Simplified Chinese for the setup window: STATIC keys are setup.html selectors and
+// MESSAGES keys are English strings from setup.js and setup-window.js.
 
 (function setupLocalization(globalObject) {
   const i18n = typeof module !== "undefined" && module.exports
@@ -83,6 +82,7 @@
     ".outside-online .dest-note:not(#boundary-loopback)": "provider 自身的隐私条款适用于它收到的内容。",
     ".outside-local .outside-label": "会离开这台 Mac 的内容",
     ".sealed": "没有。会议内容在这台 Mac 上处理。",
+    "#models-loading": "正在载入可用模型。",
     ".outside-local .dest-note": "模型下载会在首次使用前联系列出的模型来源一次。",
   });
 
@@ -195,6 +195,20 @@
     "The provider settings could not be prepared.": "无法准备 provider 设置。",
     "Setup could not complete this step.": "设置无法完成这一步。",
     "Local model downloads are not yet available in this build. Choose Online API key.": "当前版本还不能下载本地模型，请选择在线 API key。",
+    "Enter a valid transcription model name.": "请输入有效的转写模型名称。",
+    "Enter a valid summary and translation model name.": "请输入有效的总结与翻译模型名称。",
+    "Enter the API key from your provider without spaces or line breaks.": "请输入 provider 提供的 API key，不要包含空格或换行。",
+    "Enter the Gemini API key without spaces or line breaks.": "请输入 Gemini API key，不要包含空格或换行。",
+    "The provider settings could not be saved.": "无法保存 provider 设置。",
+    "Setup could not be saved.": "无法保存设置。",
+    "Choose a setup path first.": "请先选择一种设置方式。",
+    "Test the provider connection before finishing.": "完成前请先测试 provider 连接。",
+    "This request did not come from the setup window.": "这个请求不是来自设置窗口。",
+    "The online API key could not be read from the macOS Keychain.": "无法从 macOS Keychain 读取在线 API key。",
+    "The Gemini API key could not be read from the macOS Keychain.": "无法从 macOS Keychain 读取 Gemini API key。",
+    "Run setup again.": "请重新运行设置。",
+    "Model name from your provider": "provider 提供的模型名称",
+    "Setup progress": "设置进度",
   });
 
   const applySetupLocale = i18n.createStaticApplier(STATIC);

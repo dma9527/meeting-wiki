@@ -1,8 +1,7 @@
 "use strict";
 
-// Shared renderer localization. Each window supplies its own Chinese catalog; English is the
-// text already in the page or the source string, so a missing entry falls back to English.
-// Catalog values are plain text and are always written with textContent.
+// Shared renderer localization. Each window has its own Chinese catalog; a missing entry
+// falls back to the English source. Values are plain text written with textContent.
 
 (function i18n(globalObject) {
   const LOCALES = Object.freeze(["system", "en", "zh-CN"]);

@@ -91,5 +91,24 @@ test("setup offers the app language first and loads the shared localization scri
   assert.deepEqual(scripts, ["i18n.js", "setup-localization.js", "setup.js"]);
   const js = read("setup.js");
   assert.match(js, /call\("setAppLanguage", choice\)/);
-  assert.match(js, /state\.languageTouched = initial\.mode !== "online" && initial\.mode !== "local";/);
+  assert.match(js, /state\.languageTouched = state\.languageTouched \|\| \(initial\.mode !== "online" && initial\.mode !== "local"\);/);
+  assert.match(js, /if \(!state\.languageTouched && Object\.prototype\.hasOwnProperty\.call\(LANGUAGE_NAMES, initial\.uiLanguage\)\)/);
+});
+
+// Every sentence of a main-process setup message must have Chinese copy.
+test("every setup error from setup-window.js has Chinese copy", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "setup-window.js"), "utf8");
+  const keys = new Set(Object.keys(localization.messages));
+  const messages = new Set();
+  for (const [, text] of source.matchAll(/SetupError\(\s*"((?:[^"\\]|\\.)+)"/g)) messages.add(text);
+  for (const [, text] of source.matchAll(/^const [A-Z_]+ = "([A-Z][^"]+\.)";$/gm)) messages.add(text);
+  for (const [, text] of source.matchAll(/SetupError\(`([^`$]+)\$\{UNCHANGED\}`\)/g)) messages.add(text.trim());
+  for (const [, text] of source.matchAll(/error: "([A-Z][^"]+)"/g)) messages.add(text);
+  for (const [, first, second] of source.matchAll(/\? "([A-Z][^"]+\.)" : "([A-Z][^"]+\.)"/g)) messages.add(first).add(second);
+  for (const label of ["transcription model", "summary and translation model"]) messages.add(`Enter a valid ${label} name.`);
+  assert.match(source, /Enter a valid \$\{label\} name\./);
+  assert.ok(messages.size >= 25, `found ${messages.size}`);
+  for (const message of messages) {
+    for (const sentence of message.split(/(?<=\.)\s+/)) assert.ok(keys.has(message) || keys.has(sentence), sentence);
+  }
 });

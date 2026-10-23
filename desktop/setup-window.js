@@ -415,9 +415,10 @@ function createSetupController({
     return readManagedIdentity(readText(fs, configPath)) || EMPTY_IDENTITY;
   }
 
-  // The setup language picks the UI language and the live translation and summary language.
+  // The setup language sets the UI, live translation, and live summary languages; a first
+  // run without a choice follows macOS.
   function appLanguageOverlay() {
-    const choice = session.appLanguage;
+    const choice = session.appLanguage || (readSetupState(fs, dataDir) ? null : "system");
     if (!choice) return {};
     let resolved = choice;
     if (choice === "system") {

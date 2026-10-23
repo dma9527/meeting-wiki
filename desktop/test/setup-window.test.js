@@ -10,7 +10,7 @@ const path = require("path");
 const { createSecretStore } = require("../secret-store");
 const setup = require("../setup-window");
 const APPLIES_SETUP = require("../setting-metadata").APPLIES.setupFinish;
-const { DEFAULT_LANGUAGE_SETTINGS, languageFromTables, parseManagedConfig } = require("../managed-config");
+const { DEFAULT_LANGUAGE_SETTINGS, EMPTY_IDENTITY, languageFromTables, parseManagedConfig } = require("../managed-config");
 
 const TEST_KEY = "test-online-key-not-real-0000";
 const VALID_SETTINGS = Object.freeze({
@@ -719,7 +719,8 @@ test("a committed Gemini setup stores the key encrypted under the gemini secret 
   const secrets = JSON.parse(fs.readFileSync(path.join(dataDir, "secrets.json"), "utf8"));
   assert.deepEqual(Object.keys(secrets), ["gemini"]);
   const configPath = path.join(dataDir, "config.toml");
-  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderGeminiConfig());
+  const firstRunLanguages = { ...DEFAULT_LANGUAGE_SETTINGS, uiLanguage: "system", liveTranslationLanguage: "en", liveSummaryLanguage: "en" };
+  assert.equal(fs.readFileSync(configPath, "utf8"), setup.renderGeminiConfig({}, EMPTY_IDENTITY, firstRunLanguages));
   assert.equal(mode(configPath), 0o600);
   for (const name of fs.readdirSync(dataDir)) assert.ok(!name.includes(GEMINI_KEY), "key in a file name");
   for (const content of filesUnder(dataDir)) assert.ok(!content.includes(GEMINI_KEY), "plaintext key on disk");
@@ -942,7 +943,7 @@ test("the setup language becomes the UI, live translation, and live summary lang
   }
 });
 
-test("setAppLanguage rejects unsupported values and setup without a choice keeps saved languages", async () => {
+test("setAppLanguage rejects unsupported values and a first run without a choice follows macOS", async () => {
   const { controller, configPath } = completeGeminiWithLanguage("en-US");
   for (const value of ["", "fr", "zh", null, 42]) {
     assert.throws(() => controller.setAppLanguage(value), /supported language/);
@@ -951,5 +952,34 @@ test("setAppLanguage rejects unsupported values and setup without a choice keeps
   await controller.testGeminiProvider({ acknowledgedEgress: true });
   controller.completeSetup({ mode: "online", provider: "gemini" });
   const languages = languageFromTables(parseManagedConfig(fs.readFileSync(configPath, "utf8")));
-  assert.deepEqual(languages, DEFAULT_LANGUAGE_SETTINGS);
+  assert.deepEqual(languages, {
+    ...DEFAULT_LANGUAGE_SETTINGS,
+    uiLanguage: "system",
+    liveTranslationLanguage: "en",
+    liveSummaryLanguage: "en",
+  });
+});
+
+test("rerunning setup without a language choice keeps the languages saved in Settings", async () => {
+  const dataDir = tempDataDir();
+  const store = createSecretStore({ safeStorage: fakeSafeStorage(), fs, filePath: path.join(dataDir, "secrets.json") });
+  const configPath = path.join(dataDir, "config.toml");
+  const finish = async (controller) => {
+    controller.saveGeminiProvider({ apiKey: "test-gemini-key-not-real-0000", acknowledgedEgress: true });
+    await controller.testGeminiProvider({ acknowledgedEgress: true });
+    controller.completeSetup({ mode: "online", provider: "gemini" });
+  };
+  const first = controllerWithStore(dataDir, store, { code: 0 }, { systemLocale: () => "en-US" }).controller;
+  first.setAppLanguage("zh-CN");
+  await finish(first);
+  const edited = fs.readFileSync(configPath, "utf8")
+    .replace('live_summary = "zh-CN"', 'live_summary = "en"')
+    .replace('memory = "source"', 'memory = "zh-CN"');
+  fs.writeFileSync(configPath, edited);
+  const saved = languageFromTables(parseManagedConfig(edited));
+  assert.equal(saved.liveSummaryLanguage, "en");
+  assert.equal(saved.memoryLanguage, "zh-CN");
+
+  await finish(controllerWithStore(dataDir, store, { code: 0 }, { systemLocale: () => "zh-CN" }).controller);
+  assert.deepEqual(languageFromTables(parseManagedConfig(fs.readFileSync(configPath, "utf8"))), saved);
 });

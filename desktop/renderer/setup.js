@@ -130,10 +130,12 @@
     state.busy = busy;
     if (busy) {
       button.dataset.label = button.textContent;
+      button.dataset.busyKey = busyLabel;
       button.textContent = t(busyLabel);
       button.setAttribute("aria-disabled", "true");
     } else {
       if (button.dataset.label) button.textContent = button.dataset.label;
+      delete button.dataset.busyKey;
       button.removeAttribute("aria-disabled");
     }
   }
@@ -731,7 +733,14 @@
     state.locale = choice;
     maskAllKeys();
     if (localization) localization.applySetupLocale(document, choice, navigator.language);
+    $("online-language-model").setAttribute("placeholder", t("Model name from your provider"));
+    document.querySelector(".steps").setAttribute("aria-label", t("Setup progress"));
     for (const [node, render] of rendered) node.textContent = render();
+    // A busy button keeps its busy text; its idle label follows the new locale.
+    for (const button of document.querySelectorAll("[data-busy-key]")) {
+      button.dataset.label = button.textContent;
+      button.textContent = t(button.dataset.busyKey);
+    }
     renderBoundary();
     if (state.step === "confirm") renderSummary();
     if (modelsLoaded) renderModels();
@@ -810,12 +819,13 @@
       state.savedKeys = { gemini: keys.gemini === true, openai_compatible: keys.openai_compatible === true };
       renderSavedKeyHints();
       if (typeof initial.appliesAfter === "string") state.appliesAfter = initial.appliesAfter;
-      if (Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, initial.uiLanguage)) {
+      // A choice made before this reply arrived wins over the saved language.
+      if (!state.languageTouched && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, initial.uiLanguage)) {
         $("app-language").value = initial.uiLanguage;
         applyLocale(initial.uiLanguage);
       }
       // A first run always saves the visible choice, including Follow macOS.
-      state.languageTouched = initial.mode !== "online" && initial.mode !== "local";
+      state.languageTouched = state.languageTouched || (initial.mode !== "online" && initial.mode !== "local");
       if (initial.mode === "online") {
         const summary = initial.provider === "gemini"
           ? "Gemini is set up and in use."
