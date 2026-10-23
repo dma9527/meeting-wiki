@@ -36,7 +36,7 @@
     "label[for='default-privacy-shared']": "Shared wiki，除非日历或标题规则判定为私密",
     "label[for='default-privacy-private']": "这台 Mac 上的 Private 文件夹",
     "label[for='recording-live-enabled']": "自动启动实时字幕、翻译和滚动总结",
-    "#recording-live-enabled-hint": "Provider 支持时会自动打开 live sidebar。外部 provider 会收到麦克风音频和转写文本，包括 Private 录音。Live 不可用时，录音和 batch processing 仍会继续。",
+    "#recording-live-enabled-hint": "Provider 支持时会自动打开 live sidebar。外部 provider 会收到你的麦克风音频、这台 Mac 播放的全部音频（包括其他参会者）以及转写文本，包括 Private 录音。Live 不可用时，录音和 batch processing 仍会继续。",
     "#recording-save": "保存录音默认值",
     "#integration-settings-heading": "自动录音",
     "#panel-integration-settings > .lede": "开启后，Meeting Wiki 会在你加入会议时立即开始录音，离开时停止、保存并处理。录音开始前没有倒计时。录音时托盘图标会切换为录音状态，并显示通知。10 秒内结束的会议会被丢弃，不会处理。Zoom 和 Google Meet 默认关闭。",

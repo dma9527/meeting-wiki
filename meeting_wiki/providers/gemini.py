@@ -19,6 +19,7 @@ from ..diagnostics import SafeProviderError
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
     EmptyTranscriptError,
+    LiveProviderError,
     LiveSessionExpiredError,
     LiveSessionStatus,
     LiveSessionStatusCode,
@@ -277,8 +278,17 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
 
 
 def _redacted(action: str, error: BaseException) -> RuntimeError:
-    # SDK messages can echo keys, paths, or transcript text; keep only the type name.
-    return RuntimeError(f"Gemini live {action} failed ({type(error).__name__})")
+    # SDK messages can echo keys, paths, or transcript text; keep only allowlisted metadata.
+    return LiveProviderError("Gemini", action, error)
+
+
+# Gemini Live transcription expects BCP-47 locale codes from its supported-language table.
+_LIVE_LANGUAGE_CODES = {"en": "en-US", "zh": "cmn-Hans-CN", "zh-CN": "cmn-Hans-CN"}
+
+
+def live_language_code(language: str | None) -> str | None:
+    """Map a configured language to a Live API locale. Unknown values fall back to auto."""
+    return _LIVE_LANGUAGE_CODES.get(language or "")
 
 
 def _transcription_text(transcription: Any) -> str | None:
@@ -362,11 +372,15 @@ class _GeminiLiveSession:
         self._closed = False
 
     def _config(self, handle: str | None) -> dict[str, Any]:
-        return {
+        # Matches the documented live transcription setup. Resumption is requested only when
+        # the server has issued a handle; renewal otherwise opens a fresh connection.
+        config: dict[str, Any] = {
+            "response_modalities": ["TEXT"],
             "input_audio_transcription": self._transcription,
-            "session_resumption": {"handle": handle} if handle else {},
-            "context_window_compression": {"sliding_window": {}},
         }
+        if handle:
+            config["session_resumption"] = {"handle": handle}
+        return config
 
     async def start(self) -> None:
         await self._open(None, first=None)
@@ -571,10 +585,11 @@ class GeminiLiveTranscriber(_GeminiClientMixin):
             sdk_types = _import_genai_types()
         except ImportError as error:
             raise RuntimeError(_INSTALL_ERROR) from error
+        locale = live_language_code(language)
         session = _GeminiLiveSession(
             lambda config: client.aio.live.connect(model=self.model, config=config),
             sdk_types.Blob,
-            {"language_codes": [language]} if language else {},
+            {"language_codes": [locale]} if locale else {},
             max_connection_seconds=self.max_connection_seconds,
             drain_seconds=self.drain_seconds,
             clock=self._clock,

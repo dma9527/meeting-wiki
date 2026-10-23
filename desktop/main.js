@@ -523,13 +523,13 @@ function recoverPendingCaptures() {
 
 // Live view is display-only: any failure here leaves capture and batch ingest untouched.
 // Closing the sidebar hides it; only the end of the recording stops live and destroys it.
-function startLiveSession(micPath, isPrivate, live) {
+function startLiveSession(micPath, systemPath, isPrivate, live) {
   if (!pythonAvailable() || !micPath) return false;
   if (live.live === "ready") {
     try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
   }
   try {
-    return liveSession.start({ micPath, isPrivate }) === true;
+    return liveSession.start({ micPath, systemPath, isPrivate }) === true;
   } catch (_) {
     return false;
   }
@@ -658,7 +658,9 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
     let liveDecision = { live: "startup_failed", liveStarts: false };
     try { liveDecision = recordContext(); } catch (_) {}
     if (liveDecision.liveStarts) {
-      const started = startLiveSession(activeCapture.micPath, isPrivate, liveDecision);
+      // System audio is the other participants; it is absent when the tap helper is missing.
+      const systemPath = activeCapture.system ? activeCapture.rawPath : null;
+      const started = startLiveSession(activeCapture.micPath, systemPath, isPrivate, liveDecision);
       if (!started && !liveIssue) {
         liveIssue = "startup_failed";
         notifyLiveUnavailable(liveIssue);

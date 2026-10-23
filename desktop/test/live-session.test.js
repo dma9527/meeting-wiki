@@ -250,3 +250,45 @@ test("sanitizeLiveEvent keeps provider renewal and expiry as distinct fixed issu
     { type: "state", phase: "unavailable", private: false, issue: "provider_session_expired" },
   );
 });
+
+test("live args pass the system audio capture before the private flag", () => {
+  assert.deepEqual(liveArgs("/c.toml", "/a/mic.wav", true, "/a/system.raw").slice(-4), [
+    "/a/mic.wav", "--system-audio", "/a/system.raw", "--private",
+  ]);
+  assert.ok(!liveArgs("/c.toml", "/a/mic.wav", false, null).includes("--system-audio"));
+});
+
+test("start forwards the system audio path to the live child", () => {
+  const { manager, spawned } = harness();
+  assert.equal(manager.start({ micPath: "/fake/audio/mic.wav", systemPath: "/fake/audio/system.raw", isPrivate: false }), true);
+  assert.deepEqual(spawned[0].args.slice(-2), ["--system-audio", "/fake/audio/system.raw"]);
+  manager.stop();
+});
+
+test("sanitizeLiveEvent keeps only known speakers on transcript lines", () => {
+  assert.deepEqual(
+    sanitizeLiveEvent({ type: "transcript", payload: { sequence: 2, text: "Hi", speaker: "others" } }),
+    { type: "transcript", sequence: 2, text: "Hi", speaker: "others" },
+  );
+  assert.deepEqual(
+    sanitizeLiveEvent({ type: "transcript", payload: { sequence: 2, text: "Hi", speaker: "Alex Example" } }),
+    { type: "transcript", sequence: 2, text: "Hi" },
+  );
+  assert.deepEqual(
+    sanitizeLiveEvent({ type: "translation", payload: { sequence: 2, text: "Hi", speaker: "you" } }),
+    { type: "translation", sequence: 2, text: "Hi" },
+  );
+  for (const issue of ["transcription_failed", "provider_reconnecting", "microphone_unavailable", "system_audio_unavailable"]) {
+    assert.equal(sanitizeLiveEvent({ type: "state", payload: { phase: "listening", issue } }).issue, issue);
+  }
+});
+
+test("every live issue code has sidebar copy", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const sidebar = fs.readFileSync(path.join(__dirname, "..", "renderer", "live-sidebar.js"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "..", "live-session.js"), "utf8");
+  const issues = [...source.slice(source.indexOf("const ISSUES"), source.indexOf("]);", source.indexOf("const ISSUES"))).matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+  assert.ok(issues.length > 10);
+  for (const issue of issues) assert.match(sidebar, new RegExp(`\\b${issue}:`), issue);
+});

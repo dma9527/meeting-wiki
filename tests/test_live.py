@@ -311,6 +311,7 @@ def _runtime(tmp_path, transcriber, language, publisher, **overrides):
         "chunk_seconds": 2,
         "overlap_seconds": 1,
         "summary_context_characters": 500,
+        "reconnect_delay_seconds": 0.01,
         "poll_seconds": 0.02,
     }
     options.update(overrides)
@@ -340,9 +341,9 @@ def test_chunked_runtime_publishes_ordered_deduplicated_finals_translation_and_s
 
     assert [request.sequence for request in transcriber.requests] == [1, 2]
     assert publisher.of("transcript") == [
-        {"sequence": 1, "text": "Hello team"},
-        {"sequence": 2, "text": "Budget review"},
-        {"sequence": 3, "text": "Ship on Friday"},
+        {"sequence": 1, "text": "Hello team", "speaker": "you"},
+        {"sequence": 2, "text": "Budget review", "speaker": "you"},
+        {"sequence": 3, "text": "Ship on Friday", "speaker": "you"},
     ]
     assert publisher.of("translation") == [
         {"sequence": 1, "text": "[zh-CN] Hello team"},
@@ -453,7 +454,7 @@ def test_session_runtime_streams_pcm_and_publishes_only_final_events(tmp_path):
     asyncio.run(_drive(runtime, mic, [_pcm(1)]))
 
     assert bytes(session.audio) == _pcm(1)
-    assert publisher.of("transcript") == [{"sequence": 1, "text": "Final words"}]
+    assert publisher.of("transcript") == [{"sequence": 1, "text": "Final words", "speaker": "you"}]
     assert publisher.of("translation") == [{"sequence": 1, "text": "[zh-CN] Final words"}]
     assert publisher.of("state")[0]["scope"] == "external"
 
@@ -538,9 +539,9 @@ def test_session_runtime_keeps_sequence_and_context_across_provider_renewal(tmp_
     asyncio.run(_drive(runtime, mic, [_pcm(1)]))
 
     assert publisher.of("transcript") == [
-        {"sequence": 1, "text": "Before renewal"},
-        {"sequence": 2, "text": "Drained after go away"},
-        {"sequence": 3, "text": "After renewal"},
+        {"sequence": 1, "text": "Before renewal", "speaker": "you"},
+        {"sequence": 2, "text": "Drained after go away", "speaker": "you"},
+        {"sequence": 3, "text": "After renewal", "speaker": "you"},
     ]
     assert [item["sequence"] for item in publisher.of("translation")] == [1, 2, 3]
     assert "Before renewal" in language.contexts[-1]
@@ -574,7 +575,10 @@ def test_session_runtime_reports_provider_expiry_distinct_from_failure(tmp_path)
         {"events": events, "after": LiveSessionExpiredError()}
     )
     publisher = RecordingPublisher()
-    runtime = _runtime(tmp_path, provider, FakeLanguage(), publisher, external=True)
+    # Retries are covered separately; with none left, expiry must end the channel distinctly.
+    runtime = _runtime(
+        tmp_path, provider, FakeLanguage(), publisher, external=True, reconnect_attempts=0
+    )
     mic = tmp_path / "mic.wav"
     mic.write_bytes(_wav_header())
     audio_before = None
@@ -591,7 +595,7 @@ def test_session_runtime_reports_provider_expiry_distinct_from_failure(tmp_path)
 
     asyncio.run(drive())
 
-    assert publisher.of("transcript") == [{"sequence": 1, "text": "Kept words"}]
+    assert publisher.of("transcript") == [{"sequence": 1, "text": "Kept words", "speaker": "you"}]
     states = publisher.of("state")
     assert states[-1] == {
         "phase": "unavailable",
@@ -689,3 +693,394 @@ def test_live_cli_requires_a_token_from_the_environment(tmp_path, monkeypatch, c
     code = main(["--config", str(tmp_path / "config.toml"), "live", "--mic-audio", "mic.wav"])
     assert code == 2
     assert "live_token_required" in capsys.readouterr().out
+
+
+# ---- Two-channel live and provider failures ----
+
+
+class ChannelAwareTranscriber:
+    """Chunked fake that answers by channel, so ordering across channels does not matter."""
+
+    name = "fake-channels"
+
+    def __init__(self, texts):
+        self.texts = {speaker: list(lines) for speaker, lines in texts.items()}
+
+    def transcribe_chunk(self, request):
+        speaker = request.audio_path.name.split("-", 1)[0]
+        lines = self.texts.get(speaker) or []
+        if not lines:
+            return []
+        return [TranscriptSegment(start_seconds=0.0, end_seconds=0.9, text=lines.pop(0))]
+
+    def health(self):
+        return True, "ok"
+
+
+async def _drive_two(runtime, mic_path, system_path, writes, settle: float = 0.6):
+    import asyncio
+
+    task = asyncio.create_task(runtime.run())
+    for mic_data, system_data in writes:
+        with mic_path.open("ab") as handle:
+            handle.write(mic_data)
+        if system_data is not None:
+            with system_path.open("ab") as handle:
+                handle.write(system_data)
+        await asyncio.sleep(0.05)
+    await asyncio.sleep(settle)
+    runtime.stop.set()
+    await asyncio.wait_for(task, 5)
+
+
+def test_runtime_labels_microphone_and_system_audio_and_summarizes_both(tmp_path):
+    import asyncio
+
+    class ContextLanguage(FakeLanguage):
+        def __init__(self):
+            super().__init__()
+            self.contexts = []
+
+        def summarize(self, transcript, output_language):
+            self.contexts.append(transcript)
+            return super().summarize(transcript, output_language)
+
+    language = ContextLanguage()
+    publisher = RecordingPublisher()
+    system = tmp_path / "system.raw"
+    runtime = _runtime(
+        tmp_path,
+        ChannelAwareTranscriber({"you": ["My update"], "others": ["Their question"]}),
+        language,
+        publisher,
+        overlap_seconds=0,
+        system_path=system,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive_two(runtime, mic, system, [(_pcm(2), _pcm(2))]))
+
+    transcripts = {item["text"]: item["speaker"] for item in publisher.of("transcript")}
+    assert transcripts == {"My update": "you", "Their question": "others"}
+    assert "You: My update" in language.contexts[-1]
+    assert "Others: Their question" in language.contexts[-1]
+    assert publisher.of("state")[-1] == {"phase": "stopped", "private": True, "scope": "local"}
+    assert list((tmp_path / "work").iterdir()) == []
+
+
+def test_runtime_drops_echo_that_reaches_both_channels(tmp_path):
+    import asyncio
+
+    publisher = RecordingPublisher()
+    system = tmp_path / "system.raw"
+    runtime = _runtime(
+        tmp_path,
+        ChannelAwareTranscriber({"you": ["Same sentence"], "others": ["same  sentence"]}),
+        FakeLanguage(),
+        publisher,
+        overlap_seconds=0,
+        system_path=system,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive_two(runtime, mic, system, [(_pcm(2), _pcm(2))]))
+
+    assert len(publisher.of("transcript")) == 1
+
+
+def test_missing_system_audio_keeps_microphone_live(tmp_path):
+    import asyncio
+
+    publisher = RecordingPublisher()
+    runtime = _runtime(
+        tmp_path,
+        ChannelAwareTranscriber({"you": ["Still captioned"]}),
+        FakeLanguage(),
+        publisher,
+        overlap_seconds=0,
+        system_path=tmp_path / "never-created.raw",
+        audio_start_timeout_seconds=0.1,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive_two(runtime, mic, None, [(_pcm(1), None), (_pcm(1), None)], settle=0.5))
+
+    assert [item["text"] for item in publisher.of("transcript")] == ["Still captioned"]
+    issues = [state.get("issue") for state in publisher.of("state")]
+    assert "system_audio_unavailable" in issues
+    assert publisher.of("state")[-1]["phase"] == "stopped"
+    assert "issue" not in publisher.of("state")[-1]
+
+
+def _session_provider(open_errors, events=()):
+    """Session provider whose first opens fail with open_errors, then streams events."""
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    class Session:
+        def __init__(self):
+            self.queue: asyncio.Queue = asyncio.Queue()
+            for item in events:
+                self.queue.put_nowait(item)
+
+        async def send_audio(self, pcm):
+            return None
+
+        async def end_audio(self):
+            return None
+
+        async def events(self):
+            while True:
+                yield await self.queue.get()
+
+        async def close(self):
+            return None
+
+    class Provider:
+        name = "fake-session"
+
+        def __init__(self):
+            self.opens = 0
+
+        @asynccontextmanager
+        async def open_session(self, language=None):
+            self.opens += 1
+            if open_errors:
+                raise open_errors.pop(0)
+            yield Session()
+
+        def health(self):
+            return True, "ok"
+
+    return Provider()
+
+
+def _provider_error(code=1008, status="PERMISSION_DENIED"):
+    from meeting_wiki.providers.base import LiveProviderError
+
+    class FakeAPIError(Exception):
+        def __init__(self):
+            super().__init__(f"{code} said: secret transcript text /Users/test/audio.wav")
+            self.code = code
+            self.status = status
+
+    return LiveProviderError("Gemini", "connection", FakeAPIError())
+
+
+def test_connection_failure_retries_then_reports_terminal_failure_with_safe_metadata(tmp_path):
+    import asyncio
+    import json
+
+    reports = []
+    provider = _session_provider([_provider_error() for _ in range(4)])
+    publisher = RecordingPublisher()
+    runtime = _runtime(
+        tmp_path,
+        provider,
+        FakeLanguage(),
+        publisher,
+        external=True,
+        report=reports.append,
+        reconnect_attempts=2,
+        reconnect_delay_seconds=0.01,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    async def drive():
+        task = asyncio.create_task(runtime.run())
+        with mic.open("ab") as handle:
+            handle.write(_pcm(1))
+        await asyncio.wait_for(task, 5)
+
+    asyncio.run(drive())
+
+    assert provider.opens == 3
+    states = publisher.of("state")
+    assert "provider_reconnecting" in [state.get("issue") for state in states]
+    assert states[-1] == {
+        "phase": "unavailable",
+        "private": True,
+        "scope": "external",
+        "issue": "transcription_failed",
+    }
+    assert reports[-1] == {
+        "event": "live_transcription_failed",
+        "channel": "you",
+        "error_type": "LiveProviderError",
+        "sdk_error_type": "FakeAPIError",
+        "close_code": 1008,
+        "provider_status": "PERMISSION_DENIED",
+    }
+    serialized = json.dumps([publisher.events, reports])
+    assert "secret transcript" not in serialized
+    assert "/Users/test" not in serialized
+
+
+def test_transient_connection_failure_reconnects_and_keeps_captioning(tmp_path):
+    import asyncio
+
+    from meeting_wiki.providers.base import LiveTranscriptEvent, LiveTranscriptKind
+
+    provider = _session_provider(
+        [_provider_error(code=1011, status="UNAVAILABLE")],
+        events=[LiveTranscriptEvent(LiveTranscriptKind.FINAL, "After reconnect")],
+    )
+    publisher = RecordingPublisher()
+    runtime = _runtime(
+        tmp_path,
+        provider,
+        FakeLanguage(),
+        publisher,
+        external=True,
+        reconnect_delay_seconds=0.01,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive(runtime, mic, [_pcm(1), _pcm(1)]))
+
+    assert provider.opens == 2
+    assert publisher.of("transcript") == [
+        {"sequence": 1, "text": "After reconnect", "speaker": "you"}
+    ]
+    assert publisher.of("state")[-1]["phase"] == "stopped"
+
+
+def test_live_diagnostics_log_keeps_only_allowlisted_fields_owner_only(tmp_path):
+    import json
+
+    from meeting_wiki.live import LiveDiagnosticsLog
+
+    log = LiveDiagnosticsLog(tmp_path, max_bytes=400)
+    log.write(
+        {
+            "event": "live_transcription_failed",
+            "channel": "others",
+            "close_code": 1008,
+            "provider_status": "PERMISSION_DENIED",
+            "message": "secret transcript text",
+            "error_type": "bad value with spaces",
+            "path": "/Users/test/audio.wav",
+            "http_status": True,
+        }
+    )
+
+    path = tmp_path / "logs" / "live.log"
+    entry = json.loads(path.read_text())
+    assert set(entry) == {"time", "event", "channel", "close_code", "provider_status"}
+    assert path.stat().st_mode & 0o777 == 0o600
+    for _ in range(10):
+        log.write({"event": "live_chunk_failed"})
+    assert path.stat().st_size <= 400 + 200
+
+
+def test_chunked_channels_never_transcribe_concurrently_and_skip_digital_silence(tmp_path):
+    import asyncio
+    import threading
+    import time
+
+    class SlowTranscriber(ChannelAwareTranscriber):
+        def __init__(self):
+            super().__init__({"you": ["Mine"], "others": ["Theirs"]})
+            self.active = 0
+            self.peak = 0
+            self.calls = 0
+            self.lock = threading.Lock()
+
+        def transcribe_chunk(self, request):
+            with self.lock:
+                self.active += 1
+                self.calls += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.05)
+            with self.lock:
+                self.active -= 1
+            return super().transcribe_chunk(request)
+
+    transcriber = SlowTranscriber()
+    system = tmp_path / "system.raw"
+    runtime = _runtime(
+        tmp_path,
+        transcriber,
+        FakeLanguage(),
+        RecordingPublisher(),
+        overlap_seconds=0,
+        system_path=system,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive_two(runtime, mic, system, [(_pcm(2), _pcm(2)), (b"", b"\x00" * 64_000)]))
+
+    assert transcriber.peak == 1
+    assert transcriber.calls == 2
+
+
+def test_silent_system_audio_shows_a_permission_hint_until_audio_arrives(tmp_path, monkeypatch):
+    import asyncio
+
+    from meeting_wiki import live as live_module
+
+    monkeypatch.setattr(live_module, "SILENT_SYSTEM_SECONDS", 1.0)
+    publisher = RecordingPublisher()
+    system = tmp_path / "system.raw"
+    runtime = _runtime(
+        tmp_path,
+        ChannelAwareTranscriber({"others": ["Finally audible"]}),
+        FakeLanguage(),
+        publisher,
+        overlap_seconds=0,
+        system_path=system,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(
+        _drive_two(runtime, mic, system, [(b"", b"\x00" * 40_000), (b"", _pcm(2))], settle=0.8)
+    )
+
+    issues = [state.get("issue") for state in publisher.of("state")]
+    hint = issues.index("system_audio_silent")
+    assert None in issues[hint + 1 :]
+    assert [item["text"] for item in publisher.of("transcript")] == ["Finally audible"]
+
+
+def test_expired_session_is_retried_before_it_ends_the_channel(tmp_path):
+    import asyncio
+
+    from meeting_wiki.providers.base import (
+        LiveSessionExpiredError,
+        LiveTranscriptEvent,
+        LiveTranscriptKind,
+    )
+
+    provider = _session_provider(
+        [LiveSessionExpiredError()],
+        events=[LiveTranscriptEvent(LiveTranscriptKind.FINAL, "Recovered")],
+    )
+    publisher = RecordingPublisher()
+    runtime = _runtime(tmp_path, provider, FakeLanguage(), publisher, external=True)
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive(runtime, mic, [_pcm(1), _pcm(1)]))
+
+    assert provider.opens == 2
+    assert [item["text"] for item in publisher.of("transcript")] == ["Recovered"]
+    assert publisher.of("state")[-1]["phase"] == "stopped"
+
+
+def test_dedup_only_compares_recent_finals():
+    from meeting_wiki.live import DEDUP_WINDOW, deduplicate_segments
+
+    history = [TranscriptSegment(text="Yes")] + [
+        TranscriptSegment(text=f"Line {index}") for index in range(DEDUP_WINDOW)
+    ]
+    assert deduplicate_segments(history, [TranscriptSegment(text="yes")]) == [
+        TranscriptSegment(text="yes")
+    ]
+    assert deduplicate_segments(history, [TranscriptSegment(text="line 3")]) == []

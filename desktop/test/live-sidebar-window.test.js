@@ -122,8 +122,10 @@ test("closing hides the sidebar and keeps receiving events until the recording e
   assert.equal(sidebar.publishLiveEvent({ type: "state", phase: "stopped" }), false);
 });
 
-test("the sidebar says live captions use the microphone only", () => {
-  assert.match(read("live-sidebar.html"), /Live captions use your microphone only/);
+test("the sidebar explains both labeled audio channels", () => {
+  const html = read("live-sidebar.html");
+  assert.match(html, /your microphone, labeled You, and all audio played on this Mac, including other participants, labeled Others/);
+  assert.doesNotMatch(html, /microphone only/);
 });
 
 test("the sidebar registers no IPC handlers", () => {

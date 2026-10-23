@@ -172,3 +172,89 @@ def test_cli_prints_json_and_exit_code_reflects_readiness(tmp_path, monkeypatch,
     invalid = write_config(tmp_path, "not = [valid")
     assert main(["--config", str(invalid), "self-check"]) == 1
     assert json.loads(capsys.readouterr().out)["config"] == "invalid"
+
+
+def _live_probe_client(connect_error=None):
+    from contextlib import asynccontextmanager
+
+    class Session:
+        def __init__(self):
+            self.sent = []
+
+        async def send_realtime_input(self, **kwargs):
+            self.sent.append(kwargs)
+
+        async def receive(self):
+            return
+            yield
+
+        async def close(self):
+            return None
+
+    session = Session()
+
+    class Live:
+        def __init__(self):
+            self.configs = []
+
+        @asynccontextmanager
+        async def connect(self, *, model, config):
+            self.configs.append(config)
+            if connect_error is not None:
+                raise connect_error
+            yield session
+
+    live = Live()
+    return SimpleNamespace(aio=SimpleNamespace(live=live)), live, session
+
+
+def test_live_probe_opens_a_real_session_only_when_requested(tmp_path, monkeypatch):
+    use_data_dir(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+    client, live, session = _live_probe_client()
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace())
+    monkeypatch.setattr(gemini_module.GeminiLiveTranscriber, "_client", lambda self: client)
+    monkeypatch.setattr(
+        gemini_module, "_import_genai_types", lambda: SimpleNamespace(Blob=lambda **kw: kw)
+    )
+    config = write_config(tmp_path, GEMINI_CONFIG)
+
+    assert run_self_check(config)["capabilities"]["live"] == "ready"
+    assert live.configs == []
+
+    report = run_self_check(config, probe_live=True)
+
+    assert report["capabilities"]["live"] == "ready"
+    assert live.configs[0]["response_modalities"] == ["TEXT"]
+    assert session.sent[0]["audio"]["mime_type"] == "audio/pcm;rate=16000"
+    assert "live_error" not in report
+
+
+def test_live_probe_reports_only_allowlisted_failure_codes(tmp_path, monkeypatch):
+    data_dir = use_data_dir(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+
+    class FakeAPIError(Exception):
+        def __init__(self):
+            super().__init__(f"1008 said {TEST_KEY} secret transcript /Users/test")
+            self.code = 1008
+            self.status = "PERMISSION_DENIED"
+
+    client, _live, _session = _live_probe_client(connect_error=FakeAPIError())
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace())
+    monkeypatch.setattr(gemini_module.GeminiLiveTranscriber, "_client", lambda self: client)
+    monkeypatch.setattr(
+        gemini_module, "_import_genai_types", lambda: SimpleNamespace(Blob=lambda **kw: kw)
+    )
+
+    report = run_self_check(write_config(tmp_path, GEMINI_CONFIG), probe_live=True)
+
+    assert report["capabilities"]["live"] == "connection_failed"
+    assert report["live_error"] == {
+        "sdk_error_type": "FakeAPIError",
+        "close_code": 1008,
+        "provider_status": "PERMISSION_DENIED",
+    }
+    text = json.dumps(report) + (data_dir / "logs" / "live.log").read_text()
+    for secret in (TEST_KEY, "secret transcript", "/Users/test"):
+        assert secret not in text

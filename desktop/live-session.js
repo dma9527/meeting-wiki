@@ -20,16 +20,23 @@ const ISSUES = new Set([
   "audio_unsupported",
   "provider_unavailable",
   "transcription_error",
+  "transcription_failed",
   "language_error",
+  "provider_reconnecting",
+  "microphone_unavailable",
+  "system_audio_unavailable",
+  "system_audio_silent",
   "provider_session_renewing",
   "provider_session_expired",
   "startup_failed",
   "connection_lost",
 ]);
 const ORDERED_TYPES = new Set(["transcript", "translation", "summary"]);
+const SPEAKERS = new Set(["you", "others"]);
 
-function liveArgs(configPath, micPath, isPrivate) {
+function liveArgs(configPath, micPath, isPrivate, systemPath = null) {
   const args = ["-u", "-m", "meeting_wiki.cli", "--config", configPath, "live", "--mic-audio", micPath];
+  if (systemPath) args.push("--system-audio", systemPath);
   if (isPrivate) args.push("--private");
   return args;
 }
@@ -66,7 +73,10 @@ function sanitizeLiveEvent(message) {
     return { type: "summary", sequence, points };
   }
   const text = clip(payload.text, LIMITS.text);
-  return text ? { type: message.type, sequence, text } : null;
+  if (!text) return null;
+  const event = { type: message.type, sequence, text };
+  if (message.type === "transcript" && SPEAKERS.has(payload.speaker)) event.speaker = payload.speaker;
+  return event;
 }
 
 function parseReadyLine(line) {
@@ -110,7 +120,7 @@ class LiveSessionManager {
     this.teardown(session);
   }
 
-  start({ micPath, isPrivate }) {
+  start({ micPath, systemPath = null, isPrivate }) {
     if (this.session) return false;
     const isPrivateSession = isPrivate === true;
     let env;
@@ -126,7 +136,7 @@ class LiveSessionManager {
     const token = this.randomBytes(32).toString("hex");
     let child;
     try {
-      child = this.spawn(this.python, liveArgs(this.configPath, micPath, isPrivateSession), {
+      child = this.spawn(this.python, liveArgs(this.configPath, micPath, isPrivateSession, systemPath), {
         detached: false,
         env: { ...env, [TOKEN_ENV]: token },
         stdio: ["ignore", "pipe", "ignore"],

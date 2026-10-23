@@ -9,6 +9,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 const CHANNEL = "live:event";
 const PHASES = ["starting", "listening", "stopped", "unavailable"];
 const SCOPES = ["local", "external"];
+const SPEAKERS = ["you", "others"];
 let listener = null;
 
 function text(value, limit) {
@@ -29,7 +30,9 @@ function pickLiveEvent(event) {
   }
   if (!Number.isSafeInteger(event.sequence)) return null;
   if (event.type === "transcript" || event.type === "translation") {
-    return { type: event.type, sequence: event.sequence, text: text(event.text, 2000) };
+    const picked = { type: event.type, sequence: event.sequence, text: text(event.text, 2000) };
+    if (event.type === "transcript" && SPEAKERS.includes(event.speaker)) picked.speaker = event.speaker;
+    return picked;
   }
   if (event.type === "summary" && Array.isArray(event.points)) {
     return {

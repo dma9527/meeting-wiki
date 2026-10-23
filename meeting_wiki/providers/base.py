@@ -108,6 +108,26 @@ class LiveSessionExpiredError(RuntimeError):
         super().__init__("Live provider session expired and could not be renewed")
 
 
+class LiveProviderError(RuntimeError):
+    """A live provider failure that carries only allowlisted SDK metadata, never its text."""
+
+    def __init__(self, provider: str, action: str, error: BaseException):
+        from ..diagnostics import safe_provider_metadata
+
+        self.metadata: dict[str, object] = safe_provider_metadata(error)
+        code = getattr(error, "code", None)
+        # Live API errors arrive as WebSocket close codes, for example 1007 or 1008.
+        if isinstance(code, int) and not isinstance(code, bool) and 1000 <= code <= 4999:
+            self.metadata["close_code"] = code
+        details = [str(self.metadata["sdk_error_type"])]
+        for key, label in (("http_status", "HTTP "), ("close_code", "close ")):
+            if key in self.metadata:
+                details.append(f"{label}{self.metadata[key]}")
+        if "provider_status" in self.metadata:
+            details.append(str(self.metadata["provider_status"]))
+        super().__init__(f"{provider} live {action} failed ({', '.join(details)})")
+
+
 @runtime_checkable
 class LiveTranscriptionSession(Protocol):
     """One open streaming session fed raw 16-bit mono PCM at 16 kHz."""

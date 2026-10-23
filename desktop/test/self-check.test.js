@@ -43,14 +43,14 @@ test("a ready report runs the self-check CLI with the child env and formats as i
   const calls = [];
   const env = { PATH: "/usr/bin" };
   const report = await selfCheck.runSelfCheck(baseOptions({ env, execFileFn: fakeCli(READY_REPORT, calls) }));
-  assert.deepEqual(calls[0].args, ["-m", "meeting_wiki.cli", "--config", "/test/config.toml", "self-check"]);
+  assert.deepEqual(calls[0].args, ["-m", "meeting_wiki.cli", "--config", "/test/config.toml", "self-check", "--probe-live"]);
   assert.equal(calls[0].options.env, env);
   const dialog = selfCheck.formatSelfCheck(report);
   assert.equal(dialog.type, "info");
   assert.equal(dialog.message, "Everything Meeting Wiki needs is ready.");
   for (const label of Object.values(selfCheck.LABELS)) assert.match(dialog.detail, new RegExp(label));
   assert.match(dialog.detail, /transcribed by Google Gemini/);
-  assert.match(dialog.detail, /Live captions send microphone audio to an external provider/);
+  assert.match(dialog.detail, /Live captions send microphone audio and all audio played on this Mac to an external provider/);
 });
 
 test("unknown, injected, or extra values never reach the dialog text", async () => {
@@ -131,4 +131,33 @@ test("claudeSkillStatus is read-only and reports missing, installed, and conflic
 test("self-check main-process code never logs", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "self-check.js"), "utf8");
   assert.doesNotMatch(source, /console\.|process\.stdout|process\.stderr/);
+});
+
+test("the self-check probes live and shows only allowlisted live error codes", async () => {
+  const calls = [];
+  const failed = JSON.stringify({
+    version: 1,
+    config: "ok",
+    providers: { transcription: "gemini", llm: "gemini", live_transcription: "gemini" },
+    live_scope: "external",
+    capabilities: { transcription: "ready", analysis: "ready", live: "connection_failed", storage: "ready", memory: "ready" },
+    live_error: {
+      sdk_error_type: "APIError",
+      close_code: 1008,
+      provider_status: "PERMISSION_DENIED",
+      http_status: 200,
+      message: SECRET,
+    },
+  });
+  const report = await selfCheck.runSelfCheck(baseOptions({ execFileFn: fakeCli(failed, calls) }));
+  assert.equal(calls[0].args.at(-1), "--probe-live");
+  const dialog = selfCheck.formatSelfCheck(report);
+  assert.match(dialog.detail, /The live provider rejected the connection/);
+  assert.match(dialog.detail, /Live connection error: close code 1008, PERMISSION_DENIED, APIError\./);
+  assert.doesNotMatch(dialog.detail, /HTTP 200/);
+  assert.ok(!JSON.stringify(dialog).includes(SECRET));
+  assert.deepEqual(
+    selfCheck.projectReport({ version: 1, config: "ok", live_error: { provider_status: "bad status; text", close_code: 99 } }).liveError,
+    null,
+  );
 });

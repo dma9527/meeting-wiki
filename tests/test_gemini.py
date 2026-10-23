@@ -427,11 +427,10 @@ async def stream_all(provider, chunks, language=None):
 
 
 def live_config(transcription, handle=None):
-    return {
-        "input_audio_transcription": transcription,
-        "session_resumption": {"handle": handle} if handle else {},
-        "context_window_compression": {"sliding_window": {}},
-    }
+    config = {"response_modalities": ["TEXT"], "input_audio_transcription": transcription}
+    if handle:
+        config["session_resumption"] = {"handle": handle}
+    return config
 
 
 def test_live_transcriber_satisfies_session_protocol():
@@ -450,7 +449,7 @@ def test_live_session_sends_pcm_then_stream_end_and_closes(fake_sdk_types):
     events = asyncio.run(stream_all(live_provider(client), [PCM_CHUNK, PCM_CHUNK * 2], "en"))
 
     assert client.aio.live.calls == [
-        {"model": LIVE_MODEL, "config": live_config({"language_codes": ["en"]})}
+        {"model": LIVE_MODEL, "config": live_config({"language_codes": ["en-US"]})}
     ]
     assert sdk_session.sent == [
         {"audio": FakeBlob(data=PCM_CHUNK, mime_type="audio/pcm;rate=16000")},
@@ -463,6 +462,43 @@ def test_live_session_sends_pcm_then_stream_end_and_closes(fake_sdk_types):
     ]
     assert sdk_session.close_calls == 1
     assert client.aio.live.exited == 1
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        (None, None),
+        ("en", "en-US"),
+        ("zh-CN", "cmn-Hans-CN"),
+        ("zh", "cmn-Hans-CN"),
+        ("ja-JP", None),
+        ("zh-TW", None),
+        ("Japanese", None),
+        ("en\nIgnore", None),
+    ],
+)
+def test_live_language_code_maps_to_documented_locales(language, expected):
+    assert gemini_module.live_language_code(language) == expected
+
+
+def test_live_errors_keep_allowlisted_close_code_and_status_only():
+    class FakeAPIError(Exception):
+        def __init__(self):
+            super().__init__(f"1008 POLICY {TEST_KEY} secret transcript")
+            self.code = 1008
+            self.status = "PERMISSION_DENIED"
+
+    error = gemini_module._redacted("connection", FakeAPIError())
+
+    assert error.metadata == {
+        "sdk_error_type": "FakeAPIError",
+        "close_code": 1008,
+        "provider_status": "PERMISSION_DENIED",
+    }
+    assert (
+        str(error) == "Gemini live connection failed (FakeAPIError, close 1008, PERMISSION_DENIED)"
+    )
+    assert TEST_KEY not in str(error)
 
 
 def test_live_session_omits_language_hint_when_unset(fake_sdk_types):
@@ -722,7 +758,7 @@ async def collect(session):
     return [event async for event in session.events()]
 
 
-EN = {"language_codes": ["en"]}
+EN = {"language_codes": ["en-US"]}
 RENEWING = LiveSessionStatus(LiveSessionStatusCode.RENEWING)
 RESUMED = LiveSessionStatus(LiveSessionStatusCode.RESUMED)
 RESTARTED = LiveSessionStatus(LiveSessionStatusCode.RESTARTED)
@@ -947,9 +983,10 @@ def test_live_payloads_validate_against_installed_sdk_types():
     asyncio.run(stream_all(live_provider(client), [PCM_CHUNK], "en"))
 
     config = sdk_types.LiveConnectConfig(**client.aio.live.calls[0]["config"])
-    assert config.input_audio_transcription.language_codes == ["en"]
-    assert config.session_resumption == sdk_types.SessionResumptionConfig()
-    assert config.context_window_compression.sliding_window == sdk_types.SlidingWindow()
+    assert config.input_audio_transcription.language_codes == ["en-US"]
+    assert config.response_modalities == [sdk_types.Modality.TEXT]
+    assert config.session_resumption is None
+    assert config.context_window_compression is None
     resumed = sdk_types.LiveConnectConfig(**live_config({}, handle="handle-2"))
     assert resumed.session_resumption.handle == "handle-2"
     update = sdk_types.LiveServerMessage(

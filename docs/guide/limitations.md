@@ -30,8 +30,9 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 - Speaker corrections keep the old label on append-only surfaces (people
   timelines, action-item table) and on external tasks sent before the
   correction.
-- Live captions are display only and use the microphone only. Providers
-  without a live adapter (Other online API key) have no live captions.
+- Live captions are display only. They label lines as You or Others by audio
+  channel, not by individual speaker. Providers without a live adapter (Other
+  online API key) have no live captions.
 - Local only setup is not available in this build.
 - The system audio permission cannot be checked before recording; a missing
   permission shows up as silent participants and a notification.

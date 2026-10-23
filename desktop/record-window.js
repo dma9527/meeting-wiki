@@ -36,6 +36,7 @@ const LIVE_UNAVAILABLE_MESSAGES = Object.freeze({
   audio_unavailable: "Live microphone audio did not become available. Recording and batch processing continue normally.",
   audio_unsupported: "The live provider cannot use this microphone audio. Recording and batch processing continue normally.",
   transcription_error: "Live transcription stopped. Recording and batch processing continue normally.",
+  transcription_failed: "Live transcription could not connect to the provider. Recording and batch processing continue normally. Run self-check for details.",
   language_error: "Live translation and summary stopped. Recording and batch processing continue normally.",
   startup_failed: "Live captions, translation, and summary could not start. Recording continues normally.",
   connection_lost: "The live connection ended. Recording and batch processing continue normally.",

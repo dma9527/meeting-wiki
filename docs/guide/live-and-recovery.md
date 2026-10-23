@@ -27,10 +27,22 @@ Behavior to know:
 
 - Live text is display only. It never changes saved notes. The saved meeting is
   processed from the full recording after you stop.
-- Live captions use your microphone only. Other participants, who come
-  through system audio, do not appear in live text; they are in the saved
-  meeting. With an online provider, the microphone audio is sent to the
-  provider.
+- Live captions transcribe two channels: your microphone, labeled **You**,
+  and all audio played on this Mac, including other participants, labeled
+  **Others**. The rolling summary covers both. With an online provider, both audio channels and the
+  transcript text are sent to the provider, including for private
+  recordings. Each channel uses its own provider connection, so live usage
+  is about twice that of a single channel.
+- If system audio is not available, live keeps captioning your microphone.
+  When system audio stays completely silent for 30 seconds, the live window
+  suggests checking System Audio Recording permission. A quiet meeting can
+  show the same hint.
+- A dropped live provider connection is retried a few times before live stops.
+  The reason for a live failure, without any meeting content, is written to
+  `live.log` in the Meeting Wiki logs folder.
+- **Run self-check...** opens one short live session with silent audio. When
+  the provider rejects it, the dialog shows the error codes, for example a
+  WebSocket close code and provider status.
 - If live features cannot start, the menu shows "Live captions, translation,
   and summary unavailable. Recording continues." Provider, audio, startup, and
   connection failures do not stop recording or batch processing. A missing key

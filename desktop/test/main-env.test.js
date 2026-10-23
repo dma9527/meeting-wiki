@@ -153,12 +153,13 @@ test("Settings never receives the secret store, restarts processing on save, and
 test("live view starts after capture succeeds and cannot break recording", () => {
   const start = functionBody("startRecording");
   const captureAt = start.indexOf("capture.start(timestamp())");
-  const liveAt = start.indexOf("startLiveSession(activeCapture.micPath, isPrivate, liveDecision)");
+  const liveAt = start.indexOf("startLiveSession(activeCapture.micPath, systemPath, isPrivate, liveDecision)");
   assert.ok(captureAt >= 0 && liveAt > captureAt, "live view must start only after capture starts");
   const live = functionBody("startLiveSession");
   assert.match(live, /if \(!pythonAvailable\(\) \|\| !micPath\) return false;/);
   assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}\); \} catch \(_\) \{\}\s*\}/);
-  assert.match(live, /return liveSession\.start\(\{ micPath, isPrivate \}\) === true;/);
+  assert.match(live, /return liveSession\.start\(\{ micPath, systemPath, isPrivate \}\) === true;/);
+  assert.match(start, /const systemPath = activeCapture\.system \? activeCapture\.rawPath : null;/);
   assert.match(functionBody("stopLiveSession"), /liveSession\.stop\(\)\.catch\(\(\) => \{\}\)/);
 });
 

@@ -25,13 +25,13 @@
     unknown: "status not reported",
   };
 
-  const MIC_ONLY = "Live captions use your microphone only, so other participants do not appear in them.";
+  const BOTH_CHANNELS = "Live captions cover your microphone and all audio played on this Mac, including other participants, each labeled.";
   const LIVE = {
-    ready: `Live captions, translation, and rolling summary start with the recording. ${MIC_ONLY} They are display-only and never change saved notes.`,
+    ready: `Live captions, translation, and rolling summary start with the recording. ${BOTH_CHANNELS} They are display-only and never change saved notes.`,
     no_adapter: "Not available with this provider, so no live window opens. The recording is still processed after you stop.",
     engine_missing: "Unavailable because the Meeting Wiki engine is missing. Reinstall the app.",
     key_unavailable: "Unavailable because the API key could not be read. Run setup again. The audio is still saved.",
-    manual: `A live window opens only if your hand-edited configuration supports live captions. ${MIC_ONLY}`,
+    manual: `A live window opens only if your hand-edited configuration supports live captions. ${BOTH_CHANNELS}`,
   };
 
   const BLOCKERS = {
@@ -39,7 +39,7 @@
     microphone_blocked: "Microphone access is blocked, so recording cannot start. Allow Meeting Wiki in System Settings, Privacy & Security, Microphone, then reopen this window.",
   };
 
-  const SYSTEM_AUDIO_NOTE = "Other participants are captured from system audio. macOS controls this with the System Audio Recording permission, which Meeting Wiki cannot check in advance. If participants were silent in an earlier recording, allow Meeting Wiki there.";
+  const SYSTEM_AUDIO_NOTE = "Other participants are captured from all audio played on this Mac. macOS controls this with the System Audio Recording permission, which Meeting Wiki cannot check in advance. If participants were silent in an earlier recording, allow Meeting Wiki there.";
 
   async function call(method, ...args) {
     if (!bridge || typeof bridge[method] !== "function") {
@@ -97,7 +97,7 @@
     const micBlocked = blockers.includes("microphone_blocked");
     setLine(
       "record-capture",
-      `${permissionPart("Your microphone", context.microphone)} and system audio from the other participants.`,
+      `${permissionPart("Your microphone", context.microphone)} and all audio played on this Mac, including other participants.`,
       micBlocked,
     );
     setLine("record-system-audio", SYSTEM_AUDIO_NOTE, false);
@@ -125,7 +125,7 @@
       : Object.prototype.hasOwnProperty.call(LIVE, context.live) ? LIVE[context.live] : LIVE.manual;
     if (liveEnabled() && context.live === "ready") {
       live += context.liveScope === "external"
-        ? ` Microphone audio is sent to ${where} for captions${isPrivate() ? ", including for this private meeting" : ""}.`
+        ? ` Microphone audio and all audio played on this Mac are sent to ${where} for captions${isPrivate() ? ", including for this private meeting" : ""}.`
         : " They run on this Mac.";
     }
     setLine("record-live", live, context.live === "engine_missing" || context.live === "key_unavailable");

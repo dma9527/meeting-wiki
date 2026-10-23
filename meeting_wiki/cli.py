@@ -181,7 +181,7 @@ def redacted_job_record(job) -> dict[str, object]:
     return record
 
 
-def live_command(config, mic_audio: Path, private: bool) -> int:
+def live_command(config, mic_audio: Path, private: bool, system_audio: Path | None = None) -> int:
     """Run one live session. The token arrives via environment, never argv."""
     import asyncio
 
@@ -198,6 +198,7 @@ def live_command(config, mic_audio: Path, private: bool) -> int:
             private,
             token,
             lambda line: print(line, flush=True),
+            system_path=system_audio.expanduser() if system_audio else None,
         )
     )
 
@@ -428,9 +429,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cleanup.add_argument("--older-than-days", type=float, required=True)
     sub.add_parser("doctor", help="Validate configured providers")
-    sub.add_parser(
+    self_check = sub.add_parser(
         "self-check",
         help="Print a capability report with fixed status codes only (for the desktop app)",
+    )
+    self_check.add_argument(
+        "--probe-live",
+        action="store_true",
+        help="Open one live provider session with silent audio to verify the connection",
     )
     sub.add_parser("mcp", help="Run read-only MCP server over stdio")
     live = sub.add_parser(
@@ -438,6 +444,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run a display-only live session for the desktop app (token via environment)",
     )
     live.add_argument("--mic-audio", required=True, help="Growing 16 kHz mono microphone WAV")
+    live.add_argument(
+        "--system-audio", help="Growing headerless 16 kHz mono 16-bit PCM system audio capture"
+    )
     live.add_argument("--private", action="store_true")
 
     brief = sub.add_parser("brief", help="Generate pre-meeting briefs for upcoming calendar events")
@@ -549,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "self-check":
         from .self_check import run_self_check
 
-        report = run_self_check(args.config)
+        report = run_self_check(args.config, probe_live=args.probe_live)
         print(json.dumps(report))
         ready = report["config"] == "ok" and all(
             status == "ready" for status in report["capabilities"].values()
@@ -558,7 +567,8 @@ def main(argv: list[str] | None = None) -> int:
 
     config = load_config(args.config)
     if args.command == "live":
-        return live_command(config, Path(args.mic_audio), args.private)
+        system_audio = Path(args.system_audio) if args.system_audio else None
+        return live_command(config, Path(args.mic_audio), args.private, system_audio)
     if args.command == "doctor":
         return doctor(args.config)
     if args.command == "ingest":

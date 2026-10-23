@@ -85,6 +85,17 @@
   color: var(--accent);
 }
 
+.live-speaker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.live-line[data-speaker="others"] .live-speaker {
+  color: var(--accent);
+}
+
 .live-empty,
 .live-foot {
   color: var(--muted);

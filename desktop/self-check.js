@@ -64,6 +64,8 @@ const CAPABILITY_TEXT = Object.freeze({
     ready: ["ok", "Ready. Live captions are display-only and never change saved notes."],
     no_adapter: ["note", "Not available with this provider. Recording and processing still work."],
     failed: ["attention", "Not ready. Recording and processing still work without live captions."],
+    connection_failed: ["attention", "The live provider rejected the connection. Recording and processing still work without live captions."],
+    connection_timeout: ["attention", "The live provider did not answer within 20 seconds. Check the network, then try again."],
   },
   storage: {
     ready: ["ok", "Ready on this Mac."],
@@ -108,7 +110,7 @@ function entryFor(capability, status) {
 
 // Keeps only allowlisted codes from the CLI report; anything else becomes "unknown".
 function projectReport(parsed) {
-  const result = { capabilities: {}, providers: {}, liveScope: "" };
+  const result = { capabilities: {}, providers: {}, liveScope: "", liveError: null };
   if (!parsed || typeof parsed !== "object" || parsed.version !== 1) {
     for (const name of PYTHON_CAPABILITIES) result.capabilities[name] = "check_failed";
     return result;
@@ -127,14 +129,45 @@ function projectReport(parsed) {
     if (Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, providers[field])) result.providers[field] = providers[field];
   }
   if (parsed.live_scope === "external" || parsed.live_scope === "local") result.liveScope = parsed.live_scope;
+  result.liveError = projectLiveError(parsed.live_error);
   return result;
+}
+
+// Only fixed-shape codes survive: an SDK type name, HTTP and WebSocket close codes, and an
+// uppercase provider status. Provider messages never reach this report.
+function projectLiveError(source) {
+  if (!source || typeof source !== "object") return null;
+  const error = {};
+  if (typeof source.sdk_error_type === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,79}$/.test(source.sdk_error_type)) {
+    error.sdkErrorType = source.sdk_error_type;
+  }
+  if (Number.isInteger(source.http_status) && source.http_status >= 400 && source.http_status <= 599) {
+    error.httpStatus = source.http_status;
+  }
+  if (Number.isInteger(source.close_code) && source.close_code >= 1000 && source.close_code <= 4999) {
+    error.closeCode = source.close_code;
+  }
+  if (typeof source.provider_status === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(source.provider_status)) {
+    error.providerStatus = source.provider_status;
+  }
+  return Object.keys(error).length ? error : null;
+}
+
+function liveErrorLine(error) {
+  if (!error) return "";
+  const parts = [];
+  if (error.httpStatus) parts.push(`HTTP ${error.httpStatus}`);
+  if (error.closeCode) parts.push(`close code ${error.closeCode}`);
+  if (error.providerStatus) parts.push(error.providerStatus);
+  if (error.sdkErrorType) parts.push(error.sdkErrorType);
+  return `Live connection error: ${parts.join(", ")}. Details are also in live.log under Open logs.`;
 }
 
 function runCli(python, configPath, execFileFn, env) {
   return new Promise((resolve) => {
     execFileFn(
       python,
-      ["-m", "meeting_wiki.cli", "--config", configPath, "self-check"],
+      ["-m", "meeting_wiki.cli", "--config", configPath, "self-check", "--probe-live"],
       { encoding: "utf8", maxBuffer: 256 * 1024, timeout: SELF_CHECK_TIMEOUT_MS, env },
       (_error, stdout) => {
         try {
@@ -165,6 +198,7 @@ async function runSelfCheck({ python, configPath, pythonAvailable, env, mediaAcc
     },
     providers: {},
     liveScope: "",
+    liveError: null,
   };
   if (!pythonAvailable) {
     for (const name of PYTHON_CAPABILITIES) report.capabilities[name] = "engine_missing";
@@ -177,6 +211,7 @@ async function runSelfCheck({ python, configPath, pythonAvailable, env, mediaAcc
     Object.assign(report.capabilities, projected.capabilities);
     report.providers = projected.providers;
     report.liveScope = projected.liveScope;
+    report.liveError = projected.liveError;
   }
   let skill = "error";
   try {
@@ -200,8 +235,10 @@ function formatSelfCheck(report) {
   const providers = (report && report.providers) || {};
   const processedBy = PROVIDER_NAMES[providers.transcription];
   if (processedBy) lines.push("", `Recordings are transcribed by ${processedBy}.`);
-  if (report && report.liveScope === "external") lines.push("Live captions send microphone audio to an external provider.");
+  if (report && report.liveScope === "external") lines.push("Live captions send microphone audio and all audio played on this Mac to an external provider.");
   if (report && report.liveScope === "local") lines.push("Live captions run on this Mac.");
+  const liveError = liveErrorLine(report && report.liveError);
+  if (liveError) lines.push(liveError);
   return {
     type: attention ? "warning" : "info",
     title: "Meeting Wiki self-check",

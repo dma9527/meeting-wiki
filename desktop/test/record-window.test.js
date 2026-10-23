@@ -347,7 +347,8 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   const init = js.slice(js.indexOf("async function init()"));
   assert.doesNotMatch(init, /call\("start"/);
   assert.match(js, /including for this private meeting/);
-  assert.match(js, /Live captions use your microphone only/);
+  assert.match(js, /cover your microphone and all audio played on this Mac, including other participants/);
+  assert.match(js, /Microphone audio and all audio played on this Mac are sent to/);
   assert.match(js, /\$\("record-live-enabled"\)\.checked = context\.liveStarts === true && defaults\.liveEnabled === true;/);
   assert.match(js, /\$\("record-live-enabled"\)\.disabled = context\.liveStarts !== true;/);
   assert.match(js, /start\.disabled = systemBlocked \|\| privacyMissing;/);
@@ -384,7 +385,7 @@ test("main gates the live sidebar on a live adapter and keeps it reopenable", ()
   assert.match(main, /onOpenSetup: openSetupWindow/);
   assert.match(main, /openExternal: \(url\) => \{ void shell\.openExternal\(url\); \}/);
   const start = main.slice(main.indexOf("async function startRecording"), main.indexOf("// The limit, the user, and quit"));
-  assert.match(start, /const beginLive = \(\) => \{[\s\S]*startLiveSession\(activeCapture\.micPath, isPrivate, liveDecision\);[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
+  assert.match(start, /const beginLive = \(\) => \{[\s\S]*startLiveSession\(activeCapture\.micPath, systemPath, isPrivate, liveDecision\);[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
   assert.match(start, /liveIssue = liveDecision\.live \|\| "startup_failed";[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
   const live = main.slice(main.indexOf("function startLiveSession"), main.indexOf("function readConfigText"));
   assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}\); \} catch \(_\) \{\}\s*\}/);

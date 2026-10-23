@@ -165,7 +165,7 @@ test("the recording form edits duration, privacy, and live defaults with labels 
   assert.match(panel, /<label for="recording-live-enabled">/);
   assert.match(panel, /<input id="max-duration-minutes"(?![^>]*\bvalue=)[^>]*type="number"[^>]*>/);
   assert.match(panel, /id="max-duration-minutes-error" class="field-error"/);
-  assert.match(panel, /external[^<]*provider receives microphone audio and transcript text/i);
+  assert.match(panel, /external[^<]*provider receives your microphone audio, all audio played on this Mac including other participants, and[\s\S]*transcript text/i);
   assert.match(panel, /including for private[^<]*recordings/i);
   assert.match(panel, /id="recording-defaults-notice"[^>]*role="note"/);
   assert.match(panel, /id="recording-status"[^>]*role="status"/);
