@@ -39,10 +39,23 @@ async function guard(operation) {
   }
 }
 
+const UI_LANGUAGES = Object.freeze(["system", "en", "zh-CN"]);
+
+// The saved app language; anything unreadable follows macOS.
+function savedUiLanguage(context) {
+  try {
+    const choice = typeof context.uiLanguage === "function" ? context.uiLanguage() : "system";
+    return UI_LANGUAGES.includes(choice) ? choice : "system";
+  } catch (_) {
+    return "system";
+  }
+}
+
 function registerHandlers(ipcMain, context) {
   if (handlersRegistered) return;
   handlersRegistered = true;
   const store = new WikiStore(context.dataDir);
+  ipcMain.handle("wiki:uiLanguage", () => savedUiLanguage(context));
   ipcMain.handle("wiki:listRecent", (_event, limit) =>
     guard(async () => store.listRecent(clampLimit(limit, 10, 50))),
   );
@@ -132,4 +145,4 @@ function createWikiWindow(electron, context) {
   return wikiWindow;
 }
 
-module.exports = { createWikiWindow, registerHandlers, sanitizeActionOptions, clampLimit };
+module.exports = { createWikiWindow, registerHandlers, sanitizeActionOptions, clampLimit, savedUiLanguage };

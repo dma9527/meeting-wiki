@@ -5,9 +5,31 @@
 // as markup.
 
 const api = window.meetingWiki;
+const i18n = window.meetingWikiI18n;
+const localization = window.meetingWikiWikiLocalization;
+const UI_LANGUAGES = ["system", "en", "zh-CN"];
+let uiLanguage = "system";
 const loaded = { recent: false, actions: false, corrections: false, recovery: false };
 let lastFocused = null;
 let recoveryBusy = false;
+
+// English source text with {name} placeholders; Chinese comes from wiki-localization.js.
+function t(message, vars = null) {
+  if (localization) return localization.translateWikiMessage(message, uiLanguage, navigator.language, vars);
+  return i18n ? i18n.fill(message, vars) : message;
+}
+
+function dateLocale() {
+  return i18n && i18n.resolveLocale(uiLanguage, navigator.language) === "zh-CN" ? "zh-CN" : undefined;
+}
+
+const ERROR_CODES = { page_not_found: "That page was not found." };
+
+// Error text from the main process: known codes become sentences, then the sentence is translated.
+function errorText(error) {
+  const text = String(error);
+  return t(Object.prototype.hasOwnProperty.call(ERROR_CODES, text) ? ERROR_CODES[text] : text);
+}
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -35,7 +57,7 @@ function toast(message) {
 
 function failed(result) {
   if (result && typeof result === "object" && "error" in result) {
-    toast(result.error);
+    toast(errorText(result.error));
     return true;
   }
   return false;
@@ -45,8 +67,8 @@ function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-function emptyNote(text) {
-  return el("p", { class: "list-empty", text });
+function emptyNote(text, vars = null) {
+  return el("p", { class: "list-empty", text: t(text, vars) });
 }
 
 function switchView(view) {
@@ -66,7 +88,7 @@ function switchView(view) {
 }
 
 function openPageButton(pagePath, label) {
-  const button = el("button", { class: "card-open", type: "button", text: label || "Open page" });
+  const button = el("button", { class: "card-open", type: "button", text: t(label || "Open page") });
   button.addEventListener("click", () => openPage(pagePath));
   return button;
 }
@@ -108,7 +130,7 @@ async function openPage(pagePath) {
   lastFocused = document.activeElement;
   document.getElementById("page-title").textContent = page.path || pagePath;
   document.getElementById("page-content").textContent =
-    page.content + (page.truncated ? "\n\n… (truncated)" : "");
+    page.content + (page.truncated ? `\n\n… ${t("(truncated)")}` : "");
   const viewer = document.getElementById("page-viewer");
   viewer.hidden = false;
   setBackgroundInert(true);
@@ -153,7 +175,7 @@ async function runSearch() {
   const result = await api.search(query, 20);
   if (failed(result)) return;
   if (result.items.length === 0) {
-    list.appendChild(emptyNote(`No pages match “${query}”.`));
+    list.appendChild(emptyNote("No pages match “{query}”.", { query }));
     return;
   }
   for (const hit of result.items) {
@@ -188,6 +210,24 @@ const RESOURCE_RELATION_LABELS = {
   follow_up: "Follow-up",
 };
 
+// Edge names stored by the memory index, plus the resource relations a user can pick.
+const EDGE_LABELS = {
+  mentioned_in: "mentioned in",
+  part_of: "part of",
+  attributed_to: "attributed to",
+  discussed_in: "discussed in",
+  decided_in: "decided in",
+  owned_by: "owned by",
+  assigned_in: "assigned in",
+  assigned_to: "assigned to",
+  ...RESOURCE_RELATION_LABELS,
+};
+
+// The memory index stores this sentinel for a segment without a named speaker.
+function displayLabel(label) {
+  return label === "Unknown speaker" ? t("Unknown speaker") : label;
+}
+
 let resourceFormCount = 0;
 
 // Inline form for a shared meeting. The link is shown as text only; nothing opens or fetches it.
@@ -201,15 +241,15 @@ function resourceForm(item) {
   const summary = el("textarea", { id: `${prefix}-summary`, rows: "3", maxlength: "2000" });
   const relation = el("select", { id: `${prefix}-relation` });
   for (const [value, label] of Object.entries(RESOURCE_RELATION_LABELS)) {
-    relation.appendChild(el("option", { value, text: label }));
+    relation.appendChild(el("option", { value, text: t(label) }));
   }
-  const save = el("button", { class: "primary", type: "button", text: "Save resource" });
+  const save = el("button", { class: "primary", type: "button", text: t("Save resource") });
   const form = el("div", { class: "resource-form", hidden: true }, [
-    el("p", { class: "explainer", text: "Stored locally on this shared meeting. Meeting Wiki never opens or fetches the link." }),
-    field(url.id, "URL (https only)", url),
-    field(title.id, "Title", title),
-    field(summary.id, "Summary (optional)", summary),
-    field(relation.id, "Relation", relation),
+    el("p", { class: "explainer", text: t("Stored locally on this shared meeting. Meeting Wiki never opens or fetches the link.") }),
+    field(url.id, t("URL (https only)"), url),
+    field(title.id, t("Title"), title),
+    field(summary.id, t("Summary (optional)"), summary),
+    field(relation.id, t("Relation"), relation),
     save,
   ]);
   save.addEventListener("click", async () => {
@@ -223,13 +263,13 @@ function resourceForm(item) {
     });
     save.disabled = false;
     if (failed(result)) return;
-    toast(`Resource “${result.resource.title}” added to ${item.label}.`);
+    toast(t("Resource “{title}” added to {label}.", { title: result.resource.title, label: item.label }));
     url.value = "";
     title.value = "";
     summary.value = "";
     form.hidden = true;
   });
-  const toggle = el("button", { type: "button", text: "Add resource", "aria-expanded": "false" });
+  const toggle = el("button", { type: "button", text: t("Add resource"), "aria-expanded": "false" });
   toggle.addEventListener("click", () => {
     form.hidden = !form.hidden;
     toggle.setAttribute("aria-expanded", String(!form.hidden));
@@ -239,33 +279,33 @@ function resourceForm(item) {
 }
 
 function memoryTypeLabel(type) {
-  return MEMORY_TYPE_LABELS[type] || "Record";
+  return t(MEMORY_TYPE_LABELS[type] || "Record");
 }
 
 function updateMemoryScope() {
   const includePrivate = document.getElementById("memory-include-private").checked;
   const banner = document.getElementById("memory-scope");
-  banner.textContent = includePrivate
+  banner.textContent = t(includePrivate
     ? "Including private memory stored on this Mac. Private results stay in this window."
-    : "Showing shared memory only.";
+    : "Showing shared memory only.");
   banner.classList.toggle("is-private", includePrivate);
 }
 
 function sourceLine(source) {
   if (!source) return null;
   const when = source.occurredAt ? ` · ${source.occurredAt.slice(0, 10)}` : "";
-  return `From ${source.title}${when}${source.privacy === "shared" ? "" : " (private)"}`;
+  return t(source.privacy === "shared" ? "From {title}{when}" : "From {title}{when} (private)", { title: source.title, when });
 }
 
 function renderMemoryCard(item) {
-  const title = el("h3", { class: "card-title", text: item.label || memoryTypeLabel(item.nodeType) });
-  if (item.privacy !== "shared") title.appendChild(el("span", { class: "privacy-chip", text: "private" }));
+  const title = el("h3", { class: "card-title", text: item.label ? displayLabel(item.label) : memoryTypeLabel(item.nodeType) });
+  if (item.privacy !== "shared") title.appendChild(el("span", { class: "privacy-chip", text: t("private") }));
   const card = el("article", { class: "card" }, [
     title,
     el("p", { class: "card-meta", text: memoryTypeLabel(item.nodeType) }),
   ]);
   if (item.nodeType === "resource") {
-    const relation = RESOURCE_RELATION_LABELS[item.resourceRelation] || "Resource";
+    const relation = t(RESOURCE_RELATION_LABELS[item.resourceRelation] || "Resource");
     card.appendChild(el("p", { class: "card-meta", text: relation }));
     if (item.url) card.appendChild(el("p", { class: "resource-url", text: item.url }));
     const summary = item.content.endsWith(item.url) ? item.content.slice(0, -item.url.length).trim() : item.content;
@@ -276,13 +316,18 @@ function renderMemoryCard(item) {
   const origin = sourceLine(item.source);
   if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
   if (item.relations.length > 0) {
-    const relations = el("ul", { class: "relation-list", "aria-label": "Related records" });
+    const relations = el("ul", { class: "relation-list", "aria-label": t("Related records") });
     for (const relation of item.relations) {
-      const incoming = relation.direction === "in" ? " (incoming)" : "";
-      const via = relation.source ? `, source: ${relation.source.title}` : "";
+      const via = relation.source ? t(", source: {title}", { title: relation.source.title }) : "";
+      const name = EDGE_LABELS[relation.relation] || relation.relation.replace(/_/g, " ");
       relations.appendChild(
         el("li", {
-          text: `${relation.relation.replace(/_/g, " ")}${incoming}: ${memoryTypeLabel(relation.nodeType)} “${relation.label}”${via}`,
+          text: t(relation.direction === "in" ? "{relation} (incoming): {type} “{label}”{via}" : "{relation}: {type} “{label}”{via}", {
+            relation: t(name),
+            type: memoryTypeLabel(relation.nodeType),
+            label: displayLabel(relation.label),
+            via,
+          }),
         }),
       );
     }
@@ -312,7 +357,7 @@ async function runMemorySearch() {
   const result = await api.memory.search(query, { types, limit: 20, includePrivate });
   if (failed(result)) return;
   if (result.items.length === 0) {
-    list.appendChild(emptyNote(`No memory matches “${query}”.`));
+    list.appendChild(emptyNote("No memory matches “{query}”.", { query }));
     return;
   }
   for (const item of result.items) list.appendChild(renderMemoryCard(item));
@@ -349,9 +394,9 @@ async function loadActions() {
   for (const raw of result.items) {
     const item = parseActionRow(raw);
     const row = el("div", { class: "action-row" }, [
-      el("span", { class: "action-owner", text: item.owner }),
+      el("span", { class: "action-owner", text: item.owner === "Unassigned" ? t("Unassigned") : item.owner }),
       el("span", { text: item.action }),
-      el("span", { class: "action-due", text: item.due || "no due date" }),
+      el("span", { class: "action-due", text: item.due || t("no due date") }),
     ]);
     const card = el("article", { class: "card" }, [row]);
     const path = sourcePath(item.source);
@@ -368,7 +413,7 @@ function renderCorrectionCard(entry) {
   const inputs = new Map();
   for (const label of entry.labels) {
     const inputId = `rename-${entry.meeting_key}-${label.label}`.replace(/[^\w-]/g, "-");
-    const field = el("input", { type: "text", id: inputId, placeholder: "Correct name" });
+    const field = el("input", { type: "text", id: inputId, placeholder: t("Correct name") });
     inputs.set(label.label, field);
     card.appendChild(
       el("div", { class: "rename-row" }, [
@@ -381,7 +426,7 @@ function renderCorrectionCard(entry) {
   }
 
   const planBox = el("div", { class: "plan-box", hidden: true });
-  const reprocess = el("button", { class: "primary", type: "button", text: "Reprocess", disabled: "" });
+  const reprocess = el("button", { class: "primary", type: "button", text: t("Reprocess"), disabled: "" });
 
   function collectMapping() {
     const mapping = {};
@@ -392,11 +437,11 @@ function renderCorrectionCard(entry) {
     return mapping;
   }
 
-  const preview = el("button", { type: "button", text: "Preview plan" });
+  const preview = el("button", { type: "button", text: t("Preview plan") });
   preview.addEventListener("click", async () => {
     const mapping = collectMapping();
     if (Object.keys(mapping).length === 0) {
-      toast("Enter at least one corrected name.");
+      toast(t("Enter at least one corrected name."));
       return;
     }
     const plan = await api.corrections.plan(entry.meeting_key, mapping);
@@ -412,22 +457,22 @@ function renderCorrectionCard(entry) {
     reprocess.disabled = true;
     const result = await api.corrections.apply(entry.meeting_key, mapping);
     if (result && result.error === "original_job_unavailable") {
-      toast("Original job is no longer available; cannot reprocess this meeting.");
+      toast(t("Original job is no longer available; cannot reprocess this meeting."));
       reprocess.disabled = false;
       return;
     }
     if (result && result.error === "original_source_unavailable") {
-      toast("The original audio or transcript is no longer available; cannot reprocess.");
+      toast(t("The original audio or transcript is no longer available; cannot reprocess."));
       reprocess.disabled = false;
       return;
     }
     if (result && result.error === "correction_already_applied") {
-      toast("This correction was already applied; nothing new was queued.");
+      toast(t("This correction was already applied; nothing new was queued."));
       reprocess.disabled = false;
       return;
     }
     if (result && result.error === "correction_job_inactive") {
-      toast(`This correction's job ${result.job_id} is ${result.job_state}; retry it from Processing recovery.`);
+      toast(t("This correction's job {jobId} is {state}; retry it from Processing recovery.", { jobId: result.job_id, state: t(String(result.job_state)) }));
       reprocess.disabled = false;
       return;
     }
@@ -435,7 +480,7 @@ function renderCorrectionCard(entry) {
       reprocess.disabled = false;
       return;
     }
-    toast(`Reprocessing queued (job ${result.job_id}). The old label stays on shared surfaces.`);
+    toast(t("Reprocessing queued (job {jobId}). The old label stays on shared surfaces.", { jobId: result.job_id }));
     loaded.corrections = false;
     loadCorrections();
   });
@@ -447,29 +492,33 @@ function renderCorrectionCard(entry) {
 
 function renderPlan(box, plan) {
   clear(box);
-  box.appendChild(el("p", { text: "Reprocessing this meeting will:" }));
+  box.appendChild(el("p", { text: t("Reprocessing this meeting will:") }));
   const clean = el("ul");
   for (const key of plan.clean_surfaces || []) {
-    clean.appendChild(el("li", { text: `Rewrite ${key} with the corrected names.` }));
+    clean.appendChild(el("li", { text: t("Rewrite {key} with the corrected names.", { key }) }));
   }
   box.appendChild(clean);
   const retained = (plan.retained_external_tasks && plan.retained_external_tasks.count) || 0;
   if (retained > 0) {
     box.appendChild(
       el("p", {
-        text:
-          `No new tasks are proposed. ${retained} task${retained === 1 ? " was" : "s were"} ` +
-          "already sent and keep the old label in the task system.",
+        text: t(
+          retained === 1
+            ? "No new tasks are proposed. 1 task was already sent and keeps the old label in the task system."
+            : "No new tasks are proposed. {count} tasks were already sent and keep the old label in the task system.",
+          { count: retained },
+        ),
       }),
     );
   }
   const limitation = el("div", { class: "limitation" }, [
-    el("strong", { text: "Limitation: " }),
+    el("strong", { text: t("Limitation: ") }),
     el("span", {
-      text:
+      text: t(
         "the deterministic renderer never deletes content it did not load, and re-analysis is " +
         "non-deterministic. The old label is kept on append-only surfaces below and must be " +
         "cleaned manually.",
+      ),
     }),
   ]);
   const stale = plan.stale_surfaces || [];
@@ -477,7 +526,13 @@ function renderPlan(box, plan) {
     const staleList = el("ul");
     for (const surface of stale) {
       staleList.appendChild(
-        el("li", { text: `${surface.key} keeps ${surface.count} “${surface.label}” entr${surface.count === 1 ? "y" : "ies"}.` }),
+        el("li", {
+          text: t(surface.count === 1 ? "{key} keeps 1 “{label}” entry." : "{key} keeps {count} “{label}” entries.", {
+            key: surface.key,
+            count: surface.count,
+            label: surface.label,
+          }),
+        }),
       );
     }
     limitation.appendChild(staleList);
@@ -504,14 +559,18 @@ async function loadCorrections() {
 
 function diagnosticText(job) {
   const diagnostic = job.diagnostic;
-  if (!diagnostic) return `The job stopped during ${job.stage}.`;
+  if (!diagnostic) return t("The job stopped during {stage}.", { stage: t(job.stage) });
   if (diagnostic.category !== "provider_request_failed") {
-    return `The app stopped during ${diagnostic.stage}.`;
+    return t("The app stopped during {stage}.", { stage: t(diagnostic.stage) });
   }
   const details = [diagnostic.sdk_error_type];
   if (diagnostic.http_status) details.push(`HTTP ${diagnostic.http_status}`);
   if (diagnostic.provider_status) details.push(diagnostic.provider_status);
-  return `${diagnostic.provider} ${diagnostic.operation} failed (${details.join(", ")}).`;
+  return t("{provider} {operation} failed ({details}).", {
+    provider: diagnostic.provider,
+    operation: diagnostic.operation,
+    details: details.join(", "),
+  });
 }
 
 function setRecoveryBusy(busy) {
@@ -522,18 +581,26 @@ function setRecoveryBusy(busy) {
 }
 
 function capturedText(value) {
-  if (typeof value !== "string") return "capture time unknown";
+  if (typeof value !== "string") return t("capture time unknown");
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "capture time unknown" : `captured ${date.toLocaleString()}`;
+  return Number.isNaN(date.getTime())
+    ? t("capture time unknown")
+    : t("captured {time}", { time: date.toLocaleString(dateLocale()) });
 }
 
 function recoveryMeta(job) {
-  return `${capturedText(job.captured_at)} · Job #${job.id} · ${job.stage} · attempt ${job.attempts} of ${job.max_attempts}`;
+  return t("{captured} · Job #{id} · {stage} · attempt {attempts} of {max}", {
+    captured: capturedText(job.captured_at),
+    id: job.id,
+    stage: t(job.stage),
+    attempts: job.attempts,
+    max: job.max_attempts,
+  });
 }
 
 function recoveryCard(job, actions) {
   const card = el("article", { class: "card recovery-card" }, [
-    el("h3", { class: "card-title", text: job.label || "Recording" }),
+    el("h3", { class: "card-title", text: !job.label || job.label === "Recording" ? t("Recording") : job.label }),
     el("p", { class: "card-meta", text: recoveryMeta(job) }),
     el("p", { class: "recovery-diagnostic", text: diagnosticText(job) }),
   ]);
@@ -541,20 +608,20 @@ function recoveryCard(job, actions) {
     const button = el("button", {
       class: action.primary ? "primary" : "",
       type: "button",
-      text: action.label,
+      text: t(action.label),
       "data-recovery-action": "",
     });
     button.addEventListener("click", async () => {
       if (recoveryBusy) return;
-      if (action.confirm && !window.confirm(action.confirm)) return;
+      if (action.confirm && !window.confirm(t(action.confirm))) return;
       setRecoveryBusy(true);
       const result = await action.run();
       setRecoveryBusy(false);
       if (result && typeof result === "object" && "error" in result) {
-        showRecoveryError(`${action.label} did not finish: ${result.error}`);
+        showRecoveryError(t("{action} did not finish: {reason}", { action: t(action.label), reason: errorText(result.error) }));
         return;
       }
-      toast(action.success(job.id));
+      toast(t(action.success, { id: job.id }));
       await loadRecovery(true);
     });
     return button;
@@ -580,13 +647,13 @@ function renderRecovery(deadJobs, dismissedJobs) {
         label: "Retry job",
         primary: true,
         run: () => api.jobs.retry(job.id),
-        success: (jobId) => `Job #${jobId} queued for retry.`,
+        success: "Job #{id} queued for retry.",
       },
       {
         label: "Dismiss",
         confirm: "Dismiss this job? Its recording, transcript, wiki pages, and local diagnostic record will be kept.",
         run: () => api.jobs.dismiss(job.id),
-        success: (jobId) => `Job #${jobId} dismissed. Its meeting data was kept.`,
+        success: "Job #{id} dismissed. Its meeting data was kept.",
       },
     ]));
   }
@@ -597,7 +664,7 @@ function renderRecovery(deadJobs, dismissedJobs) {
     dismissedList.appendChild(recoveryCard(job, [{
       label: "Restore to recovery",
       run: () => api.jobs.restore(job.id),
-      success: (jobId) => `Job #${jobId} restored to the recovery list.`,
+      success: "Job #{id} restored to the recovery list.",
     }]));
   }
 }
@@ -624,7 +691,7 @@ function recoveryErrorOf(...results) {
 async function loadRecovery(force = false) {
   if (!force && loaded.recovery) return;
   if (!api.jobs) {
-    showRecoveryError("Processing recovery is unavailable. Reopen the window.");
+    showRecoveryError(t("Processing recovery is unavailable. Reopen the window."));
     return;
   }
   let lists;
@@ -636,20 +703,21 @@ async function loadRecovery(force = false) {
   const [deadJobs, dismissedJobs] = lists;
   const problem = recoveryErrorOf(deadJobs, dismissedJobs);
   if (problem) {
-    showRecoveryError(`Processing jobs could not be loaded: ${problem}`);
+    showRecoveryError(t("Processing jobs could not be loaded: {reason}", { reason: errorText(problem) }));
     return;
   }
   clearRecoveryError();
   loaded.recovery = true;
   renderRecovery(deadJobs, dismissedJobs);
-  document.getElementById("recovery-updated").textContent = `Last updated ${new Date().toLocaleTimeString()}.`;
+  document.getElementById("recovery-updated").textContent = t("Last updated {time}.", { time: new Date().toLocaleTimeString(dateLocale()) });
   const badge = document.getElementById("recovery-count");
   badge.hidden = deadJobs.length === 0;
   badge.textContent = String(deadJobs.length);
 }
 
 function retryAllPrompt(count) {
-  return `Retry ${count} failed job${count === 1 ? "" : "s"}? Each one is processed again with the current provider settings.`;
+  const question = count === 1 ? "Retry 1 failed job?" : "Retry {count} failed jobs?";
+  return t(`${question} Each one is processed again with the current provider settings.`, { count });
 }
 
 async function retryAllRecoveryJobs() {
@@ -663,11 +731,11 @@ async function retryAllRecoveryJobs() {
   const result = await api.jobs.retryAllDead();
   setRecoveryBusy(false);
   if (result && typeof result === "object" && "error" in result) {
-    showRecoveryError(`Retry all did not finish: ${result.error}`);
+    showRecoveryError(t("{action} did not finish: {reason}", { action: t("Retry all"), reason: errorText(result.error) }));
     await loadRecovery(true);
     return;
   }
-  toast(`${result} job${result === 1 ? "" : "s"} queued for retry.`);
+  toast(t(result === 1 ? "1 job queued for retry." : "{count} jobs queued for retry.", { count: result }));
   await loadRecovery(true);
 }
 
@@ -689,11 +757,22 @@ async function refreshBadge() {
   badge.textContent = String(entries.length);
 }
 
-function init() {
+// The saved app language is read once before anything is drawn; any failure follows macOS.
+async function loadUiLanguage() {
+  if (typeof api.uiLanguage !== "function") return;
+  try {
+    const choice = await Promise.race([api.uiLanguage(), new Promise((resolve) => setTimeout(resolve, 1500))]);
+    if (UI_LANGUAGES.includes(choice)) uiLanguage = choice;
+  } catch (_) { /* follow macOS */ }
+}
+
+async function init() {
   if (!api) {
     document.body.appendChild(emptyNote("Bridge unavailable. Reopen the window."));
     return;
   }
+  await loadUiLanguage();
+  if (localization) localization.applyWikiLocale(document, uiLanguage, navigator.language);
   for (const button of document.querySelectorAll(".rail-item")) {
     button.addEventListener("click", () => switchView(button.dataset.view));
   }
@@ -724,4 +803,4 @@ function init() {
   refreshRecoveryBadge();
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => { void init(); });

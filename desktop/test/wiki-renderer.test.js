@@ -48,6 +48,6 @@ test("bulk retry confirms with the exact number of jobs", () => {
   const js = read("app.js");
   const retryAll = body(js, "async function retryAllRecoveryJobs");
   assert.match(retryAll, /window\.confirm\(retryAllPrompt\(count\)\)/);
-  assert.match(js, /function retryAllPrompt\(count\) \{\s*return `Retry \$\{count\} failed job\$\{count === 1 \? "" : "s"\}\?/);
+  assert.match(js, /function retryAllPrompt\(count\) \{\s*const question = count === 1 \? "Retry 1 failed job\?" : "Retry \{count\} failed jobs\?";/);
   assert.match(retryAll, /showRecoveryError\(/);
 });

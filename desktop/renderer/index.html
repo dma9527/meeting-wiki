@@ -76,17 +76,17 @@
           </div>
           <fieldset class="memory-filters">
             <legend>Record types</legend>
-            <label><input type="checkbox" name="memory-type" value="meeting" /> Meetings</label>
-            <label><input type="checkbox" name="memory-type" value="person" /> People</label>
-            <label><input type="checkbox" name="memory-type" value="topic" /> Topics</label>
-            <label><input type="checkbox" name="memory-type" value="decision" /> Decisions</label>
-            <label><input type="checkbox" name="memory-type" value="action_item" /> Action items</label>
-            <label><input type="checkbox" name="memory-type" value="transcript_segment" /> Transcript lines</label>
-            <label><input type="checkbox" name="memory-type" value="resource" /> Resources</label>
+            <label><input type="checkbox" name="memory-type" value="meeting" /> <span id="type-label-meeting">Meetings</span></label>
+            <label><input type="checkbox" name="memory-type" value="person" /> <span id="type-label-person">People</span></label>
+            <label><input type="checkbox" name="memory-type" value="topic" /> <span id="type-label-topic">Topics</span></label>
+            <label><input type="checkbox" name="memory-type" value="decision" /> <span id="type-label-decision">Decisions</span></label>
+            <label><input type="checkbox" name="memory-type" value="action_item" /> <span id="type-label-action-item">Action items</span></label>
+            <label><input type="checkbox" name="memory-type" value="transcript_segment" /> <span id="type-label-transcript-segment">Transcript lines</span></label>
+            <label><input type="checkbox" name="memory-type" value="resource" /> <span id="type-label-resource">Resources</span></label>
           </fieldset>
           <label class="memory-private">
             <input id="memory-include-private" type="checkbox" />
-            Include private memory on this Mac
+            <span id="memory-private-label">Include private memory on this Mac</span>
           </label>
           <p id="memory-scope" class="scope-banner" role="status">Showing shared memory only.</p>
           <div id="memory-results" class="list" aria-live="polite"></div>
@@ -102,9 +102,9 @@
         <section id="view-corrections" class="view" hidden aria-labelledby="corrections-heading" tabindex="-1">
           <h2 id="corrections-heading">Correction inbox</h2>
           <p class="explainer">
-            Meetings whose transcript still uses an ambiguous speaker label, such as
-            <code>Remote participant</code> or <code>spk_1</code>. Rename a speaker, review the
-            plan, then reprocess.
+            <span id="corrections-intro-a">Meetings whose transcript still uses an ambiguous speaker label, such as</span>
+            <code>Remote participant</code> <span id="corrections-intro-b">or</span> <code>spk_1</code><span id="corrections-intro-c">. Rename a speaker, review the
+            plan, then reprocess.</span>
           </p>
           <div id="corrections-list" class="list" aria-live="polite"></div>
         </section>
@@ -144,6 +144,8 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script src="i18n.js" defer></script>
+    <script src="wiki-localization.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>

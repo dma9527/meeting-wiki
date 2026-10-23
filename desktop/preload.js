@@ -8,6 +8,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("meetingWiki", {
+  uiLanguage: () => ipcRenderer.invoke("wiki:uiLanguage"),
   listRecent: (limit) => ipcRenderer.invoke("wiki:listRecent", limit),
   search: (query, limit) => ipcRenderer.invoke("wiki:search", query, limit),
   readPage: (pagePath) => ipcRenderer.invoke("wiki:readPage", pagePath),

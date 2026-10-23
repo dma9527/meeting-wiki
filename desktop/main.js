@@ -308,7 +308,7 @@ async function refreshQueueStatus() {
 function openWikiWindow() {
   createWikiWindow(
     { app, BrowserWindow, ipcMain },
-    { dataDir: DATA_DIR, python: PYTHON, configPath: CONFIG_PATH },
+    { dataDir: DATA_DIR, python: PYTHON, configPath: CONFIG_PATH, uiLanguage: currentUiLanguage },
   );
 }
 
