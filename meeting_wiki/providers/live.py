@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from ..models import TranscriptSegment
-from .base import LiveTranscriptRequest, language_display_name
+from .base import LIVE_SUMMARY_RULES, LiveTranscriptRequest, language_display_name
 from .transcription import MLXWhisperTranscriber
 
 
@@ -60,7 +60,8 @@ class OllamaLiveLanguageProvider:
             return []
         language = language_display_name(output_language)
         result = self._ask(
-            f"Summarize in {language} as up to three concise bullet points.", transcript
+            f"Summarize in {language} as up to three concise bullet points. {LIVE_SUMMARY_RULES}",
+            transcript,
         )
         return [line.removeprefix("- ").strip() for line in result.splitlines() if line.strip()]
 

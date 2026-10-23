@@ -1084,3 +1084,54 @@ def test_dedup_only_compares_recent_finals():
         TranscriptSegment(text="yes")
     ]
     assert deduplicate_segments(history, [TranscriptSegment(text="line 3")]) == []
+
+
+def test_same_language_translation_is_not_shown_twice(tmp_path):
+    import asyncio
+
+    class EchoLanguage(FakeLanguage):
+        def translate(self, text, target_language):
+            return f"  {text.upper()} " if text == "same" else f"[{target_language}] {text}"
+
+    publisher = RecordingPublisher()
+    transcriber = FakeChunkedTranscriber(
+        [
+            [
+                TranscriptSegment(start_seconds=0.0, end_seconds=0.9, text="same"),
+                TranscriptSegment(start_seconds=1.0, end_seconds=1.9, text="different"),
+            ]
+        ]
+    )
+    runtime = _runtime(tmp_path, transcriber, EchoLanguage(), publisher, overlap_seconds=0)
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    asyncio.run(_drive(runtime, mic, [_pcm(2)]))
+
+    assert [item["text"] for item in publisher.of("transcript")] == ["same", "different"]
+    assert publisher.of("translation") == [{"sequence": 2, "text": "[zh-CN] different"}]
+
+
+def test_ollama_live_summary_forbids_commentary_about_the_transcript(monkeypatch):
+    from meeting_wiki.providers.live import OllamaLiveLanguageProvider
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "- point"}}
+
+    def fake_post(url, json, timeout):
+        captured.update(json)
+        return Response()
+
+    monkeypatch.setattr("meeting_wiki.providers.live.httpx.post", fake_post)
+    provider = OllamaLiveLanguageProvider("http://127.0.0.1:11434", "test-model", 5)
+
+    assert provider.summarize("你", "zh-CN") == ["point"]
+    assert (
+        "Never describe, quote, or comment on the transcript" in captured["messages"][0]["content"]
+    )

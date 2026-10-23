@@ -166,6 +166,13 @@ class LLMProvider(Protocol):
     def health(self) -> tuple[bool, str]: ...
 
 
+# Shared by live summary providers so a short transcript never yields commentary about itself.
+LIVE_SUMMARY_RULES = (
+    "Summarize only what the speakers said. Never describe, quote, or comment on the "
+    "transcript itself, its length, or the user."
+)
+
+
 def language_display_name(value: str) -> str:
     if value in {"zh", "zh-CN"}:
         return "Simplified Chinese"

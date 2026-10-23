@@ -1051,6 +1051,10 @@ def test_live_language_summarize_requests_concise_bullets():
     assert call["config"]["response_mime_type"] == "text/plain"
     assert "concise bullet points" in call["config"]["system_instruction"]
     assert "Simplified Chinese" in call["config"]["system_instruction"]
+    assert (
+        "Never describe, quote, or comment on the transcript"
+        in call["config"]["system_instruction"]
+    )
 
 
 @pytest.mark.parametrize("text", [None, ""])

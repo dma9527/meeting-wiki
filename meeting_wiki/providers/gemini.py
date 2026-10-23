@@ -18,6 +18,7 @@ from ..config import PrivacyConfig
 from ..diagnostics import SafeProviderError
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
+    LIVE_SUMMARY_RULES,
     EmptyTranscriptError,
     LiveProviderError,
     LiveSessionExpiredError,
@@ -265,7 +266,7 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
         language = language_display_name(output_language)
         instruction = (
             f"Summarize in {language} as up to three concise bullet points, one per line, "
-            "each starting with '- '. Return only the bullets."
+            f"each starting with '- '. {LIVE_SUMMARY_RULES} Return only the bullets."
         )
         result = self._ask("summary", instruction, transcript)
         bullets = (

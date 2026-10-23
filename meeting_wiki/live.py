@@ -644,7 +644,8 @@ class LiveRuntime:
                 translation = await self.run_blocking(
                     self.language.translate, text, self.target_language
                 )
-                if translation:
+                # Same-language speech translates to itself; showing it twice adds nothing.
+                if translation and _normalized_text(str(translation)) != _normalized_text(text):
                     await self.publisher.publish(
                         "translation", {"sequence": sequence, "text": _clip(str(translation))}
                     )
