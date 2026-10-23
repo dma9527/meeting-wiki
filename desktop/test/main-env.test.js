@@ -153,12 +153,36 @@ test("Settings never receives the secret store, restarts processing on save, and
 test("live view starts after capture succeeds and cannot break recording", () => {
   const start = functionBody("startRecording");
   const captureAt = start.indexOf("capture.start(timestamp())");
-  const liveAt = start.indexOf("startLiveSession(capture.active.micPath, isPrivate, liveDecision)");
+  const liveAt = start.indexOf("startLiveSession(activeCapture.micPath, isPrivate, liveDecision)");
   assert.ok(captureAt >= 0 && liveAt > captureAt, "live view must start only after capture starts");
   const live = functionBody("startLiveSession");
-  assert.match(live, /if \(!pythonAvailable\(\) \|\| !micPath\) return;/);
-  assert.match(live, /try \{[\s\S]*liveSession\.start\(\{ micPath, isPrivate \}\);[\s\S]*\} catch \(_\) \{\}/);
+  assert.match(live, /if \(!pythonAvailable\(\) \|\| !micPath\) return false;/);
+  assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}\); \} catch \(_\) \{\}\s*\}/);
+  assert.match(live, /return liveSession\.start\(\{ micPath, isPrivate \}\) === true;/);
   assert.match(functionBody("stopLiveSession"), /liveSession\.stop\(\)\.catch\(\(\) => \{\}\)/);
+});
+
+test("recording notifications never expose automatic meeting codes, paths, or raw errors", () => {
+  const start = functionBody("startRecording");
+  const stop = functionBody("stopRecording");
+  assert.match(start, /source \? "Automatic recording is running\." : title/);
+  assert.doesNotMatch(start, /notify\([^\n]*error\.message/);
+  assert.doesNotMatch(stop, /notify\([^\n]*files\.audioPath|notify\([^\n]*error\.message/);
+  assert.match(stop, /The recording was saved and queued for processing\./);
+});
+
+test("unsupported live providers notify only once per configuration", () => {
+  const body = functionBody("notifyLiveUnavailable");
+  assert.match(body, /if \(issue === "no_adapter"\)/);
+  assert.match(body, /if \(noAdapterNotified\) return;/);
+  assert.match(functionBody("restartProcessing"), /noAdapterNotified = false;/);
+});
+
+test("live unavailability is surfaced with fixed messages while recording continues", () => {
+  const start = functionBody("startRecording");
+  assert.match(start, /notifyLiveUnavailable\(liveIssue\)/);
+  assert.match(source, /if \(liveIssue && liveIssue !== previousIssue\) \{\s*notifyLiveUnavailable\(liveIssue\);/);
+  assert.match(functionBody("updateMenu"), /Live captions, translation, and summary unavailable\. Recording continues\./);
 });
 
 test("stop, discard, and quit end the live session while batch ingest still runs", () => {
@@ -177,7 +201,7 @@ test("stop, discard, and quit end the live session while batch ingest still runs
 
 test("the limit, user, and quit stops share one single-flight stop with the same batch path", () => {
   const stop = functionBody("stopRecording");
-  assert.match(stop, /^function stopRecording\(reason = "user"\) \{\s*return recordingSession\.end\(reason, async \(\) => \{/);
+  assert.match(stop, /^function stopRecording\(reason = "user"\) \{\s*autoLiveStart\.cancel\(\);\s*return recordingSession\.end\(reason, async \(\) => \{/);
   assert.match(stop, /if \(reason === "limit"\) notify\(LIMIT_NOTICE\.title, LIMIT_NOTICE\.body\);/);
   assert.match(source, /new RecordingSession\(\{ onLimit: \(\) => \{ void stopRecording\("limit"\); \} \}\)/);
   assert.match(source, /label: "Stop and process", accelerator: "CommandOrControl\+Shift\+0", click: \(\) => \{ void stopRecording\("user"\); \}/);

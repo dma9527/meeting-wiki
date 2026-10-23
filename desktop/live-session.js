@@ -211,6 +211,10 @@ class LiveSessionManager {
     if (event.type === "state") {
       // The session's privacy is fixed by main at start, never by the child.
       this.emit(session, { ...event, private: session.private });
+      if (event.phase === "unavailable" || event.phase === "stopped") {
+        this.session = null;
+        void this.teardown(session);
+      }
       return;
     }
     const last = session.lastSequence[event.type] || 0;

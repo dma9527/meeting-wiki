@@ -7,9 +7,13 @@
 When live captions are enabled for a recording, either by the saved default or
 **Start with options...**, and the provider supports them, Meeting Wiki opens
 a **Meeting Wiki Live** window beside your meeting. Automatic recordings keep
-live features off until recording defaults are saved. With a provider that has
-no live adapter (such as Other online API key), no live window opens and
-nothing is started for live captions. It shows:
+live features off until recording defaults are saved. Automatic recordings
+start live after the 10-second short-meeting discard window. With a provider
+that has no live adapter (such as Other online API key), no live window opens
+and nothing is started for live captions. Provider, audio, startup, and
+connection failures show a fixed notification while recording and batch
+processing continue. A missing key pauses provider processing, and a missing
+runtime prevents queueing until the app is repaired. It shows:
 
 - a status line and any live issue;
 - a **Private session** badge for private recordings;

@@ -27,7 +27,7 @@
 
   const MIC_ONLY = "Live captions use your microphone only, so other participants do not appear in them.";
   const LIVE = {
-    ready: `Live captions start with the recording. ${MIC_ONLY} They are display-only and never change saved notes.`,
+    ready: `Live captions, translation, and rolling summary start with the recording. ${MIC_ONLY} They are display-only and never change saved notes.`,
     no_adapter: "Not available with this provider, so no live window opens. The recording is still processed after you stop.",
     engine_missing: "Unavailable because the Meeting Wiki engine is missing. Reinstall the app.",
     key_unavailable: "Unavailable because the API key could not be read. Run setup again. The audio is still saved.",
@@ -216,7 +216,8 @@
     if (context.formMode !== "initial") {
       $(defaults.privacyMode === "private" ? "record-private" : "record-shared").checked = true;
     }
-    $("record-live-enabled").checked = defaults.liveEnabled === true;
+    $("record-live-enabled").checked = context.liveStarts === true && defaults.liveEnabled === true;
+    $("record-live-enabled").disabled = context.liveStarts !== true;
     if (context.formMode === "initial") {
       $("record-heading").textContent = "Choose recording defaults";
       $("record-intro").textContent = "Choose once. Future starts use these defaults until you change them in Settings.";

@@ -10,6 +10,7 @@ const SOURCES = Object.freeze({
   googleMeet: Object.freeze({ id: "google-meet", label: "Google Meet" }),
 });
 const MIN_PROCESSED_MS = 10_000;
+const AUTO_LIVE_DELAY_MS = MIN_PROCESSED_MS + 1_000;
 const SHORT_DISCARD_NOTICE = Object.freeze({
   title: "Short meeting not kept",
   body: "The meeting ended within 10 seconds, so the recording was discarded and not processed.",
@@ -18,6 +19,39 @@ const SHORT_DISCARD_NOTICE = Object.freeze({
 function integrationTitle(source, { meetingCode = null } = {}) {
   if (source === SOURCES.googleMeet.id) return meetingCode ? `Google Meet ${meetingCode}` : "Google Meet meeting";
   return "Zoom meeting";
+}
+
+class AutoLiveStartGate {
+  constructor({ setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.token = null;
+  }
+
+  get pending() {
+    return this.token !== null;
+  }
+
+  schedule(start) {
+    if (typeof start !== "function") return false;
+    this.cancel();
+    const token = {};
+    const run = () => {
+      if (this.token !== token) return;
+      this.token = null;
+      start();
+    };
+    token.timer = this.setTimer(run, AUTO_LIVE_DELAY_MS);
+    this.token = token;
+    if (token.timer && typeof token.timer.unref === "function") token.timer.unref();
+    return true;
+  }
+
+  cancel() {
+    const token = this.token;
+    this.token = null;
+    if (token && token.timer) this.clearTimer(token.timer);
+  }
 }
 
 class AutoRecordCoordinator {
@@ -61,4 +95,12 @@ class AutoRecordCoordinator {
   }
 }
 
-module.exports = { AutoRecordCoordinator, MIN_PROCESSED_MS, SHORT_DISCARD_NOTICE, SOURCES, integrationTitle };
+module.exports = {
+  AUTO_LIVE_DELAY_MS,
+  AutoLiveStartGate,
+  AutoRecordCoordinator,
+  MIN_PROCESSED_MS,
+  SHORT_DISCARD_NOTICE,
+  SOURCES,
+  integrationTitle,
+};

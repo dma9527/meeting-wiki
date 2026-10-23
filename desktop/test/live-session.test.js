@@ -143,6 +143,28 @@ test("received events are sanitized, ordered, and never carry token, paths, or k
   await manager.stop();
 });
 
+test("a child-reported terminal state is kept once and later close signals are ignored", async () => {
+  const context = await readySession();
+  context.events.length = 0;
+  context.socket.deliver({
+    type: "state",
+    payload: { phase: "unavailable", issue: "provider_unavailable" },
+  });
+  context.socket.close();
+  context.spawned[0].child.emit("exit", 1);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(context.manager.active, false);
+  assert.deepEqual(context.events, [
+    {
+      type: "state",
+      phase: "unavailable",
+      private: true,
+      issue: "provider_unavailable",
+    },
+  ]);
+});
+
 test("stop closes the socket, terminates the child, and ignores late events", async () => {
   const { socket, events, spawned, manager } = await readySession();
   await manager.stop();

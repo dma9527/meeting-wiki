@@ -94,3 +94,30 @@ test("main routes integration starts through startRecording with no countdown", 
   assert.match(discardBody, /autoRecord\.release\(\);/);
   assert.match(main, /if \(occurredAt\) args\.push\("--occurred-at", occurredAt\);/);
 });
+
+test("automatic live starts only after the short-meeting discard window and can be cancelled", () => {
+  const scheduled = [];
+  const cleared = [];
+  const calls = [];
+  const gate = new (require("../auto-record").AutoLiveStartGate)({
+    setTimer: (callback, delay) => {
+      const timer = { callback, delay, unref() {} };
+      scheduled.push(timer);
+      return timer;
+    },
+    clearTimer: (timer) => cleared.push(timer),
+  });
+
+  gate.schedule(() => calls.push("first"));
+  assert.equal(scheduled[0].delay, require("../auto-record").AUTO_LIVE_DELAY_MS);
+  assert.ok(scheduled[0].delay > MIN_PROCESSED_MS);
+  gate.cancel();
+  scheduled[0].callback();
+  assert.deepEqual(calls, []);
+  assert.deepEqual(cleared, [scheduled[0]]);
+
+  gate.schedule(() => calls.push("second"));
+  scheduled[1].callback();
+  assert.deepEqual(calls, ["second"]);
+  assert.equal(gate.pending, false);
+});

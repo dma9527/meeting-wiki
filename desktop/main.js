@@ -13,7 +13,12 @@ const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
 const { createSetupWindow, credentialFreeEnv, needsSetup, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
-const { buildRecordContext, closeRecordWindow, createRecordWindow } = require("./record-window");
+const {
+  buildRecordContext,
+  closeRecordWindow,
+  createRecordWindow,
+  liveUnavailableMessage,
+} = require("./record-window");
 const { LiveSessionManager } = require("./live-session");
 const { createLiveSidebarWindow, destroyLiveSidebar, liveSidebarAvailable, publishLiveEvent, showLiveSidebar } = require("./live-sidebar-window");
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
@@ -27,7 +32,12 @@ const {
   saveRecordingDefaults,
 } = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
-const { AutoRecordCoordinator, SHORT_DISCARD_NOTICE, SOURCES } = require("./auto-record");
+const {
+  AutoLiveStartGate,
+  AutoRecordCoordinator,
+  SHORT_DISCARD_NOTICE,
+  SOURCES,
+} = require("./auto-record");
 const { autoRecordStartOptions, readAutoRecordPrivacy, readIntegrationSettings } = require("./integration-settings");
 const { createIntegrationService } = require("./integration-service");
 const { MeetSpoolWatcher, createMeetBridge } = require("./meet-bridge");
@@ -88,6 +98,15 @@ let queueStatusError = false;
 let queueStatusRefreshing = false;
 let currentTrayIconState = null;
 let liveIssue = null;
+let noAdapterNotified = false;
+
+function notifyLiveUnavailable(issue) {
+  if (issue === "no_adapter") {
+    if (noAdapterNotified) return;
+    noAdapterNotified = true;
+  }
+  notify("Live features unavailable", liveUnavailableMessage(issue));
+}
 
 const capture = new AudioCapture({
   recordingsDir: RECORDINGS_DIR,
@@ -95,7 +114,7 @@ const capture = new AudioCapture({
   recBin: RUNTIME.rec,
   soxBin: RUNTIME.sox,
   packaged: RUNTIME.packaged,
-  onError: (error) => notify("Audio capture error", error.message),
+  onError: () => notify("Audio capture error", "Recording encountered an audio problem. Open logs for details."),
   onSystemAudioUnavailable: () => notify(
     "System audio was not captured",
     "Your microphone recording will continue, but Zoom or Google Meet participants were silent. Check Screen & System Audio Recording permission before the next meeting.",
@@ -108,7 +127,11 @@ const liveSession = new LiveSessionManager({
   buildEnv: () => processingEnv({ background: true }),
   onEvent: (event) => {
     if (event.type === "state") {
+      const previousIssue = liveIssue;
       liveIssue = event.phase === "unavailable" ? event.issue || "unavailable" : null;
+      if (liveIssue && liveIssue !== previousIssue) {
+        notifyLiveUnavailable(liveIssue);
+      }
       // Hand-edited configs open the sidebar only once the child proves it has an adapter.
       if (event.phase === "listening" && liveSession.active && !liveSidebarAvailable()) {
         try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
@@ -119,6 +142,7 @@ const liveSession = new LiveSessionManager({
   },
 });
 const recordingSession = new RecordingSession({ onLimit: () => { void stopRecording("limit"); } });
+const autoLiveStart = new AutoLiveStartGate();
 const ingests = new IngestTracker();
 const secretStore = createSecretStore({ safeStorage, fs, filePath: path.join(DATA_DIR, "secrets.json") });
 
@@ -299,6 +323,7 @@ function openSetupWindow() {
 
 // Provider config is read at worker start, so a config change restarts the worker.
 function restartProcessing() {
+  noAdapterNotified = false;
   workerBackoff.reset();
   if (worker) worker.kill("SIGTERM"); else startWorker();
   void refreshQueueStatus();
@@ -499,11 +524,15 @@ function recoverPendingCaptures() {
 // Live view is display-only: any failure here leaves capture and batch ingest untouched.
 // Closing the sidebar hides it; only the end of the recording stops live and destroys it.
 function startLiveSession(micPath, isPrivate, live) {
-  if (!pythonAvailable() || !micPath) return;
+  if (!pythonAvailable() || !micPath) return false;
+  if (live.live === "ready") {
+    try { createLiveSidebarWindow({ BrowserWindow }); } catch (_) {}
+  }
   try {
-    if (live.live === "ready") createLiveSidebarWindow({ BrowserWindow });
-    liveSession.start({ micPath, isPrivate });
-  } catch (_) {}
+    return liveSession.start({ micPath, isPrivate }) === true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function stopLiveSession() {
@@ -591,6 +620,8 @@ function startManualRecording() {
 // privacy and live behavior for one manual recording without changing the saved defaults.
 async function startRecording({ title: requestedTitle = "", isPrivate: requestedPrivate = false, liveEnabled: requestedLive = false, source = null, occurredAt = null } = {}) {
   if (capture.active || !recordingSession.idle || quitRequested) return false;
+  autoLiveStart.cancel();
+  liveIssue = null;
   const recordingDefaults = readRecordingDefaults(fs, DATA_DIR);
   const auto = source ? autoRecordStartOptions(readAutoRecordPrivacy(fs, DATA_DIR).mode) : null;
   const isPrivate = auto ? auto.isPrivate : requestedPrivate === true;
@@ -603,14 +634,17 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
   const title = requestedTitle || `Meeting ${new Date().toLocaleString()}`;
   try {
     capture.start(timestamp());
-  } catch (error) {
-    notify("Recording failed", error.message);
+  } catch (_) {
+    notify("Recording failed", "Audio capture could not start. Check permissions and reinstall if the problem continues.");
     return false;
   }
   if (source) closeRecordWindow();
   recordingSession.begin(maxDurationMinutes * 60_000);
   updateMenu();
-  notify(isPrivate ? "Private recording started" : "Recording started", title);
+  notify(
+    isPrivate ? "Private recording started" : "Recording started",
+    source ? "Automatic recording is running." : title,
+  );
   capture.active.title = title;
   capture.active.titleExplicit = titleExplicit;
   capture.active.private = isPrivate;
@@ -618,14 +652,32 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
   capture.active.occurredAt = occurredAt;
   // Calendar matching uses the capture start, never the stop or queue time.
   capture.active.recordingStartedAt = new Date().toISOString();
-  let liveDecision = { liveStarts: false };
-  try { liveDecision = recordContext(); } catch (_) {}
-  if (liveEnabled && liveDecision.liveStarts) startLiveSession(capture.active.micPath, isPrivate, liveDecision);
+  const activeCapture = capture.active;
+  const beginLive = () => {
+    if (!liveEnabled || capture.active !== activeCapture || !recordingSession.recording) return;
+    let liveDecision = { live: "startup_failed", liveStarts: false };
+    try { liveDecision = recordContext(); } catch (_) {}
+    if (liveDecision.liveStarts) {
+      const started = startLiveSession(activeCapture.micPath, isPrivate, liveDecision);
+      if (!started && !liveIssue) {
+        liveIssue = "startup_failed";
+        notifyLiveUnavailable(liveIssue);
+        updateMenu();
+      }
+      return;
+    }
+    liveIssue = liveDecision.live || "startup_failed";
+    notifyLiveUnavailable(liveIssue);
+    updateMenu();
+  };
+  if (source && liveEnabled) autoLiveStart.schedule(beginLive);
+  else beginLive();
   return true;
 }
 
 // The limit, the user, and quit share one single-flight stop; the batch path is identical for all.
 function stopRecording(reason = "user") {
+  autoLiveStart.cancel();
   return recordingSession.end(reason, async () => {
     if (!capture.active) return;
     const title = capture.active.title;
@@ -646,13 +698,13 @@ function stopRecording(reason = "user") {
       } catch (_) {
         // Without a manifest there is no startup recovery, so queue directly from the same metadata.
         enqueue(audioIngestArgs({ filePath: files.audioPath, ...files, ...metadata }), path.basename(files.audioPath));
-        notify("Recording saved", files.audioPath);
+        notify("Recording saved", "The recording was saved and queued for processing.");
         return;
       }
       enqueue(["--capture-manifest", manifestPath], path.basename(files.audioPath));
-      notify("Recording saved", files.audioPath);
-    } catch (error) {
-      notify("Recording failed", error.message);
+      notify("Recording saved", "The recording was saved and queued for processing.");
+    } catch (_) {
+      notify("Recording failed", "The recording could not be finalized. Open logs for details.");
     }
   }).finally(() => {
     autoRecord.release();
@@ -662,6 +714,7 @@ function stopRecording(reason = "user") {
 
 // Shares the single-flight guard, so a discard never races a limit, user, or quit stop.
 function discardRecording() {
+  autoLiveStart.cancel();
   return recordingSession.end("discard", async () => {
     stopLiveSession();
     await capture.discard();
@@ -712,7 +765,7 @@ function updateMenu() {
   if (recordingSession.recording) {
     items.push(
       { label: recordingLabel(recordingSession), enabled: false },
-      ...(liveIssue ? [{ label: "Live captions unavailable. Recording continues.", enabled: false }] : []),
+      ...(liveIssue ? [{ label: "Live captions, translation, and summary unavailable. Recording continues.", enabled: false }] : []),
       ...(liveSidebarAvailable() ? [{ label: "Show live captions", click: () => { showLiveSidebar(); } }] : []),
       { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: () => { void stopRecording("user"); } },
       { label: "Stop and discard", click: () => { void discardRecording(); } },

@@ -4,7 +4,7 @@
 
 ## 实时侧栏
 
-为某次录音启用实时字幕后，如果 provider 支持 live 功能，Meeting Wiki 会在会议旁打开 **Meeting Wiki Live** 窗口。这个选择可以来自已保存的默认值，也可以来自 **Start with options...** 的本次覆盖。保存录音默认值之前，自动录音的 live 功能保持关闭。如果所选服务没有实时适配器（例如 Other online API key），不会打开实时窗口，也不会启动实时字幕。窗口显示：
+为某次录音启用实时字幕后，如果 provider 支持 live 功能，Meeting Wiki 会在会议旁打开 **Meeting Wiki Live** 窗口。这个选择可以来自已保存的默认值，也可以来自 **Start with options...** 的本次覆盖。保存录音默认值之前，自动录音的 live 功能保持关闭。自动录音会在 10 秒短会议丢弃窗口结束后启动 live。如果所选服务没有实时适配器（例如 Other online API key），不会打开实时窗口，也不会启动实时字幕。provider、audio、启动或连接出现问题时，固定通知会说明原因，录音和 batch processing 继续运行。Key 缺失会暂停 provider processing，runtime 缺失时录音无法进入队列，直到 App 被修复。窗口显示：
 
 - 状态行和实时问题提示；
 - 私密录音的 **Private session** 标记；

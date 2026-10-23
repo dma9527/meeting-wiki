@@ -124,6 +124,21 @@ test("an OpenAI-compatible setup shows only its host and no live adapter", () =>
   assert.ok(!JSON.stringify(context).includes("test-transcribe"));
 });
 
+test("live startup failures map to fixed user-facing reasons", () => {
+  assert.equal(
+    record.liveUnavailableMessage("no_adapter"),
+    "The selected provider does not support live captions, translation, and summary.",
+  );
+  assert.equal(
+    record.liveUnavailableMessage("key_unavailable"),
+    "The provider key could not be read. Recording continues, but live and processing remain paused until setup is repaired.",
+  );
+  assert.equal(
+    record.liveUnavailableMessage("Traceback /Users/private"),
+    "Live captions, translation, and summary could not start. Recording continues normally.",
+  );
+});
+
 test("engine, key, manual config, permissions, and recording state map to codes", () => {
   const gemini = setup.renderGeminiConfig();
   assert.equal(record.buildRecordContext({ ...BASE, configText: gemini, pythonAvailable: false }).live, "engine_missing");
@@ -333,6 +348,8 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   assert.doesNotMatch(init, /call\("start"/);
   assert.match(js, /including for this private meeting/);
   assert.match(js, /Live captions use your microphone only/);
+  assert.match(js, /\$\("record-live-enabled"\)\.checked = context\.liveStarts === true && defaults\.liveEnabled === true;/);
+  assert.match(js, /\$\("record-live-enabled"\)\.disabled = context\.liveStarts !== true;/);
   assert.match(js, /start\.disabled = systemBlocked \|\| privacyMissing;/);
   assert.match(html, /id="record-blockers"[^>]*role="alert"[^>]*hidden/);
   for (const id of ["record-open-setup", "record-open-microphone", "record-open-system-audio"]) {
@@ -367,9 +384,10 @@ test("main gates the live sidebar on a live adapter and keeps it reopenable", ()
   assert.match(main, /onOpenSetup: openSetupWindow/);
   assert.match(main, /openExternal: \(url\) => \{ void shell\.openExternal\(url\); \}/);
   const start = main.slice(main.indexOf("async function startRecording"), main.indexOf("// The limit, the user, and quit"));
-  assert.match(start, /if \(liveEnabled && liveDecision\.liveStarts\) startLiveSession\(capture\.active\.micPath, isPrivate, liveDecision\);/);
+  assert.match(start, /const beginLive = \(\) => \{[\s\S]*startLiveSession\(activeCapture\.micPath, isPrivate, liveDecision\);[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
+  assert.match(start, /liveIssue = liveDecision\.live \|\| "startup_failed";[\s\S]*notifyLiveUnavailable\(liveIssue\)/);
   const live = main.slice(main.indexOf("function startLiveSession"), main.indexOf("function readConfigText"));
-  assert.match(live, /if \(live\.live === "ready"\) createLiveSidebarWindow\(\{ BrowserWindow \}\);/);
+  assert.match(live, /if \(live\.live === "ready"\) \{\s*try \{ createLiveSidebarWindow\(\{ BrowserWindow \}\); \} catch \(_\) \{\}\s*\}/);
   assert.match(live, /destroyLiveSidebar\(\);/);
   assert.doesNotMatch(live, /onClosed/);
   assert.match(main, /label: "Show live captions", click: \(\) => \{ showLiveSidebar\(\); \}/);

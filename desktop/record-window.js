@@ -28,6 +28,25 @@ const BLOCKER_MESSAGES = Object.freeze({
   microphone_blocked: "Microphone access is blocked. Allow it in System Settings, then try again.",
 });
 
+const LIVE_UNAVAILABLE_MESSAGES = Object.freeze({
+  no_adapter: "The selected provider does not support live captions, translation, and summary.",
+  engine_missing: "The Meeting Wiki engine is unavailable. Recording continues, but live and processing need the app to be reinstalled.",
+  key_unavailable: "The provider key could not be read. Recording continues, but live and processing remain paused until setup is repaired.",
+  provider_unavailable: "The configured live provider is unavailable. Recording and batch processing continue normally.",
+  audio_unavailable: "Live microphone audio did not become available. Recording and batch processing continue normally.",
+  audio_unsupported: "The live provider cannot use this microphone audio. Recording and batch processing continue normally.",
+  transcription_error: "Live transcription stopped. Recording and batch processing continue normally.",
+  language_error: "Live translation and summary stopped. Recording and batch processing continue normally.",
+  startup_failed: "Live captions, translation, and summary could not start. Recording continues normally.",
+  connection_lost: "The live connection ended. Recording and batch processing continue normally.",
+  provider_session_expired: "The live provider session expired and could not resume. Recording continues normally.",
+});
+const DEFAULT_LIVE_UNAVAILABLE_MESSAGE = "Live captions, translation, and summary could not start. Recording continues normally.";
+
+function liveUnavailableMessage(issue) {
+  return LIVE_UNAVAILABLE_MESSAGES[issue] || DEFAULT_LIVE_UNAVAILABLE_MESSAGE;
+}
+
 const TITLE_MAX = 200;
 const MEDIA_STATUSES = new Set(["granted", "denied", "restricted", "not-determined"]);
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -244,6 +263,7 @@ function createRecordWindow(electron, context) {
 module.exports = {
   BLOCKER_MESSAGES,
   CHANNELS,
+  LIVE_UNAVAILABLE_MESSAGES,
   PRIVACY_PANES,
   RecordError,
   TITLE_MAX,
@@ -252,6 +272,7 @@ module.exports = {
   createRecordController,
   createRecordWindow,
   guard,
+  liveUnavailableMessage,
   registerRecordHandlers,
   validateStartRequest,
 };

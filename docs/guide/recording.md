@@ -69,9 +69,13 @@ off until you enable them.
 - A meeting that ends within 10 seconds is discarded, not processed.
 - Automatic recording uses the same setup check as manual recording and the
   saved live default. When live is enabled and supported, the sidebar,
-  translation, and rolling summary start automatically. Until recording
-  defaults are saved, automatic live features stay off. Automatic recording
-  does not start while setup is unfinished.
+  translation, and rolling summary start after the 10-second short-meeting
+  discard window. Until recording defaults are saved, automatic live features
+  stay off. Provider, startup, and connection failures show a fixed
+  notification while recording and batch processing continue. A missing key
+  pauses provider processing, and a missing runtime prevents queueing until the
+  app is repaired. Automatic recording does not start while setup is
+  unfinished.
 
 **Where automatic recordings go.** Choose one option in Settings:
 

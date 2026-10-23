@@ -10,8 +10,12 @@ automatic recording**.
 - **Join:** Meeting Wiki uses the same capture, time limit, saved live default,
   and "Recording started" notification as a manual quick start. When live is
   enabled and supported, the sidebar, translation, and rolling summary start
-  automatically. Until recording defaults are saved, automatic live features
-  stay off. There is no countdown. Automatic privacy still comes from
+  after the 10-second short-meeting discard window. Until recording defaults
+  are saved, automatic live features stay off. Provider, startup, and
+  connection failures show a fixed notification while recording and batch
+  processing continue. A missing key pauses provider processing, and a missing
+  runtime prevents queueing until the app is repaired. There is no recording
+  countdown. Automatic privacy still comes from
   **Settings > Automatic recording**. The tray icon switches to the recording
   icon for the whole recording, and an open options panel is closed.
 - **Leave:** Meeting Wiki runs the same stop as **Stop and process**. The
