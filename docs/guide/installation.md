@@ -45,14 +45,22 @@ Output goes to `desktop/dist/`: a DMG, a ZIP, `SHA256SUMS`, and
    ```
 
    The command must print `OK`.
-2. Open the DMG and drag **Meeting Wiki** to **Applications**.
-3. On a Mac other than the build Mac, remove the download quarantine flag:
+2. On a Mac other than the build Mac, remove the download quarantine flag from
+   the DMG before you open it. Otherwise Finder reports the ad-hoc signed app
+   as damaged when you drag it to Applications:
+
+   ```bash
+   xattr -d com.apple.quarantine Meeting\ Wiki-*-arm64.dmg
+   ```
+
+3. Open the DMG and drag **Meeting Wiki** to **Applications**.
+4. On a Mac other than the build Mac, clear any flag left on the installed copy:
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Meeting Wiki.app"
    ```
 
-4. Open Meeting Wiki and continue with [Setup](setup.md).
+5. Open Meeting Wiki and continue with [Setup](setup.md).
 
 The app bundles its own Python runtime, Meeting Wiki components, `rec`, and
 `sox`. The target Mac does not need Homebrew, Python, Node.js, or a source
@@ -121,7 +129,7 @@ item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
 
 | Symptom | Fix |
 |---|---|
-| "Meeting Wiki is damaged and can't be opened" | Run the `xattr` command in step 3. |
+| "Meeting Wiki is damaged and can't be opened" | Run the `xattr` commands in steps 2 and 4, then drag the app again. |
 | "Meeting Wiki installation damaged" | The bundled runtime is missing. Rebuild. Do not bypass the check. |
 | Recording has no system audio | Grant Screen & System Audio Recording, then quit and reopen the app. |
 | Build exits with "AUDIO TOOLS BLOCKED" | Set `MEETING_WIKI_GPL_SOURCE_OFFER` as shown above. |

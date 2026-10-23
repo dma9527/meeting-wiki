@@ -31,20 +31,29 @@ given to other people or published while the release blockers remain open.
 
    The command must print `OK`.
 
-2. Open the DMG and drag **Meeting Wiki** to **Applications**. For the ZIP,
+2. Remove the download quarantine flag from the downloaded file before you
+   open it. This build is ad-hoc signed, so on another Mac Finder reports the
+   app as damaged when you drag it out of a quarantined DMG:
+
+   ```bash
+   xattr -d com.apple.quarantine "Meeting Wiki-VERSION-arm64.dmg"
+   ```
+
+   For the ZIP, run the same command on `Meeting Wiki-VERSION-arm64-mac.zip`.
+
+3. Open the DMG and drag **Meeting Wiki** to **Applications**. For the ZIP,
    double-click it and move `Meeting Wiki.app` to `/Applications`.
 
-3. Remove the download quarantine flag. Without this, macOS reports the app
-   as damaged:
+4. Clear any flag left on the installed copy, for example after AirDrop:
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Meeting Wiki.app"
    ```
 
-4. Open the app. The app bundles Python, its dependencies, and SoX, so you do
+5. Open the app. The app bundles Python, its dependencies, and SoX, so you do
    not need Homebrew, Python, or Node.js.
 
-5. Complete first-run setup:
+6. Complete first-run setup:
    - Choose a storage location (default `~/.meeting-wiki`).
    - Choose an online provider and paste your API key. The key is encrypted
      with Electron safeStorage and saved in `secrets.json` in the storage
@@ -56,7 +65,7 @@ given to other people or published while the release blockers remain open.
      app after granting system audio.
    - Run the configuration test.
 
-6. Start a short test recording, stop it, and confirm the meeting appears in
+7. Start a short test recording, stop it, and confirm the meeting appears in
    the Desktop Wiki.
 
 If the app says "installation damaged", the bundle is missing its runtime.
@@ -98,8 +107,8 @@ desktop/dist/SHA256SUMS
 desktop/dist/mac-arm64/Meeting Wiki.app
 ```
 
-Then follow section A from step 2. Step 3 is not needed for an app you built
-on the same Mac.
+Then follow section A from step 3. Steps 2 and 4 are not needed for an app
+you built on the same Mac.
 
 ## Command-line tools
 
@@ -141,7 +150,7 @@ item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
 
 | Symptom | Fix |
 |---------|-----|
-| "Meeting Wiki is damaged and can't be opened" | Run the `xattr` command in step A3. |
+| "Meeting Wiki is damaged and can't be opened" | Run the `xattr` commands in steps A2 and A4, then drag the app again. |
 | "Meeting Wiki installation damaged" | The bundled runtime is missing. Rebuild the artifact on the source Mac. |
 | Recording has no system audio | Grant Screen & System Audio Recording, then restart the app. |
 | Build exits with "AUDIO TOOLS BLOCKED" | Set `MEETING_WIKI_GPL_SOURCE_OFFER` as shown in B. |
