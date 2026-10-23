@@ -101,8 +101,8 @@ else or publish it. A future distributable build must close every blocker in
 The build writes:
 
 ```text
-desktop/dist/Meeting Wiki-0.1.17-arm64.dmg
-desktop/dist/Meeting Wiki-0.1.17-arm64-mac.zip
+desktop/dist/Meeting Wiki-0.1.18-arm64.dmg
+desktop/dist/Meeting Wiki-0.1.18-arm64-mac.zip
 desktop/dist/SHA256SUMS
 desktop/dist/mac-arm64/Meeting Wiki.app
 ```
