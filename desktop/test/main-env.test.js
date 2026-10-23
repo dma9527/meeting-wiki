@@ -168,7 +168,7 @@ test("live view starts after capture succeeds and cannot break recording", () =>
 test("recording notifications never expose automatic meeting codes, paths, or raw errors", () => {
   const start = functionBody("startRecording");
   const stop = functionBody("stopRecording");
-  assert.match(start, /source \? "Automatic recording is running\." : title/);
+  assert.match(start, /source \? "Automatic recording is running\." : requestedTitle \? title : "Meeting \{time\}"/);
   assert.doesNotMatch(start, /notify\([^\n]*error\.message/);
   assert.doesNotMatch(stop, /notify\([^\n]*files\.audioPath|notify\([^\n]*error\.message/);
   assert.match(stop, /The recording was saved and queued for processing\./);
@@ -244,17 +244,18 @@ test("the tray self-check shows only formatted fixed text and never doctor outpu
   assert.match(source, /\{ label: "Run self-check\.\.\.", click: \(\) => \{ void showSelfCheck\(\); \} \}/);
   const body = functionBody("showSelfCheck");
   assert.match(body, /const env = available \? processingEnv\(\) : null;/);
-  assert.match(body, /await dialog\.showMessageBox\(formatSelfCheck\(report\)\);/);
+  assert.match(body, /await dialog\.showMessageBox\(tr\.buttons\(formatSelfCheck\(report, tr\.text\)\)\);/);
   assert.match(body, /skillStatus: \(\) => claudeSkillStatus\(\)/);
   assert.doesNotMatch(body, /error\.message|stdout|detail:/);
 });
 
 test("tray bulk retry confirms the job count before retrying", () => {
   const retry = functionBody("retryFailedJobs");
-  const confirmAt = retry.indexOf("dialog.showMessageBox(retryConfirmation(count))");
+  const confirmAt = retry.indexOf("dialog.showMessageBox(tr.dialog(retryConfirmation(count), { count }))");
   assert.ok(confirmAt >= 0 && retry.indexOf("retryDeadJobs(") > confirmAt, "retry must follow confirmation");
   assert.match(retry, /if \(choice\.response !== 0\) return;/);
-  assert.match(functionBody("retryConfirmation"), /message: `Retry \$\{count\} failed job/);
+  assert.match(functionBody("retryConfirmation"), /message: count === 1 \? "Retry 1 failed job\?" : "Retry \{count\} failed jobs\?"/);
+  assert.match(retry, /dialog\.showMessageBox\(tr\.dialog\(retryConfirmation\(count\), \{ count \}\)\)/);
 });
 
 test("automatic starts take privacy from the saved mode, manual starts from the panel", () => {

@@ -33,6 +33,7 @@ const {
 } = require("./recording-settings");
 const { APPLIES } = require("./setting-metadata");
 const { LANGUAGE_VALUES, readManagedLanguage } = require("./managed-config");
+const { createMainTranslator } = require("./main-localization");
 const {
   AutoLiveStartGate,
   AutoRecordCoordinator,
@@ -81,6 +82,9 @@ const TRAY_ICON_PATHS = Object.freeze({
 });
 const INSTALL_SKILL_LABEL = "Install Claude skill for meeting memory...";
 const INSTALL_SKILL_TOOLTIP = "Adds a data-free skill so Claude can search your meeting memory. Never overwrites files.";
+
+// Tray, notification, and dialog text follows the saved app language on every use.
+const tr = createMainTranslator({ readChoice: () => currentUiLanguage(), systemLocale: () => app.getLocale() });
 
 let tray;
 let worker;
@@ -257,8 +261,10 @@ function timestamp() {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
-function notify(title, body) {
-  if (Notification.isSupported()) new Notification({ title, body }).show();
+// title and body are English source text; translateBody is false for user data such as titles.
+function notify(title, body, { vars = null, translateBody = true } = {}) {
+  if (!Notification.isSupported()) return;
+  new Notification({ title: tr.text(title), body: translateBody ? tr.text(body, vars) : body }).show();
 }
 
 function pythonAvailable() {
@@ -328,6 +334,8 @@ function restartProcessing() {
   noAdapterNotified = false;
   workerBackoff.reset();
   if (worker) worker.kill("SIGTERM"); else startWorker();
+  // A Settings save may change the app language, so the tray is rebuilt right away.
+  if (tray) updateMenu();
   void refreshQueueStatus();
 }
 
@@ -363,7 +371,7 @@ async function showSelfCheck() {
       execFileFn: execFile,
     });
     app.focus({ steal: true });
-    await dialog.showMessageBox(formatSelfCheck(report));
+    await dialog.showMessageBox(tr.buttons(formatSelfCheck(report, tr.text)));
   } catch (_) {
     notify("Self-check did not finish", "Open logs or try again.");
   } finally {
@@ -376,7 +384,7 @@ function retryConfirmation(count) {
   return {
     type: "question",
     title: "Meeting Wiki",
-    message: `Retry ${count} failed job${count === 1 ? "" : "s"}?`,
+    message: count === 1 ? "Retry 1 failed job?" : "Retry {count} failed jobs?",
     detail: "Each one is processed again with the current provider settings. Open Wiki & Corrections to retry jobs one at a time.",
     buttons: ["Retry", "Cancel"],
     defaultId: 0,
@@ -389,13 +397,13 @@ async function retryFailedJobs() {
   const count = Number(queueSummary.action_required) || 0;
   if (count < 1) return;
   app.focus({ steal: true });
-  const choice = await dialog.showMessageBox(retryConfirmation(count));
+  const choice = await dialog.showMessageBox(tr.dialog(retryConfirmation(count), { count }));
   if (choice.response !== 0) return;
   const env = processingEnv();
   if (!env) return;
   try {
     const count = await retryDeadJobs(PYTHON, CONFIG_PATH, execFile, env);
-    notify("Meeting processing resumed", `${count} failed job${count === 1 ? "" : "s"} queued.`);
+    notify("Meeting processing resumed", count === 1 ? "1 failed job queued." : "{count} failed jobs queued.", { vars: { count } });
   } catch (error) {
     notify("Retry failed", error.message);
   }
@@ -411,7 +419,7 @@ async function installSkillFromMenu() {
     await presentSkillInstall({
       install: installClaudeSkill,
       focus: () => app.focus({ steal: true }),
-      showDialog: (options) => dialog.showMessageBox(options),
+      showDialog: (options) => dialog.showMessageBox(tr.dialog(options)),
       notify,
     });
   } finally {
@@ -427,7 +435,7 @@ async function installShimsFromMenu() {
   try {
     await presentShimInstall({
       focus: () => app.focus({ steal: true }),
-      showDialog: (options) => dialog.showMessageBox(options),
+      showDialog: (options) => dialog.showMessageBox(tr.dialog(options)),
       notify,
     });
   } catch (_) {
@@ -500,7 +508,7 @@ function enqueue(ingestArgs, label) {
   const child = spawn(PYTHON, ["-m", "meeting_wiki.cli", "--config", CONFIG_PATH, "ingest", ...ingestArgs], { env, stdio: "ignore" });
   ingests.track(child);
   child.once("exit", (code) => {
-    notify(code === 0 ? "Meeting queued" : "Meeting queue failed", label);
+    notify(code === 0 ? "Meeting queued" : "Meeting queue failed", label, { translateBody: false });
     void refreshQueueStatus();
   });
 }
@@ -517,8 +525,14 @@ function recoverPendingCaptures() {
     try { summary = JSON.parse(String(stdout).trim().split("\n").pop() || "{}"); } catch (_) {}
     const recovered = Number(summary.recovered) || 0;
     const invalid = Number(summary.invalid) || 0;
-    if (recovered > 0) notify("Saved recordings queued", `${recovered} recording${recovered === 1 ? " was" : "s were"} queued for processing.`);
-    if (invalid > 0) notify("Saved recordings need attention", `${invalid} saved recording${invalid === 1 ? "" : "s"} could not be queued. Import the audio to process it.`);
+    if (recovered > 0) {
+      const body = recovered === 1 ? "1 recording was queued for processing." : "{count} recordings were queued for processing.";
+      notify("Saved recordings queued", body, { vars: { count: recovered } });
+    }
+    if (invalid > 0) {
+      const body = invalid === 1 ? "1 saved recording could not be queued." : "{count} saved recordings could not be queued.";
+      notify("Saved recordings need attention", `${body} Import the audio to process it.`, { vars: { count: invalid } });
+    }
     void refreshQueueStatus();
   });
 }
@@ -639,7 +653,8 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
   const maxDurationMinutes = readMaxDurationMinutes(fs, DATA_DIR);
   // Integration titles are placeholders, so processing still names the meeting from its content.
   const titleExplicit = Boolean(requestedTitle) && !source;
-  const title = requestedTitle || `Meeting ${new Date().toLocaleString()}`;
+  const startedAt = new Date().toLocaleString();
+  const title = requestedTitle || `Meeting ${startedAt}`;
   try {
     capture.start(timestamp());
   } catch (_) {
@@ -651,7 +666,8 @@ async function startRecording({ title: requestedTitle = "", isPrivate: requested
   updateMenu();
   notify(
     isPrivate ? "Private recording started" : "Recording started",
-    source ? "Automatic recording is running." : title,
+    source ? "Automatic recording is running." : requestedTitle ? title : "Meeting {time}",
+    { vars: { time: startedAt }, translateBody: Boolean(source) || !requestedTitle },
   );
   capture.active.title = title;
   capture.active.titleExplicit = titleExplicit;
@@ -739,7 +755,7 @@ function importConfirmation(count) {
   return {
     type: "question",
     title: "Meeting Wiki",
-    message: `Import ${count} audio file${count === 1 ? "" : "s"}?`,
+    message: count === 1 ? "Import 1 audio file?" : "Import {count} audio files?",
     detail: "Each file is processed like a recording and named from what was discussed.",
     checkboxLabel: "Keep private: notes stay only in the private folder on this Mac",
     checkboxChecked: false,
@@ -751,13 +767,14 @@ function importConfirmation(count) {
 }
 
 async function importAudio() {
-  const result = await dialog.showOpenDialog({
+  const result = await dialog.showOpenDialog(tr.dialog({
     title: "Import audio",
     properties: ["openFile", "multiSelections"],
     filters: [{ name: "Audio", extensions: ["wav", "mp3", "m4a", "flac", "ogg", "webm"] }],
-  });
+  }));
   if (result.canceled || result.filePaths.length === 0) return;
-  const choice = await dialog.showMessageBox(importConfirmation(result.filePaths.length));
+  const count = result.filePaths.length;
+  const choice = await dialog.showMessageBox(tr.dialog(importConfirmation(count), { count }));
   if (choice.response !== 0) return;
   // Imported files carry no capture time, so they are never matched to the event happening now.
   for (const file of result.filePaths) {
@@ -771,10 +788,11 @@ async function importAudio() {
 
 function updateMenu() {
   updateTrayIcon();
+  const menuText = tr.snapshot();
   const items = [];
   if (recordingSession.recording) {
     items.push(
-      { label: recordingLabel(recordingSession), enabled: false },
+      { label: recordingLabel(recordingSession, menuText.text), enabled: false },
       ...(liveIssue ? [{ label: "Live captions, translation, and summary unavailable. Recording continues.", enabled: false }] : []),
       ...(liveSidebarAvailable() ? [{ label: "Show live captions", click: () => { showLiveSidebar(); } }] : []),
       { label: "Stop and process", accelerator: "CommandOrControl+Shift+0", click: () => { void stopRecording("user"); } },
@@ -793,7 +811,7 @@ function updateMenu() {
   const processingLabel = queueStatusError
     ? "Processing status unavailable"
     : queueStatusReady
-      ? formatQueueLabel(queueSummary)
+      ? formatQueueLabel(queueSummary, menuText.text)
       : "Checking processing status...";
   items.push(
     { type: "separator" },
@@ -818,7 +836,7 @@ function updateMenu() {
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   );
-  tray.setContextMenu(Menu.buildFromTemplate(items));
+  tray.setContextMenu(Menu.buildFromTemplate(menuText.menuItems(items)));
 }
 
 app.whenReady().then(async () => {

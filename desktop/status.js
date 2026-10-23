@@ -140,17 +140,20 @@ async function runJobAction(python, configPath, action, jobId, execFileFn = exec
   return output;
 }
 
-function formatQueueLabel(summary) {
-  if (summary.action_required > 0) return `Action required: ${summary.action_required} failed`;
+// t translates English source text with {name} placeholders; the default fills them in English.
+const englishText = require("./renderer/i18n").fill;
+
+function formatQueueLabel(summary, t = englishText) {
+  if (summary.action_required > 0) return t("Action required: {count} failed", { count: summary.action_required });
   if (summary.active > 0) {
     const activeStages = Object.entries(summary.stages || {})
       .filter(([, count]) => Number.isInteger(count) && count > 0)
-      .map(([stage]) => stage);
-    const detail = activeStages.length > 0 ? ` (${activeStages.join(", ")})` : "";
-    return `Processing: ${summary.active}${detail}`;
+      .map(([stage]) => t(stage));
+    if (activeStages.length === 0) return t("Processing: {count}", { count: summary.active });
+    return t("Processing: {count} ({stages})", { count: summary.active, stages: activeStages.join(t(", ")) });
   }
-  if (summary.total > 0) return "All meetings processed";
-  return "No meetings yet";
+  if (summary.total > 0) return t("All meetings processed");
+  return t("No meetings yet");
 }
 
 async function readQueueStatus(python, configPath, execFileFn = execFile, env = undefined) {

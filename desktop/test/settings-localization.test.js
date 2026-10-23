@@ -81,7 +81,7 @@ test("Chinese Settings localizes statuses, errors, and applies-after copy", () =
       "zh-CN",
       "en",
     ),
-    "录音默认值已经改变。请关闭并重新打开 Settings 后再保存。",
+    "录音默认值已经改变。请关闭并重新打开“设置”后再保存。",
   );
   assert.equal(
     localization.localizedApplies("liveSession", "English fallback", "zh-CN", "en"),
@@ -153,7 +153,7 @@ test("Chinese automatic recording copy preserves privacy and visibility disclosu
   const privacy = localization.zh["#auto-record-privacy-hint"];
   assert.match(privacy, /重试/);
   assert.match(privacy, /手动录音/);
-  assert.match(privacy, /Start with options/);
+  assert.match(privacy, /“带选项开始”/);
 
   const zoom = localization.zh["#zoom-auto-record-boundary"];
   assert.match(zoom, /每 3 秒/);

@@ -3,6 +3,8 @@
 // Single-flight lifecycle for one recording. The duration limit, the user, and quit all call
 // end(); whichever arrives first runs its work and the others share that same promise.
 
+const { fill } = require("./renderer/i18n");
+
 const LIMIT_NOTICE = Object.freeze({
   title: "Recording stopped at the time limit",
   body: "The maximum meeting length was reached. Your recording is being saved and processed.",
@@ -123,8 +125,9 @@ function formatDuration(ms) {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
-function recordingLabel(session) {
-  return `Recording ${formatDuration(session.elapsedMs())} of ${formatDuration(session.limitMs())}`;
+// t translates English source text with {name} placeholders; the default fills them in English.
+function recordingLabel(session, t = fill) {
+  return t("Recording {elapsed} of {limit}", { elapsed: formatDuration(session.elapsedMs()), limit: formatDuration(session.limitMs()) });
 }
 
 module.exports = {

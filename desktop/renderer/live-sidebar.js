@@ -27,7 +27,7 @@
   const ISSUE_TEXT = Object.freeze({
     audio_unavailable: "The recording audio is no longer available.",
     audio_unsupported: "The recording audio format is not supported for live view.",
-    provider_unavailable: "The live provider is not ready. Check system health in the menu.",
+    provider_unavailable: "The live provider is not ready. Run self-check from the menu bar.",
     transcription_error: "Live transcription skipped a moment of audio.",
     transcription_failed: "Live transcription could not connect to the provider. Recording continues normally.",
     provider_reconnecting: "Reconnecting to the live provider. Recording continues normally.",

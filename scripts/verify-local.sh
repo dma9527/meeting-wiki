@@ -56,6 +56,7 @@ PY
 
 echo "== Desktop syntax/tests =="
 node --check desktop/main.js
+node --check desktop/main-localization.js
 node --check desktop/capture.js
 node --check desktop/status.js
 node --check desktop/wiki-window.js

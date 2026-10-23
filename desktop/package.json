@@ -36,6 +36,7 @@
     },
     "files": [
       "main.js",
+      "main-localization.js",
       "capture.js",
       "runtime-paths.js",
       "status.js",

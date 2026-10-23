@@ -124,7 +124,7 @@ test("the installer uses fs only and main wires a discoverable menu item to a re
   const body = main.slice(main.indexOf("function installSkillFromMenu") - 40, main.indexOf("function startWorker"));
   assert.match(body, /presentSkillInstall\(\{/);
   assert.match(body, /install: installClaudeSkill/);
-  assert.match(body, /showDialog: \(options\) => dialog\.showMessageBox\(options\)/);
+  assert.match(body, /showDialog: \(options\) => dialog\.showMessageBox\(tr\.dialog\(options\)\)/);
   assert.match(body, /app\.focus\(\{ steal: true \}\)/);
   assert.doesNotMatch(body, /exec|spawn|shell/);
 });

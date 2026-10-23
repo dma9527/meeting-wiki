@@ -8,7 +8,7 @@
     title: "Meeting Wiki 设置",
     ".wordmark-sub": "设置",
     "#settings-loading": "正在加载设置。",
-    "#bridge-missing": "Settings 无法连接 App。请关闭窗口并重新打开 Meeting Wiki。",
+    "#bridge-missing": "“设置”无法连接 App。请关闭窗口并重新打开 Meeting Wiki。",
     "#unsupported-heading": "设置不可用",
     "#unsupported-rerun": "重新运行设置向导",
     "#identity-settings-heading": "会议中的姓名",
@@ -33,7 +33,7 @@
     "#transcript-language option[value='auto']": "自动检测",
     "#language-save": "保存语言",
     "#recording-settings-heading": "录音默认值",
-    "#panel-recording-settings > .lede": "普通开始操作直接使用这些设置。Start with options 只覆盖当前一次，会议标题不会保存为默认值。",
+    "#panel-recording-settings > .lede": "普通开始操作直接使用这些设置。“带选项开始”只覆盖当前一次，会议标题不会保存为默认值。",
     "#recording-defaults-notice": "请先选择 privacy 和 live 默认值。保存前，普通开始会打开选项面板，自动录音不会启动 live 功能。",
     "label[for='max-duration-minutes']": "最长会议时长（分钟）",
     "#default-privacy-mode > legend": "默认保存位置",
@@ -49,7 +49,7 @@
     "label[for='auto-record-privacy-private']": "Private：只保存在这台 Mac 的私密文件夹",
     "label[for='auto-record-privacy-calendar']": "跟随日历：只有匹配且非私密的日历会议才共享",
     "label[for='auto-record-privacy-shared']": "Shared wiki，除非日历或标题规则判定为私密",
-    "#auto-record-privacy-hint": "Private 是默认值。跟随日历会在录音开始时检查匹配的日历事件，只决定一次，并在重试时保持该决定。没有日历或没有匹配事件时保持私密。手动录音使用已保存的默认值。选择 Start with options 可以只覆盖当前一次。",
+    "#auto-record-privacy-hint": "Private 是默认值。跟随日历会在录音开始时检查匹配的日历事件，只决定一次，并在重试时保持该决定。没有日历或没有匹配事件时保持私密。手动录音使用已保存的默认值。选择“带选项开始”可以只覆盖当前一次。",
     "label[for='zoom-auto-record']": "自动录制 Zoom 会议",
     "#zoom-heading": "Zoom App",
     "#zoom-auto-record-boundary": "Meeting Wiki 每 3 秒只在这台 Mac 上检查 Zoom 进程、音频连接和显示唤醒状态。它不读取窗口、聊天、参会者或会议标题，不使用辅助功能权限，也不打开网络端口。无法检测浏览器中的 Zoom。",
@@ -95,14 +95,14 @@
     "Choose a supported value for every language.": "请为每种语言选择支持的值。",
     "Choose where automatic recordings go.": "请选择自动录音的保存位置。",
     "The app did not respond. Try again.": "App 没有响应，请重试。",
-    "Settings cannot reach the app. Close this window and reopen Meeting Wiki.": "Settings 无法连接 App。请关闭窗口并重新打开 Meeting Wiki。",
-    "Settings could not complete this step.": "Settings 无法完成此操作。",
-    "This request did not come from the settings window.": "此请求不是来自 Settings 窗口。",
+    "Settings cannot reach the app. Close this window and reopen Meeting Wiki.": "“设置”无法连接 App。请关闭窗口并重新打开 Meeting Wiki。",
+    "Settings could not complete this step.": "“设置”无法完成此操作。",
+    "This request did not come from the settings window.": "此请求不是来自“设置”窗口。",
     "Automatic recording is not available in this build.": "当前 build 不支持自动录音。",
     "Run setup again to manage settings here.": "请重新运行设置向导后再管理这些设置。",
     "The settings could not be saved.": "设置无法保存。",
     "Open Languages and choose supported values before saving Gemini settings.": "请先在语言设置中选择支持的值，再保存 Gemini 设置。",
-    "Open Settings and choose supported languages before switching providers.": "切换 provider 前，请先打开 Settings 并选择支持的语言。",
+    "Open Settings and choose supported languages before switching providers.": "切换 provider 前，请先打开“设置”并选择支持的语言。",
     "Enter a valid model name.": "请输入有效的模型名称。",
     "Enter a name.": "请输入姓名。",
     "Use letters, numbers, spaces, and . , ' - _ ( ) starting with a letter or number.": "请使用字母、数字、空格和 . , ' - _ ( )，并以字母或数字开头。",
@@ -118,7 +118,7 @@
     "The recording settings file could not be read, so it was left unchanged.": "无法读取录音设置文件，因此未作修改。",
     "The recording settings could not be saved.": "录音设置无法保存。",
     "The integration settings could not be saved.": "Integration 设置无法保存。",
-    "Recording defaults changed. Close and reopen Settings before saving.": "录音默认值已经改变。请关闭并重新打开 Settings 后再保存。",
+    "Recording defaults changed. Close and reopen Settings before saving.": "录音默认值已经改变。请关闭并重新打开“设置”后再保存。",
     "Choose one of the available language options.": "请选择可用的语言选项。",
     "Shown on your microphone channel and owned action items.": "显示在你的麦克风声道和分配给你的 action items 中。",
     "Taken from the older user_name setting. Save to keep it as your primary name.": "当前值来自旧版 user_name 设置。保存后会作为主要姓名。",
@@ -181,7 +181,7 @@
       if (translatedDetail !== match[2]) return `${match[1]}：${translatedDetail}`;
     }
     if (message.startsWith("Settings never change a hand-edited configuration.")) {
-      return "Settings 不会修改手动编辑的配置。你的修改会从下一次录音和重新打开 App 后的 processing 开始生效。";
+      return "“设置”不会修改手动编辑的配置。你自己的修改会从下一次录音的实时字幕开始生效，会议处理则在退出并重新打开 Meeting Wiki 后生效。";
     }
     return message;
   }
@@ -207,7 +207,7 @@
 
   function systemAudioPermissionLine(choice, systemLocale = "en") {
     return isChinese(choice, systemLocale)
-      ? "系统音频权限无法提前检查。如果其他参会者没有声音，请在 System Settings 的 System Audio Recording 中允许 Meeting Wiki。"
+      ? "系统音频权限无法提前检查。如果其他参会者没有声音，请在系统设置的“录屏与系统录音”中允许 Meeting Wiki。"
       : null;
   }
 

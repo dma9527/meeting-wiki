@@ -12,6 +12,7 @@ test("build.files lists every runtime source file that must ship", () => {
   const files = pkg.build.files;
   const required = [
     "main.js",
+    "main-localization.js",
     "capture.js",
     "runtime-paths.js",
     "status.js",

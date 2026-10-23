@@ -153,14 +153,17 @@ function projectLiveError(source) {
   return Object.keys(error).length ? error : null;
 }
 
-function liveErrorLine(error) {
+// English source text with {name} placeholders; main passes a translator for other languages.
+const englishText = require("./renderer/i18n").fill;
+
+function liveErrorLine(error, t = englishText) {
   if (!error) return "";
   const parts = [];
   if (error.httpStatus) parts.push(`HTTP ${error.httpStatus}`);
-  if (error.closeCode) parts.push(`close code ${error.closeCode}`);
+  if (error.closeCode) parts.push(t("close code {code}", { code: error.closeCode }));
   if (error.providerStatus) parts.push(error.providerStatus);
   if (error.sdkErrorType) parts.push(error.sdkErrorType);
-  return `Live connection error: ${parts.join(", ")}. Details are also in live.log under Open logs.`;
+  return t("Live connection error: {parts}. Details are also in live.log under Open logs.", { parts: parts.join(", ") });
 }
 
 function runCli(python, configPath, execFileFn, env) {
@@ -223,28 +226,28 @@ async function runSelfCheck({ python, configPath, pythonAvailable, env, mediaAcc
 
 const TONE_PREFIX = Object.freeze({ ok: "OK", note: "Note", attention: "Needs attention" });
 
-function formatSelfCheck(report) {
+function formatSelfCheck(report, t = englishText) {
   const capabilities = (report && report.capabilities) || {};
   const lines = [];
   let attention = 0;
   for (const name of ORDER) {
     const [tone, text] = entryFor(name, capabilities[name]);
     if (tone === "attention") attention += 1;
-    lines.push(`${TONE_PREFIX[tone]}  ${LABELS[name]}: ${text}`);
+    lines.push(t("{tone}  {label}: {text}", { tone: t(TONE_PREFIX[tone]), label: t(LABELS[name]), text: t(text) }));
   }
   const providers = (report && report.providers) || {};
   const processedBy = PROVIDER_NAMES[providers.transcription];
-  if (processedBy) lines.push("", `Recordings are transcribed by ${processedBy}.`);
-  if (report && report.liveScope === "external") lines.push("Live captions send microphone audio and all audio played on this Mac to an external provider.");
-  if (report && report.liveScope === "local") lines.push("Live captions run on this Mac.");
-  const liveError = liveErrorLine(report && report.liveError);
+  if (processedBy) lines.push("", t("Recordings are transcribed by {provider}.", { provider: t(processedBy) }));
+  if (report && report.liveScope === "external") lines.push(t("Live captions send microphone audio and all audio played on this Mac to an external provider."));
+  if (report && report.liveScope === "local") lines.push(t("Live captions run on this Mac."));
+  const liveError = liveErrorLine(report && report.liveError, t);
   if (liveError) lines.push(liveError);
   return {
     type: attention ? "warning" : "info",
-    title: "Meeting Wiki self-check",
+    title: t("Meeting Wiki self-check"),
     message: attention
-      ? `${attention} ${attention === 1 ? "item needs" : "items need"} attention.`
-      : "Everything Meeting Wiki needs is ready.",
+      ? t(attention === 1 ? "1 item needs attention." : "{count} items need attention.", { count: attention })
+      : t("Everything Meeting Wiki needs is ready."),
     detail: lines.join("\n"),
     buttons: ["OK"],
     defaultId: 0,
@@ -258,6 +261,7 @@ module.exports = {
   LABELS,
   PERMISSION_TEXT,
   PROVIDER_NAMES,
+  TONE_PREFIX,
   formatSelfCheck,
   projectReport,
   runSelfCheck,

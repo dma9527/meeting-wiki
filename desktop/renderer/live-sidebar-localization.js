@@ -17,7 +17,7 @@
     "#live-transcript-empty": "最终转写会显示在这里。",
     ".live-foot p:nth-child(1)": "实时字幕包括你的麦克风（标记为 You）和这台 Mac 播放的全部音频（包括其他参会者，标记为 Others）。",
     ".live-foot p:nth-child(2)": "实时文本只用于显示。保存的会议（包括系统音频）会在停止录音后处理。",
-    ".live-foot p:nth-child(3)": "关闭这个窗口只会隐藏它。可以在菜单栏选择 Show live captions 再次显示。",
+    ".live-foot p:nth-child(3)": "关闭这个窗口只会隐藏它。可以在菜单栏选择“显示实时字幕”再次显示。",
   });
 
   const MESSAGES = Object.freeze({
@@ -27,13 +27,13 @@
     "Live view is unavailable. Recording continues normally.": "实时视图不可用，录音正常进行。",
     "The recording audio is no longer available.": "录音音频已经不可用。",
     "The recording audio format is not supported for live view.": "实时视图不支持这种录音音频格式。",
-    "The live provider is not ready. Check system health in the menu.": "live provider 尚未就绪。请在菜单中检查系统状态。",
+    "The live provider is not ready. Run self-check from the menu bar.": "live provider 尚未就绪。请在菜单栏中运行自检。",
     "Live transcription skipped a moment of audio.": "实时转写跳过了一小段音频。",
     "Live transcription could not connect to the provider. Recording continues normally.": "实时转写无法连接 provider，录音正常进行。",
     "Reconnecting to the live provider. Recording continues normally.": "正在重新连接 live provider，录音正常进行。",
     "Your microphone is no longer captioned. Other participants still are.": "你的麦克风已不再显示字幕，其他参会者仍在显示。",
     "Other participants are no longer captioned. Your microphone still is.": "其他参会者已不再显示字幕，你的麦克风仍在显示。",
-    "No audio from other participants yet. If they are speaking, check System Audio Recording permission in System Settings.": "还没有收到其他参会者的声音。如果他们正在说话，请在系统设置中检查 System Audio Recording 权限。",
+    "No audio from other participants yet. If they are speaking, check System Audio Recording permission in System Settings.": "还没有收到其他参会者的声音。如果他们正在说话，请在系统设置中检查“录屏与系统录音”权限。",
     "Translation or summary is temporarily unavailable.": "翻译或总结暂时不可用。",
     "Renewing the live provider session. Recording continues normally.": "正在续接 live provider 会话，录音正常进行。",
     "The live provider session expired and could not be renewed.": "live provider 会话已过期，无法续接。",
