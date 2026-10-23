@@ -238,9 +238,9 @@ test("custom legacy languages are shown as unsupported and require explicit migr
   assert.doesNotMatch(saved, /^translation_target_language = /m);
 });
 
-test("language settings reject unknown values and load in Python", () => {
+test("language settings reject unknown values", () => {
   const dataDir = geminiDataDir();
-  const { controller, configPath } = controllerFor(dataDir);
+  const { controller } = controllerFor(dataDir);
   for (const [field, value] of [
     ["transcriptLanguage", "Chinese"],
     ["liveTranslationLanguage", "system"],
@@ -253,6 +253,11 @@ test("language settings reject unknown values and load in Python", () => {
       /available language options/,
     );
   }
+});
+
+test("saved language settings load in Python", { skip: !fs.existsSync(path.join(ROOT, ".venv", "bin", "python")) }, () => {
+  const dataDir = geminiDataDir();
+  const { controller, configPath } = controllerFor(dataDir);
   controller.saveLanguageSettings(LANGUAGES);
   const script = [
     "import json, sys",
