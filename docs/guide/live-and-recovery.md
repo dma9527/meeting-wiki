@@ -91,7 +91,22 @@ meeting-wiki status --summary
 meeting-wiki status --state dead
 meeting-wiki retry 12
 meeting-wiki self-check
+meeting-wiki diagnostics-export --output ~/Desktop/meeting-wiki-diagnostics.json
 ```
+
+`diagnostics-export` writes a privacy-safe report you can attach to a bug
+report. It contains the app and OS version, which providers are selected,
+local storage and memory state, job counts and fixed failure codes, recent
+event codes, and recent live connection error codes. Event and log times are
+included, so the report shows when you were using the app. It never contains
+meeting titles, transcripts, attendees, URLs, file paths, error text, or keys.
+
+The export runs offline. It contacts no provider, so it does not test your
+connection; use **Run self-check...** for that. It opens your databases
+read-only (SQLite may add its own `-wal` and `-shm` helper files next to a
+database that is in use), refuses to overwrite a file, and writes nothing if
+any value is not an allowed code. A source it cannot read is reported as
+`unreadable` rather than as empty. Read the file before you share it.
 
 Default status output never includes meeting titles, source paths,
 transcripts, or provider error details. Use `status --verbose` only on your own

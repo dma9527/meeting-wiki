@@ -56,6 +56,10 @@ Use `--private` on `ingest` for a private meeting. `--require-calendar-match`
 keeps the meeting private unless a calendar event matches the capture start;
 the app uses it for automatic recordings in **Follow my calendar** mode.
 
+`meeting-wiki self-check` reports capability status codes, and
+`meeting-wiki diagnostics-export [--output FILE]` produces a privacy-safe
+report for bug reports; see [live and recovery](../guide/live-and-recovery.md).
+
 On a packaged install, **Install command-line tools...** in the menu bar adds
 `meeting-wiki` and `meeting-wiki-mcp` to `~/.local/bin`; see
 [installation](../guide/installation.md#command-line-tools-and-mcp). Wiki output appears under

@@ -438,6 +438,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Open one live provider session with silent audio to verify the connection",
     )
+    export = sub.add_parser(
+        "diagnostics-export",
+        help="Print or save a privacy-safe diagnostic report (fixed codes and versions only)",
+    )
+    export.add_argument("--output", help="Write to a new file (never overwrites) instead of stdout")
     sub.add_parser("mcp", help="Run read-only MCP server over stdio")
     live = sub.add_parser(
         "live",
@@ -554,6 +559,27 @@ def main(argv: list[str] | None = None) -> int:
         from .mcp_server import main as mcp_main
 
         mcp_main()
+        return 0
+    if args.command == "diagnostics-export":
+        from .diagnostic_export import (
+            DiagnosticExportError,
+            build_diagnostic_report,
+            write_diagnostic_report,
+        )
+
+        try:
+            if args.output:
+                written = write_diagnostic_report(args.config, Path(args.output))
+                print(json.dumps({"exported": True, "bytes": written.stat().st_size}))
+            else:
+                print(json.dumps(build_diagnostic_report(args.config), indent=2, sort_keys=True))
+        except DiagnosticExportError as error:
+            print(json.dumps({"error": error.code}))
+            return 1
+        except Exception:
+            # No traceback: it would show host paths to someone about to share this output.
+            print(json.dumps({"error": "internal_error"}))
+            return 1
         return 0
     if args.command == "self-check":
         from .self_check import run_self_check

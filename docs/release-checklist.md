@@ -95,5 +95,6 @@ Open blockers are tracked in `docs/known-issues.md`.
       `docs/known-issues.md`.
 - [ ] Downloaded artifacts pass `shasum -a 256 -c SHA256SUMS` and Gatekeeper
       again before publishing.
-- [ ] Support instructions point users to the privacy-safe diagnostic report
-      and `SECURITY.md` for vulnerability reports.
+- [ ] Support instructions point users to `meeting-wiki diagnostics-export`
+      (the privacy-safe diagnostic report) and `SECURITY.md` for vulnerability
+      reports.

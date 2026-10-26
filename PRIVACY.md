@@ -26,7 +26,11 @@ or usage data.
 8. A local event journal, `events.db`, records fixed status codes, timestamps,
    job stages, and app version for troubleshooting. It never stores
    transcripts, titles, file paths, URLs, error text, or keys, and it is never
-   sent anywhere.
+   sent anywhere. `meeting-wiki diagnostics-export` combines that journal with
+   job counts, provider choices, and recent live error codes into one local
+   file that you choose to share. It makes no network request. Its output is
+   limited to fixed codes, versions, and times, and the export is blocked if
+   any other text would appear.
 9. When the webhook task provider is enabled, shared action items are queued in
    a local `outbox.db` before sending, so a retry cannot create a duplicate.
 

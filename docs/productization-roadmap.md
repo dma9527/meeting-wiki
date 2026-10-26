@@ -74,7 +74,7 @@ This document is the execution ledger. A work item is complete only when its imp
 | Credentialed signing path | Partial | Successful Developer ID app and DMG signing with matching team, timestamps, hardened runtime, and required entitlements. | Release owner |
 | Tagged release build | Not started | `vVERSION` points to the release commit, release mode succeeds, and the manifest records `publishable: true`. | Release owner |
 | Clean-Mac install | Not started | Gatekeeper, first run, permissions, upgrade, and uninstall checklist results from a second Mac. Depends on the credentialed release build. | Release owner and tester |
-| User-initiated diagnostic export | Not started | A privacy-safe report contains fixed event codes and component versions but no meeting content, URL, title, attendee, key, or host path. | Maintainer |
+| User-initiated diagnostic export | Partial | CLI `diagnostics-export` is implemented offline, with read-only access, per-field allowlists, and a fail-closed final scan (`tests/test_diagnostic_export.py`). A desktop menu entry and a second-Mac check remain. | Maintainer |
 
 ### Exit criteria
 
