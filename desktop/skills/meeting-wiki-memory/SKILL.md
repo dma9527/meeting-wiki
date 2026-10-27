@@ -37,6 +37,10 @@ If the `meeting_wiki_mcp` server is connected (command `meeting-wiki-mcp`), use:
 - `meeting_wiki_memory_search` with `query` (2 to 300 characters), optional
   `node_type` (`meeting`, `person`, `topic`, `decision`, `action_item`,
   `transcript_segment`, `resource`), and `limit` (1 to 30). Shared memory only.
+- `meeting_wiki_decision_history` with optional `limit` (1 to 200) for decisions
+  oldest first. Each item has `effective_status` (`superseded` when a later
+  decision replaced it), `supersedes` / `superseded_by` links, and a `citation`.
+  Shared decisions only.
 - `meeting_wiki_search` for full-text search over shared wiki pages.
 - `meeting_wiki_read_page` to read one shared page by path from a search result.
   A citation's `source_path` is accepted here.
@@ -60,6 +64,12 @@ Search including private memory, only after the user explicitly asks:
 
 ```bash
 meeting-wiki memory-search --query="career plan" --include-private
+```
+
+List decisions oldest first with supersession links (shared only by default):
+
+```bash
+meeting-wiki memory-decisions --limit=50
 ```
 
 List URL resources attached to meetings (shared only by default):

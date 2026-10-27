@@ -26,7 +26,7 @@ from meeting_wiki.models import (
     TranscriptSegment,
 )
 from meeting_wiki.providers.local_storage import LocalFileStorage
-from meeting_wiki.wiki import WikiRenderer
+from meeting_wiki.wiki import WikiRenderer, stable_id
 
 
 def make_meeting(title: str, day: int, private: bool = False) -> MeetingInput:
@@ -607,3 +607,209 @@ def test_a_transcript_line_indexed_before_citations_existed_still_cites_without_
         "start_seconds": 65.0,
         "end_seconds": 71.5,
     }
+
+
+def decision_archive(tmp_path) -> dict[str, object]:
+    """Polling (day 1), webhooks supersedes it (day 8), a private one also names it (day 9)."""
+    data_dir = tmp_path / "decisions"
+    keys: dict[str, str] = {}
+
+    def add(label, day, decisions, private=False):
+        meeting = make_meeting(label, day, private=private)
+        analysis = MeetingAnalysis(
+            title=label,
+            summary=[f"{label} summary."],
+            decisions=decisions,
+            private=private,
+        )
+        keys[label] = store_meeting(data_dir, meeting, analysis, make_transcript(("Alex", "Hi.")))
+
+    add("Design review", 1, [Decision(title="Use polling", decision="Poll every 5 minutes.")])
+    polling_id = stable_id(Path(keys["Design review"]).stem, "Use polling")
+    add(
+        "Follow up",
+        8,
+        [
+            Decision(
+                title="Use webhooks",
+                decision="Push events instead.",
+                rationale="Polling was too slow.",
+                owner="Sam",
+                supersedes=polling_id,
+            ),
+            Decision(title="Drop retries", decision="No retries.", status="reversed"),
+        ],
+    )
+    add(
+        "Career chat",
+        9,
+        [Decision(title="Leave the team", decision="Private.", supersedes=polling_id)],
+        private=True,
+    )
+    reindex_memory(data_dir)
+    return {"data_dir": data_dir, "keys": keys, "polling_id": polling_id}
+
+
+def history_titles(items):
+    return [item["title"] for item in items]
+
+
+def test_decision_history_is_chronological_shared_only_and_cited(tmp_path):
+    archive = decision_archive(tmp_path)
+    items = memory(archive["data_dir"]).decision_history()
+    assert history_titles(items) == ["Use polling", "Use webhooks", "Drop retries"]
+    assert [item["occurred_at"][:10] for item in items] == [
+        "2026-09-01",
+        "2026-09-08",
+        "2026-09-08",
+    ]
+    assert items[1]["citation"]["meeting_title"] == "Follow up"
+    assert items[1]["citation"]["source_path"] == archive["keys"]["Follow up"]
+    assert items[1]["owner"] == "Sam"
+    assert "Polling was too slow." in items[1]["detail"]
+    assert "Leave the team" not in json.dumps(items)
+
+
+def test_a_later_decision_supersedes_an_earlier_one_by_exact_decision_id(tmp_path):
+    archive = decision_archive(tmp_path)
+    polling, webhooks, retries = memory(archive["data_dir"]).decision_history()
+    assert polling["decision_id"] == archive["polling_id"]
+    assert polling["status"] == "accepted"
+    assert polling["effective_status"] == "superseded"
+    assert polling["superseded_by"]["title"] == "Use webhooks"
+    assert polling["superseded_by"]["node_id"] == webhooks["node_id"]
+    assert polling["supersedes"] is None
+    assert webhooks["supersedes"]["title"] == "Use polling"
+    assert webhooks["supersedes"]["node_id"] == polling["node_id"]
+    assert webhooks["effective_status"] == "accepted"
+    assert webhooks["superseded_by"] is None
+    assert retries["status"] == "reversed"
+    assert retries["effective_status"] == "reversed"
+
+
+def test_a_wiki_decision_path_reference_resolves_to_the_same_decision(tmp_path):
+    archive = decision_archive(tmp_path)
+    db = archive["data_dir"] / "memory.db"
+    path = f"wiki/decisions/2026-09-01-use-polling-{archive['polling_id']}.md"
+    with sqlite3.connect(db) as connection:
+        [(node_id, metadata)] = connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE label='Use webhooks'"
+        ).fetchall()
+        connection.execute(
+            "UPDATE memory_nodes SET metadata=? WHERE node_id=?",
+            (json.dumps({**json.loads(metadata), "supersedes": path}), node_id),
+        )
+    polling = memory(archive["data_dir"]).decision_history()[0]
+    assert polling["superseded_by"]["title"] == "Use webhooks"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "Use polling",
+        "0000000000000000",
+        "wiki/decisions/../../private/x-0123456789abcdef.md",
+        "private/decisions/2026-09-01-use-polling-{polling_id}.md",
+        "{polling_id} ",
+    ],
+)
+def test_only_an_exact_reference_supersedes(tmp_path, reference):
+    archive = decision_archive(tmp_path)
+    db = archive["data_dir"] / "memory.db"
+    reference = reference.format(polling_id=archive["polling_id"])
+    with sqlite3.connect(db) as connection:
+        [(node_id, metadata)] = connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE label='Use webhooks'"
+        ).fetchall()
+        connection.execute(
+            "UPDATE memory_nodes SET metadata=? WHERE node_id=?",
+            (json.dumps({**json.loads(metadata), "supersedes": reference}), node_id),
+        )
+    items = memory(archive["data_dir"]).decision_history()
+    assert [item["effective_status"] for item in items][:2] == ["accepted", "accepted"]
+    assert all(item["superseded_by"] is None and item["supersedes"] is None for item in items)
+
+
+def test_a_private_decision_never_supersedes_a_shared_one_or_appears_by_default(tmp_path):
+    archive = decision_archive(tmp_path)
+    store = memory(archive["data_dir"])
+    shared_only = {item["title"]: item for item in store.decision_history()}
+    assert shared_only["Use polling"]["superseded_by"]["title"] == "Use webhooks"
+    everything = store.decision_history(include_private=True)
+    assert history_titles(everything) == [
+        "Use polling",
+        "Use webhooks",
+        "Drop retries",
+        "Leave the team",
+    ]
+    leave = everything[-1]
+    assert leave["privacy"] == "private"
+    assert leave["supersedes"] is None
+    assert everything[0]["superseded_by"]["title"] == "Use webhooks"
+
+
+def test_decision_history_limit_keeps_the_latest_and_stays_chronological(tmp_path):
+    archive = decision_archive(tmp_path)
+    store = memory(archive["data_dir"])
+    assert history_titles(store.decision_history(limit=2)) == ["Use webhooks", "Drop retries"]
+    for bad in (0, 201):
+        with pytest.raises(ValueError):
+            store.decision_history(limit=bad)
+
+
+def test_decisions_indexed_before_supersedes_was_stored_still_list(tmp_path):
+    archive = decision_archive(tmp_path)
+    db = archive["data_dir"] / "memory.db"
+    with sqlite3.connect(db) as connection:
+        for node_id, metadata in connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE node_type='decision'"
+        ).fetchall():
+            legacy = {k: v for k, v in json.loads(metadata).items() if k != "supersedes"}
+            connection.execute(
+                "UPDATE memory_nodes SET metadata=? WHERE node_id=?",
+                (json.dumps(legacy), node_id),
+            )
+    items = memory(archive["data_dir"]).decision_history()
+    assert history_titles(items) == ["Use polling", "Use webhooks", "Drop retries"]
+    assert all(item["superseded_by"] is None for item in items)
+
+
+def test_cli_decision_history_is_shared_only_unless_private_is_requested(tmp_path, capsys):
+    archive = decision_archive(tmp_path)
+    config = str(write_config(tmp_path, archive["data_dir"]))
+    assert main(["--config", config, "memory-decisions"]) == 0
+    shared = json.loads(capsys.readouterr().out)
+    assert shared["count"] == 3
+    assert "Leave the team" not in json.dumps(shared)
+    assert main(["--config", config, "memory-decisions", "--include-private", "--limit=10"]) == 0
+    assert json.loads(capsys.readouterr().out)["count"] == 4
+    assert main(["--config", config, "memory-decisions", "--limit=0"]) == 1
+    assert json.loads(capsys.readouterr().out)["error"] == "invalid_decision_query"
+
+
+def test_the_mcp_decision_history_tool_never_returns_private_decisions(tmp_path):
+    archive = decision_archive(tmp_path)
+
+    async def run():
+        env = os.environ.copy()
+        env["MEETING_WIKI_DATA_DIR"] = str(archive["data_dir"])
+        params = StdioServerParameters(
+            command=os.sys.executable,
+            args=["-m", "meeting_wiki.mcp_server"],
+            env=env,
+            cwd=Path(__file__).parents[1],
+        )
+        async with (
+            stdio_client(params) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool("meeting_wiki_decision_history", {})
+            assert history_titles(result.structured_content["items"]) == [
+                "Use polling",
+                "Use webhooks",
+                "Drop retries",
+            ]
+            assert "Leave the team" not in json.dumps(result.structured_content)
+
+    asyncio.run(run())

@@ -234,6 +234,20 @@ def memory_search_command(config, args) -> int:
     return 0
 
 
+def memory_decisions_command(config, args) -> int:
+    from .memory import MemoryStore
+
+    try:
+        items = MemoryStore(config.data_dir / "memory.db").decision_history(
+            include_private=args.include_private, limit=args.limit
+        )
+    except ValueError:
+        print(json.dumps({"error": "invalid_decision_query", "items": []}))
+        return 1
+    print(json.dumps({"count": len(items), "items": items}, ensure_ascii=False))
+    return 0
+
+
 def memory_add_resource_command(config, args) -> int:
     """Store a user-described URL on a meeting. The URL is validated, never fetched."""
     from .memory import MemoryStore, ResourceError
@@ -476,6 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also return private local memory; never used by MCP",
     )
+    decisions_list = sub.add_parser(
+        "memory-decisions",
+        help="List decisions oldest first with supersession links (shared only by default)",
+    )
+    decisions_list.add_argument("--limit", type=int, default=100)
+    decisions_list.add_argument("--include-private", action="store_true")
     add_resource = sub.add_parser(
         "memory-add-resource",
         help="Attach a URL with your own title/summary to a meeting (stored only, never fetched)",
@@ -642,6 +662,8 @@ def main(argv: list[str] | None = None) -> int:
         return memory_search_command(config, args)
     if args.command == "memory-add-resource":
         return memory_add_resource_command(config, args)
+    if args.command == "memory-decisions":
+        return memory_decisions_command(config, args)
     if args.command == "memory-resources":
         return memory_resources_command(config, args)
     if args.command == "correct-inbox":

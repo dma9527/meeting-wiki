@@ -56,6 +56,8 @@ NODE_TYPES = frozenset(
     {"meeting", "person", "transcript_segment", "topic", "decision", "action_item", "resource"}
 )
 _RELATION_LIMIT = 12
+_DECISION_ID = re.compile(r"[0-9a-f]{16}")
+_DECISION_PATH = re.compile(r"wiki/decisions/[^/]+-([0-9a-f]{16})\.md")
 _MEETING_NODE_ID = re.compile(r"meeting:[0-9a-f]{16}")
 
 
@@ -306,7 +308,7 @@ class MemoryStore:
                 metadata=self._metadata(canonical_topic=canonical(topic.topic)),
             )
             self._link(connection, meeting_node_id, topic_id, "discussed_in", source_id)
-        for decision in analysis.decisions:
+        for position, decision in enumerate(analysis.decisions):
             decision_id = self._node_id("decision", source_id, decision.title)
             self._upsert_node(
                 connection,
@@ -317,7 +319,12 @@ class MemoryStore:
                 source_id=source_id,
                 occurred_at=occurred_at,
                 privacy=privacy,
-                metadata=self._metadata(status=decision.status, owner=decision.owner),
+                metadata=self._metadata(
+                    status=decision.status,
+                    owner=decision.owner,
+                    supersedes=decision.supersedes or "",
+                    position=position,
+                ),
             )
             self._link(connection, decision_id, meeting_node_id, "decided_in", source_id)
             if decision.owner:
@@ -480,6 +487,101 @@ class MemoryStore:
             }
             for row in rows
         ]
+
+    @staticmethod
+    def _superseded_decision_id(reference: object) -> str | None:
+        """Exact decision_id, or exact wiki/decisions path; never a title or fuzzy match."""
+        if not isinstance(reference, str):
+            return None
+        if _DECISION_ID.fullmatch(reference):
+            return reference
+        matched = _DECISION_PATH.fullmatch(reference)
+        return matched.group(1) if matched else None
+
+    def decision_history(
+        self, *, include_private: bool = False, limit: int = 100
+    ) -> list[dict[str, object]]:
+        """Decisions oldest first with supersession links; links only join shared decisions."""
+        if not 1 <= limit <= 200:
+            raise ValueError("Decision limit must be from 1 to 200")
+        visible = "" if include_private is True else "AND decisions.privacy='shared'"
+        statement = f"""
+            SELECT decisions.node_id, decisions.label, decisions.content,
+                   decisions.occurred_at, decisions.privacy, decisions.metadata,
+                   decisions.source_id, meetings.label AS meeting_title,
+                   meetings.occurred_at AS meeting_occurred_at,
+                   meetings.privacy AS meeting_privacy, meetings.metadata AS meeting_metadata
+            FROM memory_nodes AS decisions
+            JOIN memory_nodes AS meetings
+              ON meetings.node_type='meeting' AND meetings.source_id=decisions.source_id
+            WHERE decisions.node_type='decision' {visible}
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(statement).fetchall()
+        rows.sort(
+            key=lambda row: (
+                row["occurred_at"],
+                json.loads(row["metadata"]).get("position", 0),
+                row["label"],
+                row["node_id"],
+            )
+        )
+        records: list[dict[str, object]] = []
+        for row in rows:
+            metadata = json.loads(row["metadata"])
+            meeting_key = json.loads(row["meeting_metadata"]).get("meeting_key", "")
+            source = {
+                "source_id": row["source_id"],
+                "title": row["meeting_title"],
+                "occurred_at": row["meeting_occurred_at"],
+                "privacy": row["meeting_privacy"],
+                "meeting_key": meeting_key,
+            }
+            records.append(
+                {
+                    "node_id": row["node_id"],
+                    "decision_id": stable_id(Path(meeting_key).stem, row["label"]),
+                    "title": row["label"],
+                    "detail": row["content"],
+                    "owner": metadata.get("owner"),
+                    "status": metadata.get("status") or "accepted",
+                    "occurred_at": row["occurred_at"],
+                    "privacy": row["privacy"],
+                    "citation": build_citation(source, "decision", metadata),
+                    "supersedes_ref": metadata.get("supersedes"),
+                }
+            )
+        shared = {
+            record["decision_id"]: record for record in records if record["privacy"] == "shared"
+        }
+        replaced_by: dict[str, dict[str, object]] = {}
+        replaces: dict[str, dict[str, object]] = {}
+        for record in records:
+            target = shared.get(self._superseded_decision_id(record["supersedes_ref"]))
+            if record["privacy"] != "shared" or target is None or target is record:
+                continue
+            replaces[record["node_id"]] = target
+            replaced_by[target["node_id"]] = record
+
+        def link(other: dict[str, object] | None) -> dict[str, object] | None:
+            if other is None:
+                return None
+            return {
+                "node_id": other["node_id"],
+                "title": other["title"],
+                "occurred_at": other["occurred_at"],
+                "citation": other["citation"],
+            }
+
+        items: list[dict[str, object]] = []
+        for record in records[-limit:]:
+            successor = replaced_by.get(record["node_id"])
+            item = {key: value for key, value in record.items() if key != "supersedes_ref"}
+            item["effective_status"] = "superseded" if successor else record["status"]
+            item["supersedes"] = link(replaces.get(record["node_id"]))
+            item["superseded_by"] = link(successor)
+            items.append(item)
+        return items
 
     @staticmethod
     def _fts_query(query: str) -> str:

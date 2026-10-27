@@ -156,6 +156,18 @@ def memory_search(
     return {"count": len(items), "items": items}
 
 
+@server.tool(name="meeting_wiki_decision_history", annotations=READ_ONLY, structured_output=True)
+def decision_history(
+    limit: Annotated[int, Field(ge=1, le=200)] = 100,
+) -> dict[str, object]:
+    """List shared decisions oldest first with citations and what each superseded."""
+    try:
+        items = get_memory_store().decision_history(limit=limit)
+    except ValueError as error:
+        return {"error": str(error), "items": []}
+    return {"count": len(items), "items": items}
+
+
 @server.tool(name="meeting_wiki_read_page", annotations=READ_ONLY, structured_output=True)
 def read_page(
     path: Annotated[str, Field(min_length=3, max_length=300)],
