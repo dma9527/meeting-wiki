@@ -247,7 +247,7 @@ Phase D completes when the registry and capability report have full coverage tes
 
 | Item | Status | Acceptance evidence |
 |---|---|---|
-| Canonical citation contract | Partial | One citation shape is used across Desktop, CLI, MCP, and skill surfaces, including meeting, occurrence time, source path, and transcript anchor. |
+| Canonical citation contract | Partial | Memory search results and relations use one citation shape across Desktop, CLI, MCP, and skill (`docs/reference/citations.md`). Wiki page search and list results still return plain page paths. |
 | Decision History | Not started | Chronological decision view with citations and source navigation. |
 | Person Commitments | Not started | Open, completed, changed, and contradicted commitments grouped by person and time. |
 | Topic Evolution | Not started | Chronological statements and decisions with explicit source meetings. |

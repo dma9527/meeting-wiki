@@ -59,6 +59,35 @@ _RELATION_LIMIT = 12
 _MEETING_NODE_ID = re.compile(r"meeting:[0-9a-f]{16}")
 
 
+CITATION_VERSION = 1
+
+
+def build_citation(
+    source: dict[str, object] | None, node_type: str, metadata: dict[str, object]
+) -> dict[str, object] | None:
+    """Canonical citation for CLI, MCP, desktop, and skill; None without one source meeting."""
+    if not source:
+        return None
+    anchor = None
+    if node_type == "transcript_segment":
+        anchor = {
+            "kind": "transcript_segment",
+            "start_seconds": metadata.get("start_seconds"),
+            "end_seconds": metadata.get("end_seconds"),
+        }
+        if type(metadata.get("index")) is int:
+            anchor["index"] = metadata["index"]
+    return {
+        "version": CITATION_VERSION,
+        "meeting_id": f"meeting:{stable_id(source['source_id'])}",
+        "meeting_title": source["title"],
+        "occurred_at": source["occurred_at"],
+        "privacy": source["privacy"],
+        "source_path": source["meeting_key"],
+        "anchor": anchor,
+    }
+
+
 class ResourceError(ValueError):
     """Fixed, input-free reason for a refused resource operation."""
 
@@ -253,6 +282,7 @@ class MemoryStore:
                 occurred_at=occurred_at,
                 privacy=privacy,
                 metadata=self._metadata(
+                    index=index,
                     start_seconds=segment.start_seconds,
                     end_seconds=segment.end_seconds,
                     speaker=segment.speaker,
@@ -501,13 +531,13 @@ class MemoryStore:
         relation_statement = f"""
             SELECT * FROM (
                 SELECT edges.relation, 'out' AS direction, nodes.node_id, nodes.node_type,
-                       nodes.label, edges.source_id
+                       nodes.label, nodes.metadata, edges.source_id
                 FROM memory_edges AS edges
                 JOIN memory_nodes AS nodes ON nodes.node_id=edges.target_node_id
                 WHERE edges.source_node_id=? {visible}
                 UNION ALL
                 SELECT edges.relation, 'in' AS direction, nodes.node_id, nodes.node_type,
-                       nodes.label, edges.source_id
+                       nodes.label, nodes.metadata, edges.source_id
                 FROM memory_edges AS edges
                 JOIN memory_nodes AS nodes ON nodes.node_id=edges.source_node_id
                 WHERE edges.target_node_id=? {visible}
@@ -548,6 +578,8 @@ class MemoryStore:
                 relations = connection.execute(
                     relation_statement, (row["node_id"], row["node_id"])
                 ).fetchall()
+                metadata = json.loads(row["metadata"])
+                source = source_for(row["source_id"])
                 result.append(
                     {
                         "node_id": row["node_id"],
@@ -557,8 +589,9 @@ class MemoryStore:
                         "source_id": row["source_id"],
                         "occurred_at": row["occurred_at"],
                         "privacy": row["privacy"],
-                        "metadata": json.loads(row["metadata"]),
-                        "source": source_for(row["source_id"]),
+                        "metadata": metadata,
+                        "source": source,
+                        "citation": build_citation(source, row["node_type"], metadata),
                         "relations": [
                             {
                                 "relation": relation["relation"],
@@ -567,6 +600,11 @@ class MemoryStore:
                                 "node_type": relation["node_type"],
                                 "label": relation["label"][:200],
                                 "source": source_for(relation["source_id"]),
+                                "citation": build_citation(
+                                    source_for(relation["source_id"]),
+                                    relation["node_type"],
+                                    json.loads(relation["metadata"]),
+                                ),
                             }
                             for relation in relations
                         ],

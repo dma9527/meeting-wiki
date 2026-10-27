@@ -32,6 +32,15 @@ const sharedSource = {
   privacy: "shared",
   meeting_key: "wiki/meetings/2026-09-04-platform-sync.md",
 };
+const citationFor = (source, anchor = null) => ({
+  version: 1,
+  meeting_id: source.source_id,
+  meeting_title: source.title,
+  occurred_at: source.occurred_at,
+  privacy: source.privacy,
+  source_path: source.meeting_key,
+  anchor,
+});
 const privateSource = {
   source_id: "bbbbbbbbbbbbbbbb",
   title: "Career chat",
@@ -51,8 +60,9 @@ function cliItem(overrides = {}) {
     privacy: "shared",
     metadata: { owner: "Alex" },
     source: sharedSource,
+    citation: citationFor(sharedSource),
     relations: [
-      { relation: "decided_in", direction: "out", node_id: "meeting:x", node_type: "meeting", label: "Platform sync", source: sharedSource },
+      { relation: "decided_in", direction: "out", node_id: "meeting:x", node_type: "meeting", label: "Platform sync", source: sharedSource, citation: citationFor(sharedSource) },
     ],
     ...overrides,
   };
@@ -104,8 +114,8 @@ test("invalid queries and type filters are refused before spawning", () => {
 test("projectItem returns a fixed projection and only shared wiki meeting keys", () => {
   const projected = projectItem(cliItem({ secret: "x", metadata: { token: "t" } }));
   assert.deepEqual(Object.keys(projected).sort(), [
-    "content", "label", "meetingNodeId", "nodeType", "occurredAt", "privacy", "relations",
-    "resourceRelation", "source", "url",
+    "citation", "content", "label", "meetingNodeId", "nodeType", "occurredAt", "privacy",
+    "relations", "resourceRelation", "source", "url",
   ]);
   assert.equal(projected.meetingNodeId, "");
   assert.equal(projected.url, "");
@@ -218,3 +228,69 @@ test("the memory view defaults to shared only and renders with textContent", () 
   assert.match(js, /checked === true/);
   assert.doesNotMatch(js, /innerHTML|insertAdjacentHTML|outerHTML/);
 });
+
+test("projectItem projects the shared citation shape and nothing else from it", () => {
+  const projected = projectItem(cliItem({ citation: { ...citationFor(sharedSource), secret: "x" } }));
+  assert.deepEqual(projected.citation, {
+    meetingTitle: "Platform sync",
+    occurredAt: "2026-09-04T15:00:00+00:00",
+    privacy: "shared",
+    sourcePath: "wiki/meetings/2026-09-04-platform-sync.md",
+    anchor: null,
+  });
+  assert.deepEqual(projected.relations[0].citation, projected.citation);
+});
+
+test("a transcript line citation keeps only bounded anchor times", () => {
+  const anchor = { kind: "transcript_segment", start_seconds: 65, end_seconds: 71.5, index: 0 };
+  const projected = projectItem(cliItem({ node_type: "transcript_segment", citation: citationFor(sharedSource, anchor) }));
+  assert.deepEqual(projected.citation.anchor, { startSeconds: 65, endSeconds: 71.5 });
+  for (const bad of [
+    { kind: "transcript_segment", start_seconds: "65", end_seconds: 1 },
+    { kind: "transcript_segment", start_seconds: -1, end_seconds: 1 },
+    { kind: "transcript_segment", start_seconds: 1e12, end_seconds: 1 },
+    { kind: "transcript_segment", start_seconds: NaN, end_seconds: 1 },
+    { kind: "other", start_seconds: 1, end_seconds: 2 },
+    "65",
+  ]) {
+    const item = projectItem(cliItem({ citation: citationFor(sharedSource, bad) }));
+    assert.equal(item.citation.anchor, null, JSON.stringify(bad));
+  }
+});
+
+test("a citation never opens anything but a shared wiki meeting page", () => {
+  const cases = [
+    citationFor(privateSource),
+    { ...citationFor(sharedSource), source_path: "../private/x.md" },
+    { ...citationFor(sharedSource), source_path: "wiki/meetings/../../private/x.md" },
+    { ...citationFor(sharedSource), source_path: "wiki/people/alex.md" },
+    { ...citationFor(sharedSource), privacy: "maybe" },
+  ];
+  for (const citation of cases) {
+    assert.equal(projectItem(cliItem({ citation })).citation.sourcePath, "", JSON.stringify(citation));
+  }
+  assert.equal(projectItem(cliItem({ citation: null })).citation, null);
+  assert.equal(projectItem(cliItem({ citation: "text" })).citation, null);
+  assert.equal(projectItem(cliItem({ citation: { version: 2 } })).citation, null);
+});
+
+test("a shared-only request drops an item or relation whose citation is private", async () => {
+  const stdout = JSON.stringify({
+    items: [
+      cliItem({ label: "Leaky", source: sharedSource, citation: citationFor(privateSource) }),
+      cliItem({
+        label: "Fine",
+        relations: [
+          { relation: "mentioned_in", direction: "out", node_id: "m:p", node_type: "meeting", label: "Career chat", source: sharedSource, citation: citationFor(privateSource) },
+          cliItem().relations[0],
+        ],
+      }),
+    ],
+  });
+  const calls = [];
+  const result = await searchMemory("/py", "/c", "canary", {}, fakeExec({ stdout }, calls));
+  assert.deepEqual(result.items.map((item) => item.label), ["Fine"]);
+  assert.equal(result.items[0].relations.length, 1);
+  assert.equal(result.items[0].relations[0].citation.privacy, "shared");
+});
+

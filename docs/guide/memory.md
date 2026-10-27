@@ -38,6 +38,9 @@ meeting-wiki memory-search --query "canary rollout" --include-private
 meeting-wiki reindex-memory   # rebuild after an upgrade or restore; prints counts only
 ```
 
+Every result carries a `citation` (meeting, date, source page, and the time
+for transcript lines). See [Memory citations](../reference/citations.md).
+
 ## URL resources
 
 Attach a link to a meeting with your own title and summary. Meeting Wiki stores

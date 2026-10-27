@@ -93,7 +93,8 @@ def _safe_page(path: str) -> str:
     normalized = path.replace("\\", "/").lstrip("/")
     if normalized.startswith("wiki/"):
         normalized = normalized[5:]
-    if ".." in normalized.split("/") or "\x00" in normalized:
+    segments = normalized.lower().split("/")
+    if ".." in segments or "private" in segments or "\x00" in normalized:
         raise ValueError("Invalid page path")
     if not normalized.endswith(".md"):
         normalized += ".md"

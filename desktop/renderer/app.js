@@ -291,10 +291,25 @@ function updateMemoryScope() {
   banner.classList.toggle("is-private", includePrivate);
 }
 
-function sourceLine(source) {
-  if (!source) return null;
-  const when = source.occurredAt ? ` · ${source.occurredAt.slice(0, 10)}` : "";
-  return t(source.privacy === "shared" ? "From {title}{when}" : "From {title}{when} (private)", { title: source.title, when });
+// m:ss under an hour, h:mm:ss above.
+function clockTime(totalSeconds) {
+  const seconds = Math.floor(totalSeconds);
+  const pad = (value) => String(value).padStart(2, "0");
+  const hours = Math.floor(seconds / 3600);
+  const rest = `${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`;
+  return hours > 0 ? `${hours}:${rest}` : `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`;
+}
+
+// The citation is the one source shape shared with the CLI, MCP, and the Claude skill.
+function sourceLine(citation) {
+  if (!citation) return null;
+  const when = citation.occurredAt ? ` · ${citation.occurredAt.slice(0, 10)}` : "";
+  const at = citation.anchor ? ` · ${t("at {time}", { time: clockTime(citation.anchor.startSeconds) })}` : "";
+  return t(citation.privacy === "shared" ? "From {title}{when}{at}" : "From {title}{when}{at} (private)", {
+    title: citation.meetingTitle,
+    when,
+    at,
+  });
 }
 
 function renderMemoryCard(item) {
@@ -313,12 +328,12 @@ function renderMemoryCard(item) {
   } else if (item.content && item.content !== item.label) {
     card.appendChild(el("p", { class: "snippet", text: item.content }));
   }
-  const origin = sourceLine(item.source);
+  const origin = sourceLine(item.citation);
   if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
   if (item.relations.length > 0) {
     const relations = el("ul", { class: "relation-list", "aria-label": t("Related records") });
     for (const relation of item.relations) {
-      const via = relation.source ? t(", source: {title}", { title: relation.source.title }) : "";
+      const via = relation.citation ? t(", source: {title}", { title: relation.citation.meetingTitle }) : "";
       const name = EDGE_LABELS[relation.relation] || relation.relation.replace(/_/g, " ");
       relations.appendChild(
         el("li", {
@@ -333,8 +348,8 @@ function renderMemoryCard(item) {
     }
     card.appendChild(relations);
   }
-  if (item.source && item.source.meetingKey) {
-    card.appendChild(openPageButton(item.source.meetingKey, "Open source meeting"));
+  if (item.citation && item.citation.sourcePath) {
+    card.appendChild(openPageButton(item.citation.sourcePath, "Open source meeting"));
   }
   if (item.nodeType === "meeting" && item.privacy === "shared" && item.meetingNodeId && api.memory.addResource) {
     for (const node of resourceForm(item)) card.appendChild(node);

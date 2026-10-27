@@ -24,6 +24,8 @@ meeting-wiki memory-search --query "canary rollout" --include-private
 meeting-wiki reindex-memory   # 升级或恢复后重建索引，只输出数量
 ```
 
+每条结果都带一个 `citation`（会议、日期、来源页面，转录行还有时间点）。详见 [Memory citations](../../reference/citations.md)。
+
 ## URL 资源
 
 可以给会议附加一个链接，并写上你自己的标题和摘要。Meeting Wiki 只把它保存在本地 `memory.db` 中，从不打开、抓取或发送这个 URL。

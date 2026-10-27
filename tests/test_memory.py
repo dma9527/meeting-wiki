@@ -421,3 +421,189 @@ def test_private_deletion_preview_counts_meeting_scoped_people_and_topics(archiv
     )
     assert "person" not in shared["memory"]["nodes"]
     assert "topic" not in shared["memory"]["nodes"]
+
+
+def timed_transcript() -> TranscriptResult:
+    lines = [("Alex", "Canary rollout starts Monday.", 65.0, 71.5), ("Sam", "Agreed.", 72.0, 73.0)]
+    return TranscriptResult(
+        text="\n".join(f"{speaker}: {text}" for speaker, text, _, _ in lines),
+        segments=[
+            TranscriptSegment(speaker=speaker, text=text, start_seconds=start, end_seconds=end)
+            for speaker, text, start, end in lines
+        ],
+        provider="fake",
+        model="fake",
+        diarized=True,
+    )
+
+
+@pytest.fixture
+def timed_archive(tmp_path) -> dict[str, object]:
+    data_dir = tmp_path / "timed"
+    meeting = make_meeting("Platform sync", 4)
+    key = store_meeting(
+        data_dir,
+        meeting,
+        make_analysis("Platform sync", "Rollout", "Ship the canary rollout"),
+        timed_transcript(),
+    )
+    private = make_meeting("Career chat", 5, private=True)
+    private_key = store_meeting(
+        data_dir,
+        private,
+        make_analysis("Career chat", "Rollout", "Confidential canary concern", private=True),
+        timed_transcript(),
+    )
+    reindex_memory(data_dir)
+    return {"data_dir": data_dir, "key": key, "id": meeting.ingest_id, "private_key": private_key}
+
+
+def citation_for(key: str, ingest_id: str, anchor: dict | None = None) -> dict:
+    return {
+        "version": 1,
+        "meeting_id": MemoryStore._node_id("meeting", ingest_id),
+        "meeting_title": "Platform sync",
+        "occurred_at": "2026-09-04T15:00:00+00:00",
+        "privacy": "shared",
+        "source_path": key,
+        "anchor": anchor,
+    }
+
+
+def test_a_decision_cites_its_meeting_with_the_full_citation_shape(timed_archive):
+    [decision] = memory(timed_archive["data_dir"]).search("canary", node_types=["decision"])
+    assert decision["citation"] == citation_for(timed_archive["key"], timed_archive["id"])
+    assert decision["citation"]["source_path"] == decision["source"]["meeting_key"]
+
+
+def test_a_meeting_result_cites_itself(timed_archive):
+    [meeting] = memory(timed_archive["data_dir"]).search("platform", node_types=["meeting"])
+    assert meeting["citation"] == citation_for(timed_archive["key"], timed_archive["id"])
+
+
+def test_a_citation_meeting_id_is_the_meeting_node_id_other_commands_accept(timed_archive):
+    store = memory(timed_archive["data_dir"])
+    [meeting] = store.search("platform", node_types=["meeting"])
+    [decision] = store.search("canary", node_types=["decision"])
+    assert meeting["citation"]["meeting_id"] == meeting["node_id"]
+    assert decision["citation"]["meeting_id"] == meeting["node_id"]
+
+
+def test_a_transcript_line_cites_the_time_inside_the_meeting(timed_archive):
+    lines = memory(timed_archive["data_dir"]).search(
+        "canary rollout starts", node_types=["transcript_segment"]
+    )
+    [line] = [item for item in lines if item["privacy"] == "shared"]
+    assert line["citation"] == citation_for(
+        timed_archive["key"],
+        timed_archive["id"],
+        {"kind": "transcript_segment", "start_seconds": 65.0, "end_seconds": 71.5, "index": 0},
+    )
+
+
+def test_relations_carry_their_own_citation_and_an_entity_has_none_of_its_own(timed_archive):
+    [topic] = memory(timed_archive["data_dir"]).search("rollout", node_types=["topic"])
+    assert topic["citation"] is None, "a shared topic spans meetings, so it has no single source"
+    assert [relation["citation"] for relation in topic["relations"]] == [
+        citation_for(timed_archive["key"], timed_archive["id"])
+    ]
+    [decision] = memory(timed_archive["data_dir"]).search("canary", node_types=["decision"])
+    assert all(relation["citation"] is not None for relation in decision["relations"])
+
+
+def test_a_related_transcript_line_carries_its_anchor(timed_archive):
+    [meeting] = memory(timed_archive["data_dir"]).search("platform", node_types=["meeting"])
+    anchors = [
+        relation["citation"]["anchor"]
+        for relation in meeting["relations"]
+        if relation["node_type"] == "transcript_segment"
+    ]
+    assert anchors
+    assert all(
+        anchor["kind"] == "transcript_segment" and "start_seconds" in anchor for anchor in anchors
+    )
+
+
+def test_shared_search_never_returns_a_private_citation(timed_archive):
+    items = memory(timed_archive["data_dir"]).search("canary rollout", limit=30)
+    payload = json.dumps(items)
+    assert timed_archive["private_key"] not in payload
+    assert '"privacy": "private"' not in payload
+    assert all(
+        item["citation"] is None or item["citation"]["privacy"] == "shared" for item in items
+    )
+
+
+def test_private_search_cites_the_private_source_only_when_asked(timed_archive):
+    items = memory(timed_archive["data_dir"]).search(
+        "confidential", node_types=["decision"], include_private=True
+    )
+    [decision] = items
+    assert decision["citation"]["privacy"] == "private"
+    assert decision["citation"]["source_path"] == timed_archive["private_key"]
+
+
+def test_the_cli_prints_the_citation(timed_archive, tmp_path, capsys):
+    config = tmp_path / "config.toml"
+    config.write_text(f'data_dir = "{timed_archive["data_dir"]}"\n')
+    assert (
+        main(["--config", str(config), "memory-search", "--query=canary", "--type=decision"]) == 0
+    )
+    [item] = json.loads(capsys.readouterr().out)["items"]
+    assert item["citation"] == citation_for(timed_archive["key"], timed_archive["id"])
+
+
+def test_the_mcp_tool_returns_the_same_citation_shape(timed_archive):
+    async def run():
+        env = os.environ.copy()
+        env["MEETING_WIKI_DATA_DIR"] = str(timed_archive["data_dir"])
+        params = StdioServerParameters(
+            command=os.sys.executable,
+            args=["-m", "meeting_wiki.mcp_server"],
+            env=env,
+            cwd=Path(__file__).parents[1],
+        )
+        async with (
+            stdio_client(params) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool(
+                "meeting_wiki_memory_search", {"query": "canary", "node_type": "decision"}
+            )
+            [item] = result.structured_content["items"]
+            assert item["citation"] == citation_for(timed_archive["key"], timed_archive["id"])
+            page = await session.call_tool(
+                "meeting_wiki_read_page", {"path": item["citation"]["source_path"]}
+            )
+            assert "Platform sync" in page.structured_content["content"]
+            for private_path in (timed_archive["private_key"], "wiki/private/meetings/x.md"):
+                refused = await session.call_tool("meeting_wiki_read_page", {"path": private_path})
+                assert "error" in refused.structured_content
+                assert "content" not in refused.structured_content
+
+    asyncio.run(run())
+
+
+def test_a_transcript_line_indexed_before_citations_existed_still_cites_without_an_index(
+    timed_archive,
+):
+    db = timed_archive["data_dir"] / "memory.db"
+    with sqlite3.connect(db) as connection:
+        for node_id, metadata in connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE node_type='transcript_segment'"
+        ).fetchall():
+            data = json.loads(metadata)
+            data.pop("index", None)
+            connection.execute(
+                "UPDATE memory_nodes SET metadata=? WHERE node_id=?", (json.dumps(data), node_id)
+            )
+    lines = memory(timed_archive["data_dir"]).search(
+        "canary rollout starts", node_types=["transcript_segment"]
+    )
+    [line] = [item for item in lines if item["privacy"] == "shared"]
+    assert line["citation"]["anchor"] == {
+        "kind": "transcript_segment",
+        "start_seconds": 65.0,
+        "end_seconds": 71.5,
+    }

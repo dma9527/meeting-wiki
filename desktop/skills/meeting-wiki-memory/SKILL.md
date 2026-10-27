@@ -24,8 +24,11 @@ you learn comes from the user's own machine at query time.
 3. Do not fetch, open, or summarize resource URLs unless the user asks you to.
    Resources store a URL plus the user's own title and summary; Meeting Wiki
    never fetches them.
-4. Quote sources. Each result names the meeting it came from; cite that title
-   and date instead of presenting facts as your own.
+4. Quote sources. Each memory result carries a `citation` with the meeting
+   title and date; cite them (plus the `anchor` time for transcript lines)
+   instead of presenting facts as your own. Shared people and topics have
+   `citation: null`; cite the meeting on each of their relations instead. Never
+   cite a private meeting in shared output. See `docs/reference/citations.md`.
 
 ## Option A: MCP (preferred, shared memory only)
 
@@ -36,6 +39,7 @@ If the `meeting_wiki_mcp` server is connected (command `meeting-wiki-mcp`), use:
   `transcript_segment`, `resource`), and `limit` (1 to 30). Shared memory only.
 - `meeting_wiki_search` for full-text search over shared wiki pages.
 - `meeting_wiki_read_page` to read one shared page by path from a search result.
+  A citation's `source_path` is accepted here.
 - `meeting_wiki_list_recent` and `meeting_wiki_action_items` for overviews.
 
 All MCP tools are read-only. They cannot return private memory.

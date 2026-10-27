@@ -261,3 +261,87 @@ test("main passes the saved language getter to the Wiki window", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
   assert.match(main, /\{ dataDir: DATA_DIR, python: PYTHON, configPath: CONFIG_PATH, uiLanguage: currentUiLanguage \}/);
 });
+
+const CITATION = {
+  meetingTitle: "Platform sync",
+  occurredAt: "2026-09-04T15:00:00+00:00",
+  privacy: "shared",
+  sourcePath: "wiki/meetings/2026-09-04-platform-sync.md",
+  anchor: null,
+};
+
+async function memoryCardsFor(uiLanguage, items) {
+  const view = loadRenderer({
+    uiLanguage,
+    api: { memory: { search: async () => ({ count: items.length, items }) } },
+  });
+  await view.documentObject.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  view.byId("memory-input").value = "canary";
+  await view.context.runMemorySearch();
+  return view.byId("memory-results").children;
+}
+
+const memoryItem = (overrides = {}) => ({
+  nodeType: "decision",
+  meetingNodeId: "",
+  url: "",
+  resourceRelation: "",
+  label: "Rollout decision",
+  content: "Ship the canary rollout",
+  occurredAt: CITATION.occurredAt,
+  privacy: "shared",
+  source: null,
+  citation: CITATION,
+  relations: [],
+  ...overrides,
+});
+
+const texts = (card) => card.children.map((child) => child.textContent);
+
+test("a memory result shows its citation in the chosen language and opens the cited page", async () => {
+  const [english] = await memoryCardsFor("en", [memoryItem()]);
+  assert.ok(texts(english).includes("From Platform sync · 2026-09-04"));
+  const [chinese] = await memoryCardsFor("zh-CN", [memoryItem()]);
+  assert.ok(texts(chinese).includes("来自 Platform sync · 2026-09-04"));
+  assert.equal(chinese.children.at(-1).textContent, "打开来源会议");
+});
+
+test("a transcript line shows the time inside the meeting from its anchor", async () => {
+  const anchored = memoryItem({
+    nodeType: "transcript_segment",
+    citation: { ...CITATION, anchor: { startSeconds: 3725, endSeconds: 3730 } },
+  });
+  const [english] = await memoryCardsFor("en", [anchored]);
+  assert.ok(texts(english).includes("From Platform sync · 2026-09-04 · at 1:02:05"));
+  const [chinese] = await memoryCardsFor("zh-CN", [anchored]);
+  assert.ok(texts(chinese).includes("来自 Platform sync · 2026-09-04 · 位于 1:02:05"));
+  const short = memoryItem({
+    nodeType: "transcript_segment",
+    citation: { ...CITATION, anchor: { startSeconds: 65, endSeconds: 70 } },
+  });
+  assert.ok(texts((await memoryCardsFor("en", [short]))[0]).includes("From Platform sync · 2026-09-04 · at 1:05"));
+});
+
+test("a result without a citation shows no source line and no open button", async () => {
+  const [card] = await memoryCardsFor("en", [memoryItem({ nodeType: "topic", citation: null })]);
+  assert.ok(!texts(card).some((line) => line.startsWith("From ")));
+  assert.ok(!texts(card).includes("Open source meeting"));
+});
+
+test("a private citation is labeled private and never offers to open a page", async () => {
+  const privateCitation = { ...CITATION, privacy: "private", sourcePath: "" };
+  const [card] = await memoryCardsFor("en", [memoryItem({ privacy: "private", citation: privateCitation })]);
+  assert.ok(texts(card).includes("From Platform sync · 2026-09-04 (private)"));
+  assert.ok(!texts(card).includes("Open source meeting"));
+});
+
+test("each relation shows its own citation title", async () => {
+  const related = memoryItem({
+    relations: [{ relation: "decided_in", direction: "out", nodeType: "meeting", label: "Platform sync", source: null, citation: CITATION }],
+  });
+  const [card] = await memoryCardsFor("en", [related]);
+  const list = card.children.find((child) => child.className === "relation-list");
+  assert.equal(list.children[0].textContent, "decided in: Meeting “Platform sync”, source: Platform sync");
+});
+

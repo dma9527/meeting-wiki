@@ -80,6 +80,39 @@ function projectSource(source) {
   };
 }
 
+const CITATION_VERSION = 1;
+// A day of audio is far longer than any recording the app allows.
+const MAX_ANCHOR_SECONDS = 86_400;
+
+function boundedSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_ANCHOR_SECONDS
+    ? value
+    : null;
+}
+
+function projectAnchor(anchor) {
+  if (!anchor || typeof anchor !== "object" || anchor.kind !== "transcript_segment") return null;
+  const startSeconds = boundedSeconds(anchor.start_seconds);
+  const endSeconds = boundedSeconds(anchor.end_seconds);
+  return startSeconds === null || endSeconds === null ? null : { startSeconds, endSeconds };
+}
+
+// The one citation shape from the CLI and MCP. Only a shared wiki meeting page can be opened.
+function projectCitation(citation) {
+  if (!citation || typeof citation !== "object" || citation.version !== CITATION_VERSION) return null;
+  const privacy = citation.privacy === "shared" ? "shared" : "private";
+  const sourcePath = text(citation.source_path, 300);
+  return {
+    meetingTitle: text(citation.meeting_title, 300),
+    occurredAt: text(citation.occurred_at, 40),
+    privacy,
+    sourcePath: privacy === "shared" && sourcePath.startsWith("wiki/meetings/") && !sourcePath.includes("..")
+      ? sourcePath
+      : "",
+    anchor: projectAnchor(citation.anchor),
+  };
+}
+
 function projectItem(item) {
   const relations = Array.isArray(item.relations) ? item.relations.slice(0, MAX_RELATIONS) : [];
   const nodeType = NODE_TYPES.includes(item.node_type) ? item.node_type : "unknown";
@@ -101,19 +134,23 @@ function projectItem(item) {
     occurredAt: text(item.occurred_at, 40),
     privacy,
     source: projectSource(item.source),
+    citation: projectCitation(item.citation),
     relations: relations.map((relation) => ({
       relation: text(relation.relation, 40),
       direction: relation.direction === "in" ? "in" : "out",
       nodeType: NODE_TYPES.includes(relation.node_type) ? relation.node_type : "unknown",
       label: text(relation.label, 200),
       source: projectSource(relation.source),
+      citation: projectCitation(relation.citation),
     })),
   };
 }
 
 // Defense in depth: a shared-only request never forwards a private item or relation.
 function sharedOnly(item) {
-  const hidesSource = (entry) => entry.source && entry.source.privacy !== "shared";
+  const hidesSource = (entry) =>
+    (entry.source && entry.source.privacy !== "shared")
+    || (entry.citation && entry.citation.privacy !== "shared");
   if (item.privacy !== "shared" || hidesSource(item)) return null;
   return { ...item, relations: item.relations.filter((relation) => !hidesSource(relation)) };
 }
