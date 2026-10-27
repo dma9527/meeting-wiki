@@ -83,6 +83,9 @@ text, paths, and keys are never shown.
   the menu bar, first asks you to confirm the number of jobs.
 - **Dismiss** hides a failed job without removing its recording, transcript,
   wiki pages, or local diagnostic record. Restore it from **Dismissed jobs**.
+- [Job states and recovery actions](../reference/job-states.md) lists every
+  state, what the app does on its own, and what you can do, including what to
+  try when jobs wait or a job seems stuck.
 
 From the CLI:
 

@@ -138,7 +138,7 @@ Phase A completes only when KI-0, KI-3, and KI-4 are closed; the user-initiated 
 | Zoom installed-app validation | Partial | Real join, leave, debounce, privacy, stop, and processing results on the signed release build. |
 | Google Meet installed-app validation | Partial | Join, heartbeat, leave, browser restart, host repair, privacy, stop, and processing results on the signed release build. |
 | Durable integration health | Partial | Persist last success, fixed failure code, dry-run result, component version, and observation time with corruption and restart tests. |
-| Recovery state matrix | Partial | Enumerate every supported job state and its allowed user action. |
+| Recovery state matrix | Complete | `docs/reference/job-states.md` lists every state with its automatic handling and allowed actions; `tests/test_job_state_matrix.py` runs each action against a real queue so the table cannot drift. Real-meeting validation of the stalled-work steps remains under the integration rows. |
 
 ### Exit criteria
 
