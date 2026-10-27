@@ -1,14 +1,27 @@
 # Meeting Wiki Productization Roadmap
 
-Last reviewed: 2026-10-14.
+Last reviewed: 2026-10-27.
 
-Baseline: Meeting Wiki 0.1.13 at commit `3eb799b`.
+Baseline: Meeting Wiki 0.1.19 at commit `5ccb446`. The previous baseline was 0.1.13 at commit `3eb799b`; see "Progress since 0.1.13".
 
 ## Objective
 
 Turn Meeting Wiki from a local engineering alpha into a trustworthy macOS private beta. The product promise is a local-first, source-linked meeting memory that users and their agents can query safely.
 
 This document is the execution ledger. A work item is complete only when its implementation and required evidence are both present. `docs/release-checklist.md` remains the per-release sign-off list, and `docs/known-issues.md` remains the source of truth for open release blockers.
+
+## Progress since 0.1.13
+
+Every row names the commits that carry it. A row records what was built, not what was validated on a signed build; the phase sections below keep the open validation work.
+
+| Version | Change | Commits |
+|---|---|---|
+| 0.1.14 | Quick-start recording defaults, reliable automatic live startup, language preferences in Settings. | `08008f9`, `33bb4f3`, `6b50e2a` |
+| 0.1.15 | DMG and ZIP are built from the re-signed app and verified after mounting and extracting. Live captions both audio channels (You and Others) and recovers from dropped connections. A knowledge base for coding agents is added to the repository. | `1087672`, `309e955`, `c75838b` |
+| 0.1.16 | First-run app language. Same-language translations are hidden in the live window. The memory language can follow the meeting. Setup, recording options, and the live window are localized. | `a365ea2`, `a0a9360`, `64f05d5`, `44947f8` |
+| 0.1.17 | Tray menu, notifications, and dialogs are localized. Install instructions clear the download flag before the app is dragged out of the DMG. | `57370d3`, `34a5fa8`, `4263360` |
+| 0.1.18 | Wiki and Corrections window is localized. | `b16be30` |
+| 0.1.19 | Privacy-safe diagnostics export (CLI and tray). Electron 44.9.3. Dependency advisories fixed. | `01dd819`, `0b5aedb`, `2be02f8`, `e250805` |
 
 ## Status definitions
 
@@ -33,7 +46,7 @@ This document is the execution ledger. A work item is complete only when its imp
 
 | Phase | Status | Current gate |
 |---|---|---|
-| A. Release integrity | Blocked | Developer ID, notarization, corresponding source, diagnostic export, and second-Mac validation. |
+| A. Release integrity | Blocked | Developer ID, notarization, corresponding source, and second-Mac validation. The diagnostic export is implemented and awaits that validation. |
 | B. Core reliability | Partial | Real Gemini, Zoom, and Google Meet validation plus durable integration health. |
 | C. Data ownership | Partial | Portable export and lifecycle apply policy. |
 | D. Configuration and UX | Partial | Unified capability report and full Settings registry. |
@@ -50,6 +63,9 @@ This document is the execution ledger. A work item is complete only when its imp
 - Release manifests record source identity, versions, runtime identity, extension identity, notices, source-offer hash, and artifact checksums.
 - App, ZIP, and DMG inventory checks require the CLI installer, Claude skill, Google Meet extension, runtime tools, project notices, product icon, permission descriptions, and retained runtime licenses.
 - Runtime staging records CPython, Python package, SoX, and linked-library licenses and blocks absent source-offer input.
+- Local builds create the DMG and ZIP from the re-signed app and check the mounted and extracted copies, so the app is not reported as damaged after install on the build Mac (`scripts/build-macos.sh`, `tests/test_release_script.py`).
+- Install instructions tell a second Mac to clear the download flag from the DMG before dragging the app out (KI-6). Developer ID signing removes this step.
+- The desktop runtime is Electron 44.9.3. CI runs `pip-audit` and `npm audit --audit-level=high` and both are clean on the current commit.
 - Release signing code implements inside-out runtime, app, and DMG signing. Static tests verify ordering, required entitlements, and fail-closed metadata checks; a credentialed run remains unverified under KI-4.
 - Release, installation, security, and known-issue documents exist.
 
@@ -74,7 +90,7 @@ This document is the execution ledger. A work item is complete only when its imp
 | Credentialed signing path | Partial | Successful Developer ID app and DMG signing with matching team, timestamps, hardened runtime, and required entitlements. | Release owner |
 | Tagged release build | Not started | `vVERSION` points to the release commit, release mode succeeds, and the manifest records `publishable: true`. | Release owner |
 | Clean-Mac install | Not started | Gatekeeper, first run, permissions, upgrade, and uninstall checklist results from a second Mac. Depends on the credentialed release build. | Release owner and tester |
-| User-initiated diagnostic export | Partial | CLI `diagnostics-export` is implemented offline, with read-only access, per-field allowlists, and a fail-closed final scan (`tests/test_diagnostic_export.py`). A desktop menu entry and a second-Mac check remain. | Maintainer |
+| User-initiated diagnostic export | Partial | `meeting-wiki diagnostics-export` and the tray item **Export diagnostics...** are implemented offline, with read-only access, per-field allowlists, and a fail-closed final scan (`tests/test_diagnostic_export.py`, `desktop/test/diagnostics-export.test.js`). A second-Mac check and an on-screen check of the save dialog remain. | Maintainer |
 
 ### Exit criteria
 
@@ -94,6 +110,9 @@ Phase A completes only when KI-0, KI-3, and KI-4 are closed; the user-initiated 
 - Correction reprocessing suppresses duplicate external task delivery.
 - Recovery UI shows refresh time, stage, privacy-safe labels, persistent errors, individual retry, and counted bulk confirmation.
 - Simulated Gemini Live renewal, transcript ordering, Zoom detection, Meet extension, native-host repair primitives, and event ordering have regression coverage.
+- Live captions run on two channels: the microphone is labeled You and the audio played on the Mac is labeled Others. Each channel has its own provider session and reconnects up to three times with backoff, and a silent system channel is reported after 30 seconds.
+- Live failures are written to a local log with allowlisted codes only, and **Run self-check...** can open one real live session with silent audio to prove the connection (`meeting-wiki self-check --probe-live`).
+- A live outage seen in October was traced to the provider account (the service closed the connection with code 1011), not to the app. The probe now reports that kind of failure by code instead of as an unexplained "unavailable".
 
 ### Evidence
 
@@ -173,6 +192,9 @@ Phase C completes when portable export and second-device restore are validated, 
 - Memory resources use field-level validation and fixed error messages.
 - Bulk recovery retry requires counted confirmation.
 - Local only setup is visible but disabled because it cannot complete in this build.
+- The app language is chosen at first run and in Settings. It sets the language of every window and the default live translation and summary languages. Setup, Settings, the recording options, the live window, the tray menu, notifications, dialogs, the self-check result, and the Wiki and Corrections window follow it. Meeting titles, wiki page text, paths, and error codes are never translated.
+- The memory language can be **Same as the meeting**, which stores facts in the language that was spoken and is the default for new installs.
+- Recording defaults (privacy and live) persist, so a normal start and the global shortcut begin immediately.
 - CLI installation uses guarded user-owned shims and never overwrites custom files or links.
 
 ### Evidence
@@ -183,12 +205,15 @@ Phase C completes when portable export and second-device restore are validated, 
 - `desktop/record-window.js`.
 - `desktop/self-check.js`.
 - `desktop/cli-installer.js`.
-- Corresponding tests under `desktop/test/`.
+- `desktop/main-localization.js` and `desktop/renderer/{i18n,setup-localization,settings-localization,record-localization,live-sidebar-localization,wiki-localization}.js`.
+- Corresponding tests under `desktop/test/`, including catalog coverage tests that read the source for every string a window can show.
 
 ### Remaining
 
 | Item | Status | Acceptance evidence |
 |---|---|---|
+| Localization review | Not started | A native reader reviews the Simplified Chinese catalogs, and every window is viewed on screen in each language. The copy so far has been checked by tests, not by a reader. |
+| Electron 44 window check | Not started | Settings, recording options, the live window, the Wiki and Corrections window, and the **Export diagnostics...** save dialog are viewed on an installed 0.1.19 build. The upgrade was verified by tests, a full build, and a launch only. |
 | Unified capability report | Partial | Provider, storage, permissions, live adapter, memory, Zoom, Meet, and skill state appear in one privacy-safe report. |
 | Full Settings registry | Partial | Every configurable value declares owner form, default, persistence layer, validation, effect timing, restart behavior, and capability mapping. |
 | Fresh-install usability | Not started | A new user completes setup, permissions, readiness, recording, processing, and recovery on the signed build without documentation. Depends on Phase A. |
@@ -271,8 +296,9 @@ No phase may claim public or beta readiness while an earlier release gate remain
 
 | Priority | Milestone | Done when |
 |---|---|---|
-| 1 | Resolve release prerequisites and diagnostics | Developer ID, notarization, corresponding-source materials, and the privacy-safe diagnostic export are available and documented. |
+| 1 | Resolve release prerequisites | Developer ID, notarization, and corresponding-source materials are available and documented. The diagnostic export is implemented and needs the second-Mac check. |
 | 2 | Build and validate a tagged release | Release mode records `publishable: true`, the release script passes, and the second-Mac checklist is complete. |
 | 3 | Run the real integration matrix | Gemini, Zoom, and Meet results are recorded for that exact release build. |
 | 4 | Unify health reporting | Durable integration state appears in one capability report and Settings view. |
 | 5 | Ship Decision History | Chronological decisions use the canonical citation contract and open their sources. |
+| 6 | Check 0.1.19 on screen | The two Phase D rows for the Electron 44 window check and the localization review are recorded as passed or fixed. |
