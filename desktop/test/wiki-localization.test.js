@@ -345,3 +345,58 @@ test("each relation shows its own citation title", async () => {
   assert.equal(list.children[0].textContent, "decided in: Meeting “Platform sync”, source: Platform sync");
 });
 
+
+const DECISION = {
+  title: "Use polling",
+  detail: "Poll every 5 minutes.",
+  owner: "Sam",
+  status: "accepted",
+  effectiveStatus: "accepted",
+  occurredAt: "2026-09-01T15:00:00+00:00",
+  privacy: "shared",
+  citation: CITATION,
+  supersedes: null,
+  supersededBy: null,
+};
+
+async function decisionCardsFor(uiLanguage, items) {
+  const view = loadRenderer({
+    uiLanguage,
+    api: { memory: { search: async () => ({ items: [] }), decisions: async () => ({ count: items.length, items }) } },
+  });
+  await view.documentObject.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await view.context.loadDecisions();
+  return view.byId("decisions-list").children;
+}
+
+test("a superseded decision keeps its place, gains a badge, and links to its replacement", async () => {
+  const replaced = { ...DECISION, effectiveStatus: "superseded", supersededBy: { title: "Use webhooks", occurredAt: "2026-09-08T15:00:00+00:00", citation: CITATION } };
+  const replacement = { ...DECISION, title: "Use webhooks", occurredAt: "2026-09-08T15:00:00+00:00", supersedes: { title: "Use polling", occurredAt: "2026-09-01T15:00:00+00:00", citation: CITATION } };
+  const [first, second] = await decisionCardsFor("en", [replaced, replacement]);
+  assert.equal(first.children[0].children[0].textContent, "Superseded");
+  assert.ok(texts(first).includes("Replaced by “Use webhooks” (2026-09-08)"));
+  assert.ok(texts(first).includes("2026-09-01 · Owner: Sam"));
+  assert.ok(texts(first).includes("Poll every 5 minutes."));
+  assert.equal(second.children[0].children.length, 0, "the current decision has no badge");
+  assert.ok(texts(second).includes("Replaces “Use polling” (2026-09-01)"));
+  assert.equal(first.children.at(-1).textContent, "Open source meeting");
+});
+
+test("the Chinese decision history translates badges, links, and the empty state", async () => {
+  const replaced = { ...DECISION, effectiveStatus: "superseded", supersededBy: { title: "Use webhooks", occurredAt: "2026-09-08T15:00:00+00:00", citation: CITATION } };
+  const reversed = { ...DECISION, title: "Drop retries", status: "reversed", effectiveStatus: "reversed", owner: "" };
+  const [first, second] = await decisionCardsFor("zh-CN", [replaced, reversed]);
+  assert.equal(first.children[0].children[0].textContent, "已被取代");
+  assert.ok(texts(first).includes("被“Use webhooks”取代（2026-09-08）"));
+  assert.ok(texts(first).includes("2026-09-01 · 负责人：Sam"));
+  assert.equal(second.children[0].children[0].textContent, "已撤销");
+  assert.ok(texts(second).includes("2026-09-01"), "no owner means no owner text");
+  const [empty] = await decisionCardsFor("zh-CN", []);
+  assert.equal(empty.textContent, "还没有记录任何决定。");
+});
+
+test("the decision history titles are shown as written and never as markup", async () => {
+  const [card] = await decisionCardsFor("en", [{ ...DECISION, title: "<img src=x onerror=alert(1)>" }]);
+  assert.equal(card.children[0].textContent, "<img src=x onerror=alert(1)>");
+});

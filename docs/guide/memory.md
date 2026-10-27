@@ -5,8 +5,8 @@
 ## Wiki window
 
 **Open Wiki & Corrections** in the menu bar opens a local window with recent
-meetings, full-text search, page reads, open action items, memory search, the
-correction inbox, and processing recovery.
+meetings, full-text search, page reads, decision history, open action items,
+memory search, the correction inbox, and processing recovery.
 
 The window loads no remote content and can read only `wiki/`. `private/` is
 unreachable from it. The one exception is memory search, and only when you
@@ -41,6 +41,24 @@ meeting-wiki reindex-memory   # rebuild after an upgrade or restore; prints coun
 Every result carries a `citation` (meeting, date, source page, and the time
 for transcript lines). See [Memory citations](../reference/citations.md).
 
+## Decision history
+
+**Decision history** in the window lists shared decisions oldest first, each
+with its meeting, date, owner, and an **Open source meeting** button. A decision
+is marked **Superseded** only when a later decision names it exactly, by its
+`decision_id` or its `wiki/decisions/` page path. Titles are never matched.
+Superseded decisions stay in place with a link to their replacement. Run
+`meeting-wiki reindex-memory` once after upgrading so earlier meetings carry
+their supersession references.
+
+```bash
+meeting-wiki memory-decisions --limit=50
+```
+
+The MCP tool `meeting_wiki_decision_history` returns the same list. Private
+decisions appear only with `--include-private` and are never linked to shared
+ones.
+
 ## URL resources
 
 Attach a link to a meeting with your own title and summary. Meeting Wiki stores
@@ -65,7 +83,7 @@ meeting-wiki memory-resources
 ## MCP server
 
 `meeting-wiki-mcp` is a local, read-only MCP server over shared content:
-`meeting_wiki_search`, `meeting_wiki_memory_search`, `meeting_wiki_read_page`,
+`meeting_wiki_search`, `meeting_wiki_memory_search`, `meeting_wiki_decision_history`, `meeting_wiki_read_page`,
 `meeting_wiki_list_recent`, and `meeting_wiki_action_items`. It never returns
 private meetings or private memory.
 

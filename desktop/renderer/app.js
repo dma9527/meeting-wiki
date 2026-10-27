@@ -82,6 +82,7 @@ function switchView(view) {
   const active = document.getElementById(`view-${view}`);
   if (active) active.focus();
   if (view === "recent" && !loaded.recent) loadRecent();
+  if (view === "decisions") loadDecisions();
   if (view === "actions" && !loaded.actions) loadActions();
   if (view === "corrections" && !loaded.corrections) loadCorrections();
   if (view === "recovery") loadRecovery(true);
@@ -376,6 +377,42 @@ async function runMemorySearch() {
     return;
   }
   for (const item of result.items) list.appendChild(renderMemoryCard(item));
+}
+
+const linkVars = (link) => ({ title: link.title, date: link.occurredAt.slice(0, 10) });
+
+// Chronological and never hidden: a replaced decision keeps its place and gains a badge and a link.
+function renderDecisionCard(decision) {
+  const title = el("h3", { class: "card-title", text: displayLabel(decision.title) });
+  if (decision.effectiveStatus !== "accepted") {
+    title.appendChild(
+      el("span", { class: "status-chip", text: t(decision.effectiveStatus === "superseded" ? "Superseded" : "Reversed") }),
+    );
+  }
+  const card = el("article", { class: "card" }, [title]);
+  const owner = decision.owner ? ` · ${t("Owner: {owner}", { owner: decision.owner })}` : "";
+  card.appendChild(el("p", { class: "card-meta", text: `${decision.occurredAt.slice(0, 10)}${owner}` }));
+  if (decision.detail) card.appendChild(el("p", { class: "snippet", text: decision.detail }));
+  if (decision.supersededBy) card.appendChild(el("p", { class: "card-meta", text: t("Replaced by “{title}” ({date})", linkVars(decision.supersededBy)) }));
+  if (decision.supersedes) card.appendChild(el("p", { class: "card-meta", text: t("Replaces “{title}” ({date})", linkVars(decision.supersedes)) }));
+  const origin = sourceLine(decision.citation);
+  if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
+  if (decision.citation && decision.citation.sourcePath) {
+    card.appendChild(openPageButton(decision.citation.sourcePath, "Open source meeting"));
+  }
+  return card;
+}
+
+async function loadDecisions() {
+  const list = document.getElementById("decisions-list");
+  const result = await api.memory.decisions({ limit: 100 });
+  if (failed(result)) return;
+  clear(list);
+  if (result.items.length === 0) {
+    list.appendChild(emptyNote("No decisions recorded yet."));
+    return;
+  }
+  for (const decision of result.items) list.appendChild(renderDecisionCard(decision));
 }
 
 function parseActionRow(row) {

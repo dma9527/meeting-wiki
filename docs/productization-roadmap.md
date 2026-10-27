@@ -248,7 +248,7 @@ Phase D completes when the registry and capability report have full coverage tes
 | Item | Status | Acceptance evidence |
 |---|---|---|
 | Canonical citation contract | Partial | Memory search results and relations use one citation shape across Desktop, CLI, MCP, and skill (`docs/reference/citations.md`). Wiki page search and list results still return plain page paths. |
-| Decision History | Not started | Chronological decision view with citations and source navigation. |
+| Decision History | Partial | Chronological view with citations, exact supersession links, a Superseded badge, and source navigation (`memory-decisions`, MCP, Wiki window). Not yet confirmed on screen in an installed build; filters by topic or owner are not built. |
 | Person Commitments | Not started | Open, completed, changed, and contradicted commitments grouped by person and time. |
 | Topic Evolution | Not started | Chronological statements and decisions with explicit source meetings. |
 | User-triggered synthesis | Not started | Versioned output, explicit source set, conflict handling, user confirmation, and immutable source facts. |
@@ -300,5 +300,5 @@ No phase may claim public or beta readiness while an earlier release gate remain
 | 2 | Build and validate a tagged release | Release mode records `publishable: true`, the release script passes, and the second-Mac checklist is complete. |
 | 3 | Run the real integration matrix | Gemini, Zoom, and Meet results are recorded for that exact release build. |
 | 4 | Unify health reporting | Durable integration state appears in one capability report and Settings view. |
-| 5 | Ship Decision History | Chronological decisions use the canonical citation contract and open their sources. |
+| 5 | Confirm Decision History on screen | Chronological decisions use the canonical citation contract and open their sources in an installed build. |
 | 6 | Check 0.1.19 on screen | The two Phase D rows for the Electron 44 window check and the localization review are recorded as passed or fixed. |

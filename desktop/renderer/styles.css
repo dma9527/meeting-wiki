@@ -372,6 +372,17 @@ button:disabled {
   margin-left: 6px;
 }
 
+.status-chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
 .relation-list {
   margin: 8px 0 0;
   padding-left: 18px;

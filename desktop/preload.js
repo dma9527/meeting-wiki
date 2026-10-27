@@ -1,9 +1,9 @@
 "use strict";
 
-// The only bridge between the renderer and the main process. It exposes named,
-// read-only wiki operations, local memory search, adding a URL resource to a shared meeting, and the reviewed correction
-// actions. No filesystem, shell, or generic invoke channel is reachable from the
-// renderer.
+// The only bridge between the renderer and the main process. It exposes named wiki
+// reads, memory search, decision history, URL resources on shared meetings, and the
+// reviewed correction actions. No filesystem, shell, or generic invoke channel is
+// reachable from the renderer.
 
 const { contextBridge, ipcRenderer } = require("electron");
 
@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("meetingWiki", {
   actionItems: (options) => ipcRenderer.invoke("wiki:actionItems", options),
   memory: {
     search: (query, options) => ipcRenderer.invoke("memory:search", query, options),
+    decisions: (options) => ipcRenderer.invoke("memory:decisions", options),
     addResource: (input) => ipcRenderer.invoke("memory:addResource", input),
   },
   corrections: {

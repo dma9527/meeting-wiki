@@ -9,6 +9,7 @@ const path = require("path");
 
 const {
   NODE_TYPES,
+  listDecisions,
   memorySearchArgs,
   projectItem,
   sanitizeOptions,
@@ -178,6 +179,9 @@ test("the wiki window registers memory:search and returns only a generic error o
   assert.deepEqual(await handler({}, "x", {}), { error: "This action is unavailable." });
   assert.deepEqual(await handler({}, "canary", { types: ["secret"] }), { error: "This action is unavailable." });
   assert.deepEqual(await handler({}, "canary", {}), { error: "This action is unavailable." });
+  const decisions = handlers.get("memory:decisions");
+  assert.equal(typeof decisions, "function");
+  assert.deepEqual(await decisions({}, {}), { error: "This action is unavailable." });
 });
 
 test("the wiki preload exposes memory.search on the named channel only", () => {
@@ -202,11 +206,13 @@ test("the wiki preload exposes memory.search on the named channel only", () => {
     Module._load = originalLoad;
   }
   assert.equal(exposed.name, "meetingWiki");
-  assert.deepEqual(Object.keys(exposed.api.memory), ["search", "addResource"]);
+  assert.deepEqual(Object.keys(exposed.api.memory), ["search", "decisions", "addResource"]);
   exposed.api.memory.search("canary", { types: ["topic"], includePrivate: false });
+  exposed.api.memory.decisions({ limit: 5 });
   exposed.api.memory.addResource({ meetingNodeId: "meeting:0123456789abcdef" });
   assert.deepEqual(invocations, [
     { channel: "memory:search", args: ["canary", { types: ["topic"], includePrivate: false }] },
+    { channel: "memory:decisions", args: [{ limit: 5 }] },
     { channel: "memory:addResource", args: [{ meetingNodeId: "meeting:0123456789abcdef" }] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "preload.js"), "utf8");
@@ -294,3 +300,66 @@ test("a shared-only request drops an item or relation whose citation is private"
   assert.equal(result.items[0].relations[0].citation.privacy, "shared");
 });
 
+const decisionRow = (overrides = {}) => ({
+  node_id: "decision:aaaaaaaaaaaaaaaa",
+  decision_id: "aaaaaaaaaaaaaaaa",
+  title: "Use polling",
+  detail: "Poll every 5 minutes.",
+  owner: "Sam",
+  status: "accepted",
+  effective_status: "accepted",
+  occurred_at: "2026-09-01T15:00:00+00:00",
+  privacy: "shared",
+  citation: citationFor(sharedSource),
+  supersedes: null,
+  superseded_by: null,
+  ...overrides,
+});
+
+test("listDecisions asks the CLI for shared decisions only and projects a fixed shape", async () => {
+  const calls = [];
+  const link = { node_id: "decision:b", title: "Use webhooks", occurred_at: "2026-09-08T15:00:00+00:00", citation: citationFor(sharedSource) };
+  const stdout = JSON.stringify({
+    count: 1,
+    items: [decisionRow({ effective_status: "superseded", superseded_by: link, secret: "x" })],
+  });
+  const result = await listDecisions("/py", "/c", { limit: 500, includePrivate: true }, fakeExec({ stdout }, calls));
+  assert.deepEqual(calls[0].args, ["-m", "meeting_wiki.cli", "--config", "/c", "memory-decisions", "--limit=200"]);
+  const [decision] = result.items;
+  assert.deepEqual(Object.keys(decision).sort(), [
+    "citation", "detail", "effectiveStatus", "occurredAt", "owner", "privacy", "status", "supersededBy", "supersedes", "title",
+  ]);
+  assert.equal(decision.effectiveStatus, "superseded");
+  assert.equal(decision.supersededBy.title, "Use webhooks");
+  assert.equal(decision.supersedes, null);
+  assert.equal(decision.citation.sourcePath, "wiki/meetings/2026-09-04-platform-sync.md");
+});
+
+test("listDecisions drops private decisions, private links, and unknown statuses", async () => {
+  const privateLink = { title: "Leave", occurred_at: "2026-09-09T15:00:00+00:00", citation: citationFor(privateSource) };
+  const stdout = JSON.stringify({
+    items: [
+      decisionRow({ title: "Private one", privacy: "private", citation: citationFor(privateSource) }),
+      decisionRow({ title: "Leaky", citation: citationFor(privateSource) }),
+      decisionRow({ title: "No citation", citation: null }),
+      decisionRow({ title: "Odd status", status: "pwned", effective_status: "<b>", superseded_by: privateLink }),
+    ],
+  });
+  const result = await listDecisions("/py", "/c", {}, fakeExec({ stdout }, []));
+  assert.deepEqual(result.items.map((item) => item.title), ["Odd status"]);
+  assert.equal(result.items[0].status, "accepted");
+  assert.equal(result.items[0].effectiveStatus, "accepted");
+  assert.equal(result.items[0].supersededBy, null);
+});
+
+test("listDecisions rejects CLI failures and malformed output without leaking details", async () => {
+  await assert.rejects(
+    listDecisions("/py", "/c", {}, fakeExec({ error: new Error("/Users/me/x"), stdout: '{"error":"invalid_decision_query","items":[]}' }, [])),
+    (error) => error.message === "decision history failed",
+  );
+  await assert.rejects(listDecisions("/py", "/c", {}, fakeExec({ stdout: "Traceback" }, [])), /invalid JSON/);
+  await assert.rejects(listDecisions("/py", "/c", {}, fakeExec({ stdout: '{"items":"x"}' }, [])), /decision history failed/);
+  const calls = [];
+  await listDecisions("/py", "/c", { limit: -3 }, fakeExec({ stdout: '{"items":[]}' }, calls));
+  assert.equal(calls[0].args.at(-1), "--limit=100");
+});

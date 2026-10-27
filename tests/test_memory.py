@@ -26,7 +26,7 @@ from meeting_wiki.models import (
     TranscriptSegment,
 )
 from meeting_wiki.providers.local_storage import LocalFileStorage
-from meeting_wiki.wiki import WikiRenderer, stable_id
+from meeting_wiki.wiki import WikiRenderer, parse_frontmatter, stable_id
 
 
 def make_meeting(title: str, day: int, private: bool = False) -> MeetingInput:
@@ -710,7 +710,6 @@ def test_a_wiki_decision_path_reference_resolves_to_the_same_decision(tmp_path):
         "0000000000000000",
         "wiki/decisions/../../private/x-0123456789abcdef.md",
         "private/decisions/2026-09-01-use-polling-{polling_id}.md",
-        "{polling_id} ",
     ],
 )
 def test_only_an_exact_reference_supersedes(tmp_path, reference):
@@ -813,3 +812,80 @@ def test_the_mcp_decision_history_tool_never_returns_private_decisions(tmp_path)
             assert "Leave the team" not in json.dumps(result.structured_content)
 
     asyncio.run(run())
+
+
+def point_webhooks_at(archive, reference):
+    with sqlite3.connect(archive["data_dir"] / "memory.db") as connection:
+        [(node_id, metadata)] = connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE label='Use webhooks'"
+        ).fetchall()
+        connection.execute(
+            "UPDATE memory_nodes SET metadata=? WHERE node_id=?",
+            (json.dumps({**json.loads(metadata), "supersedes": reference}), node_id),
+        )
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        " {polling_id} ",
+        "/wiki/decisions/2026-09-01-use-polling-{polling_id}.md",
+        "wiki\\decisions\\2026-09-01-use-polling-{polling_id}.md",
+    ],
+)
+def test_a_reference_is_normalized_the_same_way_the_wiki_resolves_it(tmp_path, reference):
+    archive = decision_archive(tmp_path)
+    point_webhooks_at(archive, reference.format(polling_id=archive["polling_id"]))
+    assert memory(archive["data_dir"]).decision_history()[0]["superseded_by"]["title"] == (
+        "Use webhooks"
+    )
+
+
+def test_only_an_earlier_decision_can_be_superseded(tmp_path):
+    archive = decision_archive(tmp_path)
+    store = memory(archive["data_dir"])
+    webhooks_id = store.decision_history()[1]["decision_id"]
+    point_webhooks_at(archive, webhooks_id)
+    with sqlite3.connect(archive["data_dir"] / "memory.db") as connection:
+        [(node_id, metadata)] = connection.execute(
+            "SELECT node_id, metadata FROM memory_nodes WHERE label='Use polling'"
+        ).fetchall()
+        connection.execute(
+            "UPDATE memory_nodes SET metadata=? WHERE node_id=?",
+            (json.dumps({**json.loads(metadata), "supersedes": webhooks_id}), node_id),
+        )
+    # Webhooks naming itself or polling naming a later decision is ignored; no cycle forms.
+    items = store.decision_history()
+    assert [item["effective_status"] for item in items][:2] == ["accepted", "accepted"]
+    assert all(item["superseded_by"] is None for item in items)
+
+
+def test_the_latest_of_two_superseding_decisions_is_the_replacement(tmp_path):
+    archive = decision_archive(tmp_path)
+    meeting = make_meeting("Third review", 20)
+    analysis = MeetingAnalysis(
+        title="Third review",
+        summary=["Third review summary."],
+        decisions=[
+            Decision(title="Use queues", decision="Queue it.", supersedes=archive["polling_id"])
+        ],
+    )
+    store_meeting(archive["data_dir"], meeting, analysis, make_transcript(("Alex", "Hi.")))
+    reindex_memory(archive["data_dir"])
+    polling = memory(archive["data_dir"]).decision_history()[0]
+    assert polling["superseded_by"]["title"] == "Use queues"
+
+
+def test_a_decision_id_matches_the_one_the_wiki_page_records(tmp_path):
+    archive = decision_archive(tmp_path)
+    storage = LocalFileStorage(archive["data_dir"])
+    pages = {
+        key: storage.read_text(key)
+        for key in storage.list_keys("wiki/decisions/")
+        if "index" not in key
+    }
+    polling = memory(archive["data_dir"]).decision_history()[0]
+    [page] = [text for key, text in pages.items() if key.endswith(f"-{polling['decision_id']}.md")]
+    fields, _ = parse_frontmatter(page)
+    assert fields["decision_id"] == polling["decision_id"]
+    assert fields["status"] == "superseded"

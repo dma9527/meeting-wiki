@@ -32,6 +32,9 @@
         <button type="button" class="rail-item" data-view="memory">
           <span class="rail-label">Memory search</span>
         </button>
+        <button type="button" class="rail-item" data-view="decisions">
+          <span class="rail-label">Decision history</span>
+        </button>
         <button type="button" class="rail-item" data-view="actions">
           <span class="rail-label">Open action items</span>
         </button>
@@ -92,7 +95,14 @@
           <div id="memory-results" class="list" aria-live="polite"></div>
         </section>
 
-
+        <section id="view-decisions" class="view" hidden aria-labelledby="decisions-heading" tabindex="-1">
+          <h2 id="decisions-heading">Decision history</h2>
+          <p class="explainer">
+            Shared decisions, oldest first. A decision is marked Superseded only when a later
+            decision names it exactly. Nothing is hidden or removed.
+          </p>
+          <div id="decisions-list" class="list" aria-live="polite"></div>
+        </section>
 
         <section id="view-actions" class="view" hidden aria-labelledby="actions-heading" tabindex="-1">
           <h2 id="actions-heading">Open action items</h2>

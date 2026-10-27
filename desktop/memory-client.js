@@ -178,6 +178,71 @@ function searchMemory(python, configPath, query, options, execFileFn = execFile)
   });
 }
 
+const DECISION_STATUSES = Object.freeze(["accepted", "superseded", "reversed"]);
+const MAX_DECISIONS = 200;
+const MAX_DECISION_DETAIL = 1200;
+
+function decisionStatus(value) {
+  return DECISION_STATUSES.includes(value) ? value : "accepted";
+}
+
+// A link names another shared decision; anything not clearly shared is dropped.
+function projectDecisionLink(link) {
+  if (!link || typeof link !== "object") return null;
+  const citation = projectCitation(link.citation);
+  if (!citation || citation.privacy !== "shared") return null;
+  return {
+    title: text(link.title, 300),
+    occurredAt: text(link.occurred_at, 40),
+    citation,
+  };
+}
+
+function projectDecision(item) {
+  const citation = projectCitation(item.citation);
+  return {
+    title: text(item.title, 300),
+    detail: text(item.detail, MAX_DECISION_DETAIL),
+    owner: text(item.owner, 200),
+    status: decisionStatus(item.status),
+    effectiveStatus: decisionStatus(item.effective_status),
+    occurredAt: text(item.occurred_at, 40),
+    privacy: item.privacy === "shared" ? "shared" : "private",
+    citation,
+    supersedes: projectDecisionLink(item.supersedes),
+    supersededBy: projectDecisionLink(item.superseded_by),
+  };
+}
+
+// Decision history is shared-only: the renderer never asks for private decisions.
+function listDecisions(python, configPath, options, execFileFn = execFile) {
+  const requested = options && Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 100;
+  const args = [
+    "-m", "meeting_wiki.cli", "--config", configPath, "memory-decisions",
+    `--limit=${Math.min(requested, MAX_DECISIONS)}`,
+  ];
+  return new Promise((resolve, reject) => {
+    execFileFn(python, args, { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+      let parsed;
+      try {
+        parsed = JSON.parse((stdout || "").trim());
+      } catch (_) {
+        reject(new Error("memory-decisions returned invalid JSON"));
+        return;
+      }
+      if (error || !parsed || !Array.isArray(parsed.items)) {
+        reject(new Error("decision history failed"));
+        return;
+      }
+      const items = parsed.items
+        .slice(-MAX_DECISIONS)
+        .map(projectDecision)
+        .filter((decision) => decision.privacy === "shared" && decision.citation && decision.citation.privacy === "shared");
+      resolve({ count: items.length, items });
+    });
+  });
+}
+
 // Fields come only from the user. The desktop never sends --allow-private or
 // --allow-loopback, so resources can only attach to shared meetings over https.
 const RESOURCE_ERRORS = Object.freeze({
@@ -281,7 +346,9 @@ module.exports = {
   RESOURCE_RELATIONS,
   addResource,
   addResourceArgs,
+  listDecisions,
   memorySearchArgs,
+  projectDecision,
   projectItem,
   sanitizeOptions,
   searchMemory,

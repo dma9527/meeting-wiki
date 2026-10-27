@@ -6,6 +6,7 @@ import re
 import sqlite3
 from collections.abc import Iterable, Sequence
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import MeetingAnalysis, MeetingInput, TranscriptResult
@@ -88,6 +89,15 @@ def build_citation(
         "source_path": source["meeting_key"],
         "anchor": anchor,
     }
+
+
+def _instant(value: str) -> datetime:
+    """Sort key for stored timestamps that may carry different UTC offsets."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 class ResourceError(ValueError):
@@ -491,11 +501,14 @@ class MemoryStore:
     @staticmethod
     def _superseded_decision_id(reference: object) -> str | None:
         """Exact decision_id, or exact wiki/decisions path; never a title or fuzzy match."""
-        if not isinstance(reference, str):
+        if not isinstance(reference, str) or "\x00" in reference:
             return None
-        if _DECISION_ID.fullmatch(reference):
-            return reference
-        matched = _DECISION_PATH.fullmatch(reference)
+        normalized = reference.strip().replace("\\", "/").lstrip("/")
+        if ".." in normalized.split("/"):
+            return None
+        if _DECISION_ID.fullmatch(normalized):
+            return normalized
+        matched = _DECISION_PATH.fullmatch(normalized)
         return matched.group(1) if matched else None
 
     def decision_history(
@@ -520,7 +533,7 @@ class MemoryStore:
             rows = connection.execute(statement).fetchall()
         rows.sort(
             key=lambda row: (
-                row["occurred_at"],
+                _instant(row["occurred_at"]),
                 json.loads(row["metadata"]).get("position", 0),
                 row["label"],
                 row["node_id"],
@@ -540,7 +553,9 @@ class MemoryStore:
             records.append(
                 {
                     "node_id": row["node_id"],
-                    "decision_id": stable_id(Path(meeting_key).stem, row["label"]),
+                    "decision_id": (
+                        stable_id(Path(meeting_key).stem, row["label"]) if meeting_key else ""
+                    ),
                     "title": row["label"],
                     "detail": row["content"],
                     "owner": metadata.get("owner"),
@@ -551,14 +566,23 @@ class MemoryStore:
                     "supersedes_ref": metadata.get("supersedes"),
                 }
             )
+        # A decision without its meeting page key has no stable id, so nothing can name it.
         shared = {
-            record["decision_id"]: record for record in records if record["privacy"] == "shared"
+            record["decision_id"]: record
+            for record in records
+            if record["privacy"] == "shared" and record["decision_id"]
         }
         replaced_by: dict[str, dict[str, object]] = {}
         replaces: dict[str, dict[str, object]] = {}
-        for record in records:
+        order = {record["node_id"]: position for position, record in enumerate(records)}
+        for position, record in enumerate(records):
             target = shared.get(self._superseded_decision_id(record["supersedes_ref"]))
-            if record["privacy"] != "shared" or target is None or target is record:
+            # Only an earlier decision can be superseded; a cycle or backward reference is ignored.
+            if (
+                record["privacy"] != "shared"
+                or target is None
+                or order[target["node_id"]] >= position
+            ):
                 continue
             replaces[record["node_id"]] = target
             replaced_by[target["node_id"]] = record

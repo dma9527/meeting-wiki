@@ -4,7 +4,7 @@
 
 ## Wiki 窗口
 
-菜单栏的 **Open Wiki & Corrections** 打开一个本地窗口，包含最近会议、全文搜索、页面阅读、未完成待办、记忆搜索、更正收件箱和处理恢复。
+菜单栏的 **Open Wiki & Corrections** 打开一个本地窗口，包含最近会议、全文搜索、页面阅读、决定历史、未完成待办、记忆搜索、更正收件箱和处理恢复。
 
 窗口不加载任何远程内容，只能读取 `wiki/`，无法访问 `private/`。唯一的例外是记忆搜索，并且只在你勾选 “Include private memory on this Mac” 之后。
 
@@ -26,6 +26,16 @@ meeting-wiki reindex-memory   # 升级或恢复后重建索引，只输出数量
 
 每条结果都带一个 `citation`（会议、日期、来源页面，转录行还有时间点）。详见 [Memory citations](../../reference/citations.md)。
 
+## 决定历史
+
+窗口里的 **决定历史** 按时间从旧到新列出共享的决定，每条显示所属会议、日期、负责人和“打开来源会议”按钮。只有后来的决定用 `decision_id` 或 `wiki/decisions/` 页面路径明确指向它时，它才会标为“已被取代”，标题不会参与匹配。被取代的决定保持原位，并链接到取代它的决定。升级后运行一次 `meeting-wiki reindex-memory`，让早期会议带上取代引用。
+
+```bash
+meeting-wiki memory-decisions --limit=50
+```
+
+MCP 工具 `meeting_wiki_decision_history` 返回同样的列表。私密决定只在加 `--include-private` 时出现，并且不会和共享决定建立链接。
+
 ## URL 资源
 
 可以给会议附加一个链接，并写上你自己的标题和摘要。Meeting Wiki 只把它保存在本地 `memory.db` 中，从不打开、抓取或发送这个 URL。
@@ -44,7 +54,7 @@ meeting-wiki memory-resources
 
 ## MCP 服务
 
-`meeting-wiki-mcp` 是只读的本地 MCP 服务，只覆盖共享内容：`meeting_wiki_search`、`meeting_wiki_memory_search`、`meeting_wiki_read_page`、`meeting_wiki_list_recent` 和 `meeting_wiki_action_items`。它从不返回私密会议或私密记忆。
+`meeting-wiki-mcp` 是只读的本地 MCP 服务，只覆盖共享内容：`meeting_wiki_search`、`meeting_wiki_memory_search`、`meeting_wiki_decision_history`、`meeting_wiki_read_page`、`meeting_wiki_list_recent` 和 `meeting_wiki_action_items`。它从不返回私密会议或私密记忆。
 
 使用已安装的 App 时，在菜单栏选择 **Install command-line tools...**，然后在 MCP 客户端中使用 `~/.local/bin/meeting-wiki-mcp`。参见[安装](installation.md#命令行工具与-mcp)。
 
