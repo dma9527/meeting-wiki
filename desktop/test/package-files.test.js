@@ -24,6 +24,7 @@ test("build.files lists every runtime source file that must ship", () => {
     "secret-store.js",
     "skill-installer.js",
     "self-check.js",
+    "diagnostics-export.js",
     "setting-metadata.js",
     "record-window.js",
     "record-preload.js",

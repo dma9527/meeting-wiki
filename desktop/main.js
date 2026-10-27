@@ -24,6 +24,7 @@ const { createLiveSidebarWindow, destroyLiveSidebar, liveSidebarAvailable, publi
 const { missingRuntimeMessage, resolveRuntimePaths } = require("./runtime-paths");
 const { claudeSkillStatus, installClaudeSkill, presentSkillInstall } = require("./skill-installer");
 const { formatSelfCheck, runSelfCheck } = require("./self-check");
+const { diagnosticsFileName, runDiagnosticsExport } = require("./diagnostics-export");
 const { presentShimInstall } = require("./cli-installer");
 const {
   decideManualStart,
@@ -352,6 +353,42 @@ function openSettingsWindow() {
       integrations,
     },
   );
+}
+
+// Saves the privacy-safe report where the user chooses. The report is built first, so a failure
+// never leaves an empty file, and nothing is written until the user confirms a location.
+let diagnosticsExportRunning = false;
+async function exportDiagnostics() {
+  if (diagnosticsExportRunning) return;
+  diagnosticsExportRunning = true;
+  try {
+    if (!pythonAvailable()) {
+      notifyMissingPython();
+      return;
+    }
+    const result = await runDiagnosticsExport({ python: PYTHON, configPath: CONFIG_PATH, env: ingestEnv() });
+    if (!result.ok) {
+      notify("Diagnostics export failed", "The report could not be created. No file was written.");
+      return;
+    }
+    app.focus({ steal: true });
+    const chosen = await dialog.showSaveDialog(tr.dialog({
+      title: "Export diagnostics",
+      message: "The report holds versions, status codes, and counts. It has no meeting content or keys. Read it before you share it.",
+      buttonLabel: "Export",
+      defaultPath: path.join(app.getPath("desktop"), diagnosticsFileName()),
+      filters: [{ name: "JSON", extensions: ["json"] }],
+      properties: ["createDirectory", "showOverwriteConfirmation"],
+    }));
+    if (chosen.canceled || !chosen.filePath) return;
+    atomicWriteFile(fs, chosen.filePath, result.text);
+    shell.showItemInFolder(chosen.filePath);
+    notify("Diagnostics saved", "Read the report before you share it.");
+  } catch (_) {
+    notify("Diagnostics export failed", "The report could not be created. No file was written.");
+  } finally {
+    diagnosticsExportRunning = false;
+  }
 }
 
 // Fixed-text capability report; see self-check.js for the allowlisted codes.
@@ -824,6 +861,7 @@ function updateMenu() {
   }
   items.push(
     { label: "Run self-check...", click: () => { void showSelfCheck(); } },
+    { label: "Export diagnostics...", click: () => { void exportDiagnostics(); } },
     { label: "Open logs", click: () => shell.openPath(path.join(DATA_DIR, "logs")) },
     { type: "separator" },
     { label: "Open Wiki & Corrections", click: openWikiWindow },

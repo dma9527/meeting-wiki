@@ -66,6 +66,7 @@ node --check desktop/memory-client.js
 node --check desktop/skill-installer.js
 node --check desktop/cli-installer.js
 node --check desktop/self-check.js
+node --check desktop/diagnostics-export.js
 node --check desktop/setting-metadata.js
 node --check desktop/record-window.js
 node --check desktop/record-preload.js

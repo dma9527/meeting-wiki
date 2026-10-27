@@ -20,6 +20,7 @@ const MESSAGES = Object.freeze({
   "Checking processing status...": "正在检查处理状态...",
   "Retry failed processing": "重试失败的处理",
   "Run self-check...": "运行自检...",
+  "Export diagnostics...": "导出诊断...",
   "Open logs": "打开日志",
   "Open Wiki & Corrections": "打开 Wiki 与更正",
   "Install Claude skill for meeting memory...": "安装会议记忆 Claude skill...",
@@ -135,6 +136,15 @@ const MESSAGES = Object.freeze({
   "Open Settings to check the browser connection.": "请打开“设置”检查浏览器连接。",
   "Saving your recording": "正在保存你的录音",
   "Meeting Wiki will quit after the recording is saved and queued.": "录音保存并加入队列后，Meeting Wiki 会退出。",
+
+  "Diagnostics saved": "诊断报告已保存",
+  "Read the report before you share it.": "分享之前请先阅读这份报告。",
+  "Diagnostics export failed": "导出诊断失败",
+  "The report could not be created. No file was written.": "无法生成报告，没有写入任何文件。",
+  "Export diagnostics": "导出诊断",
+  "The report holds versions, status codes, and counts. It has no meeting content or keys.": "报告包含版本、状态代码和数量，不含会议内容或 key。",
+  Export: "导出",
+  JSON: "JSON",
 
   // Dialogs.
   "Meeting Wiki": "Meeting Wiki",
@@ -282,7 +292,7 @@ function createMainTranslator({ readChoice, systemLocale }) {
   function dialog(options, vars = null) {
     const current = locale();
     const localized = { ...options };
-    for (const field of ["title", "message", "detail", "checkboxLabel"]) {
+    for (const field of ["title", "message", "detail", "checkboxLabel", "buttonLabel"]) {
       if (typeof options[field] === "string") localized[field] = localizeText(options[field], current, vars);
     }
     if (Array.isArray(options.filters)) {

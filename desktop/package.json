@@ -59,6 +59,7 @@
       "skill-installer.js",
       "cli-installer.js",
       "self-check.js",
+      "diagnostics-export.js",
       "setting-metadata.js",
       "record-window.js",
       "record-preload.js",
