@@ -1,6 +1,6 @@
 {
   "name": "meeting-wiki-desktop",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "private": true,
   "description": "Local-first Meeting Wiki macOS recorder",
   "license": "Apache-2.0",
