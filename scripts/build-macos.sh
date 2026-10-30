@@ -17,7 +17,6 @@ ARCH="$(uname -m)"
 APP="dist/mac-$ARCH/Meeting Wiki.app"
 ZIP="dist/Meeting Wiki-$VERSION-$ARCH-mac.zip"
 DMG="dist/Meeting Wiki-$VERSION-$ARCH.dmg"
-STAGING_DIR="dist/dmg-staging"
 INSPECT_DIR="$ROOT/desktop/dist/build-inspect"
 [ -d "$APP" ] || { echo "Build failed: app bundle is missing" >&2; exit 1; }
 codesign --force --deep --sign - "$APP"
@@ -27,9 +26,11 @@ python3 "$ROOT/scripts/release_integrity.py" inventory --app "$APP"
 python3 "$ROOT/scripts/release_integrity.py" scan --app "$APP" \
   --forbid-path "$HOME" --forbid-path "$ROOT"
 
-rm -rf "$ZIP" "$DMG" "$ZIP.blockmap" "$DMG.blockmap" "$STAGING_DIR" "$INSPECT_DIR"
+rm -rf "$ZIP" "$DMG" "$ZIP.blockmap" "$DMG.blockmap" "$INSPECT_DIR"
+rm -rf dist/dmg-staging 2>/dev/null || true  # left by older builds; Finder may still hold it
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-mkdir -p "$STAGING_DIR"
+# Stage outside dist/ so an open Finder window cannot add .DS_Store to the DMG or block cleanup.
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/meeting-wiki-dmg.XXXXXX")"
 ditto "$APP" "$STAGING_DIR/Meeting Wiki.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 hdiutil create -volname "Meeting Wiki" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG" >/dev/null
