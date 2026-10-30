@@ -60,7 +60,7 @@
     "#meet-load-instructions": "在浏览器中打开 extensions 页面，开启 Developer mode，选择 Load unpacked，然后选择刚才打开的文件夹。每个浏览器只需设置一次。",
     "#integration-save": "保存自动录音",
     "#gemini-settings-heading": "Gemini 功能",
-    "#panel-gemini-settings > .lede": "选择 Gemini 模型和 live 参数。API key 保存在 macOS Keychain，不会在这里显示或修改。",
+    "#panel-gemini-settings > .lede": "选择 Gemini 模型和 live 参数。API key 加密保存在这台 Mac 上，不会在这里显示或修改。",
     "#gemini-models-heading": "模型",
     "#gemini-live-heading": "Live",
     "label[for='batch-audio-model']": "录音转写模型",

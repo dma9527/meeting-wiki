@@ -102,7 +102,7 @@
 
             <p id="choose-error" class="field-error" hidden></p>
 
-            <div class="actions">
+            <div class="actions actions-sticky">
               <button type="submit" class="button button-primary" id="choose-continue">Continue</button>
             </div>
           </form>
@@ -113,7 +113,7 @@
           <h1 id="gemini-heading" class="display">Connect Gemini</h1>
           <p class="lede">
             Paste the API key from Google AI Studio. Meeting Wiki chooses the Gemini settings for you. The key
-            is checked first and saved in the macOS Keychain only when you finish setup.
+            is checked first and saved, encrypted, on this Mac only when you finish setup.
           </p>
 
           <form id="gemini-form" novalidate>
@@ -132,7 +132,7 @@
                 <button type="button" class="button button-quiet" data-key-toggle="gemini-api-key" aria-controls="gemini-api-key" aria-pressed="false">Show key</button>
                 <button type="button" class="button button-quiet" data-key-paste="gemini-api-key" aria-controls="gemini-api-key">Paste</button>
               </div>
-              <p id="gemini-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
+              <p id="gemini-api-key-hint" class="hint">Encrypted on this Mac with a key held in the macOS Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
               <p id="gemini-api-key-saved" class="hint" hidden>A Gemini key is already saved. Leave this blank to check and keep using it.</p>
               <p id="gemini-api-key-error" class="field-error" hidden></p>
             </div>
@@ -148,7 +148,7 @@
 
             <p id="gemini-status" class="status" role="status" aria-live="polite"></p>
 
-            <div class="actions">
+            <div class="actions actions-sticky">
               <button type="button" class="button button-quiet" data-back="choose">Back</button>
               <button type="submit" class="button button-primary" id="gemini-save">Check key</button>
             </div>
@@ -159,7 +159,7 @@
         <section id="panel-online" class="panel" aria-labelledby="online-heading" tabindex="-1" hidden>
           <h1 id="online-heading" class="display">Connect an online provider</h1>
           <p class="lede">
-            Any OpenAI-compatible endpoint works. Your API key is checked first and saved in the macOS Keychain
+            Any OpenAI-compatible endpoint works. Your API key is checked first and saved, encrypted, on this Mac
             only when you finish setup.
           </p>
 
@@ -228,7 +228,7 @@
                 <button type="button" class="button button-quiet" data-key-toggle="online-api-key" aria-controls="online-api-key" aria-pressed="false">Show key</button>
                 <button type="button" class="button button-quiet" data-key-paste="online-api-key" aria-controls="online-api-key">Paste</button>
               </div>
-              <p id="online-api-key-hint" class="hint">Saved to the Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
+              <p id="online-api-key-hint" class="hint">Encrypted on this Mac with a key held in the macOS Keychain. Never written to config files or logs. A shown key hides again after 20 seconds.</p>
               <p id="online-api-key-saved" class="hint" hidden>A key is already saved for this provider type. Leave this blank to check and keep using it.</p>
               <p id="online-api-key-error" class="field-error" hidden></p>
             </div>
@@ -245,7 +245,7 @@
 
             <p id="online-status" class="status" role="status" aria-live="polite"></p>
 
-            <div class="actions">
+            <div class="actions actions-sticky">
               <button type="button" class="button button-quiet" data-back="choose">Back</button>
               <button type="submit" class="button button-primary" id="online-save">Test connection</button>
             </div>
@@ -273,7 +273,7 @@
 
           <p id="local-status" class="status" role="status" aria-live="polite"></p>
 
-          <div class="actions">
+          <div class="actions actions-sticky">
             <button type="button" class="button button-quiet" data-back="choose">Back</button>
             <button type="button" class="button button-primary" id="local-continue" disabled aria-describedby="local-continue-hint">
               Continue
@@ -289,7 +289,7 @@
 
           <p id="confirm-status" class="status" role="status" aria-live="polite"></p>
 
-          <div class="actions">
+          <div class="actions actions-sticky">
             <button type="button" class="button button-quiet" id="confirm-back">Back</button>
             <button type="button" class="button button-primary" id="confirm-finish">Finish setup</button>
           </div>
@@ -315,7 +315,7 @@
             <li>Transcripts and the Markdown wiki</li>
             <li>Private meetings</li>
             <li>Job queue and search cache</li>
-            <li>API key, in the Keychain</li>
+            <li>API key, encrypted with a Keychain key</li>
           </ul>
           <p class="store-path">
             <span class="store-path-label">Stored in</span>

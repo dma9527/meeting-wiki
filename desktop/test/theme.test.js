@@ -21,6 +21,12 @@ test("hidden elements stay hidden even when a component sets display", () => {
   assert.match(read("theme.css"), /\[hidden\] \{\s*display: none !important;/);
 });
 
+test("every custom property in theme.css is a named declaration", () => {
+  const theme = read("theme.css");
+  assert.match(theme, /^\s+--font-sans: -apple-system,/m);
+  assert.doesNotMatch(theme, /;\s*:/, "a declaration lost its property name");
+});
+
 test("only theme.css defines colors, and it covers light and dark", () => {
   const theme = read("theme.css");
   assert.match(theme, /@media \(prefers-color-scheme: dark\)/);

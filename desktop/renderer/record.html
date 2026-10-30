@@ -63,29 +63,35 @@
           </div>
         </div>
 
-        <h2 class="subhead" id="record-details-heading">Before you start</h2>
-        <dl id="record-details" class="summary" aria-labelledby="record-details-heading" aria-busy="true">
-          <dt>Capture</dt>
-          <dd id="record-capture">Checking.</dd>
-          <dt>System audio</dt>
-          <dd>
-            <span id="record-system-audio">Checking.</span>
-            <button type="button" class="button button-quiet" id="record-open-system-audio">Open System Audio settings</button>
-          </dd>
-          <dt>Processing</dt>
-          <dd id="record-processing">Checking.</dd>
-          <dt>Length limit</dt>
-          <dd id="record-duration">Checking.</dd>
-          <dt>Live captions</dt>
-          <dd id="record-live">Checking.</dd>
-        </dl>
-        <p class="hint record-consent">Tell everyone in the meeting that you are recording.</p>
+        <details id="record-more" class="record-more">
+          <summary class="record-more-summary">
+            <span id="record-details-heading" class="record-more-title">Before you start</span>
+            <span id="record-more-digest" class="hint">Checking.</span>
+          </summary>
+          <dl id="record-details" class="summary" aria-labelledby="record-details-heading" aria-busy="true">
+            <dt>Capture</dt>
+            <dd id="record-capture">Checking.</dd>
+            <dt>System audio</dt>
+            <dd>
+              <span id="record-system-audio">Checking.</span>
+              <button type="button" class="button button-quiet" id="record-open-system-audio">Open System Audio settings</button>
+            </dd>
+            <dt>Processing</dt>
+            <dd id="record-processing">Checking.</dd>
+            <dt>Length limit</dt>
+            <dd id="record-duration">Checking.</dd>
+            <dt>Live captions</dt>
+            <dd id="record-live">Checking.</dd>
+          </dl>
+        </details>
 
-        <p id="record-status" class="status" role="status" aria-live="polite"></p>
-
-        <div class="actions">
-          <button type="button" class="button button-quiet" id="record-cancel">Cancel</button>
-          <button type="submit" class="button button-primary" id="record-start">Start recording</button>
+        <div class="record-footer">
+          <p class="hint record-consent">Tell everyone in the meeting that you are recording.</p>
+          <p id="record-status" class="status" role="status" aria-live="polite"></p>
+          <div class="actions">
+            <button type="button" class="button button-quiet" id="record-cancel">Cancel</button>
+            <button type="submit" class="button button-primary" id="record-start">Start recording</button>
+          </div>
         </div>
       </form>
     </main>

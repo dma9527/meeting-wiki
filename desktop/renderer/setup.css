@@ -394,6 +394,16 @@ input::placeholder {
   margin-top: var(--space-5);
 }
 
+/* Each step's final buttons stay in view on short windows. */
+.actions-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: var(--space-3) 0 var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
 /* ---- Local models ---- */
 
 .local-facts {

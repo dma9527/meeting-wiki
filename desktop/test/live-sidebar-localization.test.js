@@ -100,6 +100,7 @@ test("a Chinese locale translates the window and keeps captions that already arr
   assert.equal(sidebar.documentObject.documentElement.lang, "zh-CN");
   assert.equal(sidebar.documentObject.title, "Meeting Wiki 实时");
   assert.equal(elements["live-status"].textContent, "正在聆听。");
+  assert.equal(elements["live-status"].dataset.phase, "listening");
   assert.equal(elements["live-scope"].textContent, "外部 provider");
   assert.match(elements["live-issue"].textContent, /^还没有收到其他参会者的声音/);
   assert.equal(elements["live-summary-heading"].textContent, "总结");

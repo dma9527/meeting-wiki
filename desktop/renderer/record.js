@@ -135,6 +135,9 @@
         : t("The length limit could not be read."),
       !minutes,
     );
+    $("record-more-digest").textContent = minutes
+      ? t("Processed by {where}. Stops after {minutes} minutes.", { where, minutes })
+      : t("Processed by {where}.", { where });
 
     const parts = !liveEnabled()
       ? ["Off for this recording. Batch processing still runs after you stop."]
@@ -148,6 +151,8 @@
     }
     setLine("record-live", joinParts(live), context.live === "engine_missing" || context.live === "key_unavailable");
     $("record-details").setAttribute("aria-busy", "false");
+    // Problems in the details open the section so they are not hidden behind the summary.
+    if ($("record-details").querySelector('[data-tone="attention"]')) $("record-more").open = true;
 
     const start = $("record-start");
     if (context.recording) {
@@ -226,7 +231,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") void call("cancel");
     });
-    $("record-start").focus();
+    $("record-start").focus({ preventScroll: true });
     const result = await call("getContext");
     const message = errorOf(result);
     if (message || !result || typeof result !== "object") {
@@ -248,7 +253,7 @@
       document.title = t("Choose recording defaults");
     }
     render();
-    $("record-start").focus();
+    $("record-start").focus({ preventScroll: true });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

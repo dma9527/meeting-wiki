@@ -59,6 +59,8 @@
     "Notes go to your shared wiki on this Mac.": "笔记会进入这台 Mac 上的 Shared wiki。",
     "Recording stops on its own after {minutes} minutes and is processed like a normal stop. Change this in Settings.": "录音会在 {minutes} 分钟后自动停止，并像正常停止一样处理。可以在“设置”中修改。",
     "The length limit could not be read.": "无法读取时长上限。",
+    "Processed by {where}. Stops after {minutes} minutes.": "由 {where} 处理，{minutes} 分钟后自动停止。",
+    "Processed by {where}.": "由 {where} 处理。",
     "Off for this recording. Batch processing still runs after you stop.": "本次录音不启用。停止后仍会正常处理录音。",
     "Live captions, translation, and rolling summary start with the recording.": "实时字幕、翻译和滚动总结会随录音一起启动。",
     "Live captions cover your microphone and all audio played on this Mac, including other participants, each labeled.": "实时字幕覆盖你的麦克风和这台 Mac 播放的全部音频（包括其他参会者），并分别标注。",

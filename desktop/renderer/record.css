@@ -46,7 +46,94 @@
 }
 
 .record-consent {
+  margin: 0;
+}
+
+/* Details stay one line until opened; problems open them from record.js. */
+.record-more {
+  margin-top: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.record-more-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+.record-more-summary::-webkit-details-marker {
+  display: none;
+}
+
+.record-more-summary::before {
+  content: "";
+  grid-row: span 2;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ink-muted);
+  border-bottom: 1.5px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.record-more[open] > .record-more-summary::before {
+  transform: rotate(45deg);
+}
+
+.record-more-title {
+  font-weight: 650;
+}
+
+.record-more-summary .hint {
+  grid-column: 2;
+}
+
+.record-more .summary {
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+/* Start and Cancel stay in view however long the form gets. */
+.record-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: var(--space-4) calc(-1 * var(--gap)) 0;
+  padding: var(--space-3) var(--gap) var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.record-footer .status {
+  min-height: 0;
+  margin: var(--space-2) 0 0;
+}
+
+.record-footer .status:empty {
+  display: none;
+}
+
+.record-footer .actions {
   margin-top: var(--space-3);
+}
+
+/* The coral gradient of the L mark is reserved for starting and showing a recording. */
+#record-start:not(:disabled) {
+  border-color: transparent;
+  background: var(--brand-gradient);
+  color: var(--brand-ink);
+}
+
+#record-start:hover:not(:disabled) {
+  background: var(--brand-gradient-hover);
 }
 
 [data-tone="attention"] {

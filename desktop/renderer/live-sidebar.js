@@ -51,6 +51,7 @@
   function renderState(event) {
     lastState = event;
     $("live-status").textContent = t(PHASE_TEXT[event.phase] || "");
+    $("live-status").dataset.phase = event.phase || "";
     $("live-private").hidden = !event.private;
     const scope = $("live-scope");
     scope.hidden = !event.scope;

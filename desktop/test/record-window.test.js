@@ -368,6 +368,19 @@ test("record.html is self-only, labelled, and starts nothing on load", () => {
   assert.doesNotMatch(js, /context\.systemAudio === "(granted|denied|restricted)"/);
 });
 
+test("record window keeps Start in view and opens details only for problems", () => {
+  const html = read("renderer/record.html");
+  const footer = html.match(/<div class="record-footer">([\s\S]*?)<\/form>/);
+  assert.ok(footer, "Start and Cancel live in the sticky footer");
+  assert.match(footer[1], /id="record-start"/);
+  assert.match(html, /<details id="record-more" class="record-more">/);
+  assert.doesNotMatch(html, /<details id="record-more"[^>]*\sopen/);
+  const js = read("renderer/record.js");
+  assert.doesNotMatch(js, /\$\("record-start"\)\.focus\(\)/);
+  assert.match(js, /\$\("record-start"\)\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(js, /querySelector\('\[data-tone="attention"\]'\)\) \$\("record-more"\)\.open = true/);
+});
+
 test("main uses saved defaults for quick start and reserves the panel for first use or overrides", () => {
   const main = read("main.js");
   assert.doesNotMatch(main, /nextTitle|nextPrivate|askTitle|osascript|Mark next recording private|Set next title/);

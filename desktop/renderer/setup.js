@@ -660,8 +660,8 @@
 
   function keyRow() {
     return t(state.usedSavedKey
-      ? "Keeps the key already saved in the Keychain"
-      : "Saved in the Keychain when you finish setup");
+      ? "Keeps the key already saved on this Mac"
+      : "Saved, encrypted, on this Mac when you finish setup");
   }
 
   const LANGUAGE_NAMES = Object.freeze({ system: "Follow macOS", en: "English", "zh-CN": "简体中文" });

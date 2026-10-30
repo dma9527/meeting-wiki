@@ -15,6 +15,7 @@
     "#live-summary-empty": "说了几句话之后会出现总结。",
     "#live-transcript-heading": "转写与翻译",
     "#live-transcript-empty": "最终转写会显示在这里。",
+    "#live-about-heading": "关于实时字幕",
     ".live-foot p:nth-child(1)": "实时字幕包括你的麦克风（标记为 You）和这台 Mac 播放的全部音频（包括其他参会者，标记为 Others）。",
     ".live-foot p:nth-child(2)": "实时文本只用于显示。保存的会议（包括系统音频）会在停止录音后处理。",
     ".live-foot p:nth-child(3)": "关闭这个窗口只会隐藏它。可以在菜单栏选择“显示实时字幕”再次显示。",

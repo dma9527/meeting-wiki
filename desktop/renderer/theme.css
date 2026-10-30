@@ -27,6 +27,11 @@
   --danger-soft: #f9e0dc;
   --focus: #1f6feb;
 
+  /* The L mark gradient, darkened enough for white text. Used only for recording. */
+  --brand-gradient: linear-gradient(135deg, #e0553a, #c4262b);
+  --brand-gradient-hover: linear-gradient(135deg, #cc4630, #ad1f26);
+  --brand-ink: #ffffff;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 

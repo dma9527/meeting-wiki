@@ -15,8 +15,32 @@
 }
 
 .live-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--fs-title);
   font-weight: 650;
+}
+
+/* The L mark gradient marks an active recording, here and on the Start recording button. */
+.live-status[data-phase="listening"]::before {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-status[data-phase="listening"]::before {
+    animation: none;
+  }
 }
 
 .live-badges {
@@ -123,10 +147,25 @@
 }
 
 .live-foot {
-  padding-top: var(--space-3);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--line);
+}
+
+.live-about summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+
+.live-foot-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-top: var(--space-2);
 }
 
 .live-foot p {
   margin: 0;
+}
+
+.live-foot p + p {
+  margin-top: var(--space-1);
 }
