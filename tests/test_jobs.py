@@ -38,6 +38,47 @@ def test_failure_backoff_and_dead_letter(tmp_path, monkeypatch):
     assert second.attempts == 2
     assert queue.fail(second.id, "second") is JobState.DEAD
     assert queue.get(job_id).last_error == "second"
+
+
+@pytest.mark.parametrize(
+    ("metadata", "delays"),
+    [
+        ({"http_status": 429}, [60, 240, 960, 3600]),
+        ({"provider_status": "RESOURCE_EXHAUSTED"}, [60, 240, 960, 3600]),
+        ({"http_status": 400}, [5, 10, 20, 40]),
+    ],
+)
+def test_rate_limited_failures_wait_minutes_before_retrying(
+    tmp_path, monkeypatch, metadata, delays
+):
+    from meeting_wiki.diagnostics import encode_diagnostic
+
+    now = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    queue = JobQueue(tmp_path / "jobs.db", max_attempts=6, backoff_base_seconds=5)
+    job_id = queue.enqueue(JobType.INGEST, {"x": 1}, "job")
+    diagnostic = encode_diagnostic(
+        {
+            "version": 1,
+            "stage": "transcribing",
+            "attempt": 1,
+            "max_attempts": 6,
+            "category": "provider_request_failed",
+            "error_type": "SafeProviderError",
+            "provider": "gemini",
+            "operation": "transcription",
+            "sdk_error_type": "ProviderError",
+            **metadata,
+        }
+    )
+    job = queue.claim()
+    for delay in delays:
+        assert job.id == job_id
+        queue.fail(job.id, diagnostic)
+        now[0] += delay - 1
+        assert queue.claim() is None
+        now[0] += 1
+        job = queue.claim()
     assert queue.claim() is None
 
 

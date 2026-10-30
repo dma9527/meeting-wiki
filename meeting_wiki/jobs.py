@@ -9,9 +9,21 @@ import time
 import uuid
 from pathlib import Path
 
-from .diagnostics import decode_diagnostic
+from .diagnostics import decode_diagnostic, is_rate_limited
 from .events import Component, EventCode, EventJournal
 from .models import JobRecord, JobStage, JobState, JobType
+
+# A quota refusal clears with time, so wait minutes rather than seconds: 1, 4, 16, then 60.
+RATE_LIMIT_BASE_SECONDS = 60
+RATE_LIMIT_MAX_SECONDS = 3600
+
+
+def _retry_delay(attempts: int, base_seconds: int, rate_limited: bool) -> float:
+    exponent = max(0, attempts - 1)
+    if rate_limited:
+        return min(RATE_LIMIT_MAX_SECONDS, RATE_LIMIT_BASE_SECONDS * 4**exponent)
+    return base_seconds * 2**exponent
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -214,6 +226,7 @@ class JobQueue:
     def fail(self, job_id: int, error: str, *, claim_token: str | None = None) -> JobState:
         now = time.time()
         owned, params = _claim_clause(claim_token)
+        diagnostic = decode_diagnostic(error) or {}
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT state, attempts, max_attempts, claim_token FROM jobs WHERE id=?",
@@ -227,7 +240,13 @@ class JobQueue:
                 raise self._not_running(job_id, claim_token)
             dead = row["attempts"] >= row["max_attempts"]
             state = JobState.DEAD if dead else JobState.FAILED
-            delay = 0 if dead else self.backoff_base_seconds * (2 ** max(0, row["attempts"] - 1))
+            delay = (
+                0
+                if dead
+                else _retry_delay(
+                    row["attempts"], self.backoff_base_seconds, is_rate_limited(diagnostic)
+                )
+            )
             cursor = connection.execute(
                 f"""UPDATE jobs SET state=?, last_error=?, not_before=?,
                    claimed_at=NULL, lease_expires_at=NULL, claim_token=NULL, updated_at=?
@@ -236,7 +255,6 @@ class JobQueue:
             )
             if cursor.rowcount != 1:
                 raise self._not_running(job_id, claim_token)
-        diagnostic = decode_diagnostic(error) or {}
         error_type = diagnostic.get("error_type")
         stage = diagnostic.get("stage")
         http_status = diagnostic.get("http_status")

@@ -13,12 +13,21 @@ def safe_identifier(value: object, fallback: str = "UnknownError") -> str:
     return candidate if _SAFE_IDENTIFIER.fullmatch(candidate) else fallback
 
 
+def _http_status(error: BaseException) -> int | None:
+    # google.genai errors expose code; Interactions API errors expose status_code.
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int) and not isinstance(value, bool) and 400 <= value <= 599:
+            return value
+    return None
+
+
 def safe_provider_metadata(error: BaseException) -> dict[str, object]:
     """Extract only allowlisted metadata from an SDK exception."""
     metadata: dict[str, object] = {"sdk_error_type": safe_identifier(type(error).__name__)}
-    code = getattr(error, "code", None)
-    if isinstance(code, int) and not isinstance(code, bool) and 400 <= code <= 599:
-        metadata["http_status"] = code
+    status_code = _http_status(error)
+    if status_code is not None:
+        metadata["http_status"] = status_code
     status = getattr(error, "status", None)
     if isinstance(status, str) and _SAFE_PROVIDER_STATUS.fullmatch(status):
         metadata["provider_status"] = status
@@ -67,6 +76,14 @@ def safe_job_diagnostic(
     elif provider:
         diagnostic["provider"] = safe_identifier(provider, "unknown")
     return diagnostic
+
+
+def is_rate_limited(diagnostic: Mapping[str, object]) -> bool:
+    """True when a provider refused the request for quota, which clears with time."""
+    return (
+        diagnostic.get("http_status") == 429
+        or diagnostic.get("provider_status") == "RESOURCE_EXHAUSTED"
+    )
 
 
 def encode_diagnostic(diagnostic: Mapping[str, object]) -> str:
