@@ -41,12 +41,11 @@ const PERMISSION_TEXT = Object.freeze({
   },
   systemAudio: {
     granted: ["ok", "Allowed."],
-    denied: [
-      "attention",
-      "Blocked. Remote participants will be silent. Allow Meeting Wiki in System Settings, Privacy & Security, Screen & System Audio Recording.",
+    // macOS has no API to read the System Audio Recording Only permission that capture uses.
+    not_checkable: [
+      "note",
+      "macOS does not let apps check this permission in advance. If other participants were silent, allow Meeting Wiki under System Audio Recording Only in System Settings, Privacy & Security, Screen & System Audio Recording.",
     ],
-    restricted: ["attention", "Restricted by a device policy. Remote participants will be silent."],
-    "not-determined": ["note", "Not asked yet. macOS asks the first time you record."],
     unknown: ["note", "macOS did not report this permission."],
   },
 });
@@ -192,12 +191,19 @@ function mediaStatus(mediaAccess, type) {
   }
 }
 
+// Full screen recording also covers system audio, so only a grant there is conclusive.
+// Any other answer says nothing about System Audio Recording Only.
+function systemAudioStatus(mediaAccess) {
+  const screen = mediaStatus(mediaAccess, "screen");
+  return screen === "granted" ? "granted" : "not_checkable";
+}
+
 // env is null when the provider key is unavailable; the engine is then not run at all.
 async function runSelfCheck({ python, configPath, pythonAvailable, env, mediaAccess, skillStatus, execFileFn = execFile }) {
   const report = {
     capabilities: {
       microphone: mediaStatus(mediaAccess, "microphone"),
-      systemAudio: mediaStatus(mediaAccess, "screen"),
+      systemAudio: systemAudioStatus(mediaAccess),
     },
     providers: {},
     liveScope: "",

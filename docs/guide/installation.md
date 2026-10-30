@@ -131,7 +131,7 @@ item (normally "Meeting Wiki Safe Storage"). Without that item, a kept
 |---|---|
 | "Meeting Wiki is damaged and can't be opened" | Run the `xattr` commands in steps 2 and 4, then drag the app again. |
 | "Meeting Wiki installation damaged" | The bundled runtime is missing. Rebuild. Do not bypass the check. |
-| Recording has no system audio | Grant Screen & System Audio Recording, then quit and reopen the app. |
+| Recording has no system audio | Allow Meeting Wiki under System Audio Recording Only in Screen & System Audio Recording, then quit and reopen the app. Local builds are not signed with a stable identity, so after installing a new build, remove Meeting Wiki from that list and add it again. |
 | Build exits with "AUDIO TOOLS BLOCKED" | Set `MEETING_WIKI_GPL_SOURCE_OFFER` as shown above. |
 | Build says "Apple Silicon macOS only" | Intel Macs are not supported. |
 

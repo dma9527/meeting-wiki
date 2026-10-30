@@ -59,12 +59,16 @@ Behavior to know:
 
 ## Processing status
 
-The menu bar shows when meetings are processing or need attention.
+The menu bar icon stays the same. While recording, the elapsed time appears
+next to it. Processing status is shown in the menu.
 
 **Run self-check...** reports on microphone and system audio permission, batch
 transcription and analysis, live captions, storage, the memory index, and the
 Claude skill. Each line is fixed text chosen from a status code. Provider error
-text, paths, and keys are never shown.
+text, paths, and keys are never shown. macOS has no way to read the System
+Audio Recording Only permission, so system audio shows as Allowed only when
+full Screen & System Audio Recording is granted. Otherwise it shows a note,
+not an error.
 
 **Open logs** opens the local log folder.
 

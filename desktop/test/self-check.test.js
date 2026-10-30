@@ -96,12 +96,30 @@ test("a missing engine or unavailable key never starts the CLI", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("permission statuses map to fixed lines, and a denied permission needs attention", async () => {
-  const report = await selfCheck.runSelfCheck(baseOptions({ mediaAccess: (type) => (type === "screen" ? "denied" : "not-determined") }));
+test("permission statuses map to fixed lines, and a denied microphone needs attention", async () => {
+  const report = await selfCheck.runSelfCheck(baseOptions({ mediaAccess: (type) => (type === "microphone" ? "denied" : "not-determined") }));
   const dialog = selfCheck.formatSelfCheck(report);
   assert.equal(dialog.message, "1 item needs attention.");
-  assert.match(dialog.detail, /Needs attention {2}System audio permission: Blocked/);
-  assert.match(dialog.detail, /Note {2}Microphone permission: Not asked yet/);
+  assert.match(dialog.detail, /Needs attention {2}Microphone permission: Blocked/);
+  assert.match(dialog.detail, /Note {2}System audio permission: macOS does not let apps check/);
+});
+
+test("system audio is never reported blocked because only screen recording can be read", async () => {
+  for (const screen of ["denied", "restricted", "not-determined", "unknown", "surprise"]) {
+    const report = await selfCheck.runSelfCheck(baseOptions({ mediaAccess: (type) => (type === "screen" ? screen : "granted") }));
+    assert.equal(report.capabilities.systemAudio, "not_checkable");
+    const dialog = selfCheck.formatSelfCheck(report);
+    assert.doesNotMatch(dialog.detail, /System audio permission: Blocked/);
+    assert.match(dialog.detail, /System Audio Recording Only/);
+  }
+  const throwing = await selfCheck.runSelfCheck(baseOptions({ mediaAccess: () => { throw new Error("no"); } }));
+  assert.equal(throwing.capabilities.systemAudio, "not_checkable");
+});
+
+test("a granted screen recording permission shows system audio as allowed", async () => {
+  const report = await selfCheck.runSelfCheck(baseOptions({ mediaAccess: () => "granted" }));
+  assert.equal(report.capabilities.systemAudio, "granted");
+  assert.match(selfCheck.formatSelfCheck(report).detail, /OK {2}System audio permission: Allowed\./);
 });
 
 test("every capability table entry is fixed text with a known tone", () => {

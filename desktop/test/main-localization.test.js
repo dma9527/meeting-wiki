@@ -104,7 +104,7 @@ test("every self-check sentence has Chinese copy", () => {
 
 test("the Chinese self-check keeps the codes and translates every fixed part", () => {
   const report = {
-    capabilities: { microphone: "granted", systemAudio: "denied", transcription: "ready", analysis: "ready", live: "connection_failed", storage: "ready", memory: "empty", claudeSkill: "installed" },
+    capabilities: { microphone: "granted", systemAudio: "not_checkable", transcription: "ready", analysis: "ready", live: "connection_failed", storage: "ready", memory: "empty", claudeSkill: "installed" },
     providers: { transcription: "gemini" },
     liveScope: "external",
     liveError: { closeCode: 1011, providerStatus: "RESOURCE_EXHAUSTED" },
@@ -112,15 +112,15 @@ test("the Chinese self-check keeps the codes and translates every fixed part", (
   const translator = zh();
   const dialog = translator.buttons(selfCheck.formatSelfCheck(report, translator.text));
   assert.equal(dialog.title, "Meeting Wiki 自检");
-  assert.equal(dialog.message, "有 2 项需要处理。");
+  assert.equal(dialog.message, "有 1 项需要处理。");
   assert.deepEqual(dialog.buttons, ["好"]);
   const lines = dialog.detail.split("\n");
   assert.equal(lines[0], "正常  麦克风权限：已允许。");
-  assert.match(lines[1], /^需要处理  系统音频权限：已阻止，远程参会者会没有声音。/);
+  assert.match(lines[1], /^提示  系统音频权限：macOS 不允许 App 预先检查这项权限。.*“仅系统录音”/);
   assert.ok(lines.includes("录音由 Google Gemini 转写。"));
   assert.ok(lines.includes("Live 连接错误：关闭码 1011, RESOURCE_EXHAUSTED。详情也记录在“打开日志”中的 live.log。"));
   const english = selfCheck.formatSelfCheck(report);
-  assert.equal(english.message, "2 items need attention.");
+  assert.equal(english.message, "1 item needs attention.");
   assert.equal(english.detail.split("\n")[0], "OK  Microphone permission: Allowed.");
 });
 

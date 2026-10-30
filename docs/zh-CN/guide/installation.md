@@ -95,7 +95,7 @@ API Key 只留在 App 中。`memory-search`、`status` 等读取命令和 MCP �
 |---|---|
 | “Meeting Wiki is damaged and can't be opened” | 执行第 3 步的 `xattr` 命令。 |
 | “Meeting Wiki installation damaged” | 内置运行时缺失。重新构建，不要绕过检查。 |
-| 录音没有系统声音 | 授予“屏幕与系统音频录制”权限，然后退出并重新打开 App。 |
+| 录音没有系统声音 | 在“屏幕与系统音频录制”下方的“仅系统录音”里允许 Meeting Wiki，然后退出并重新打开 App。本地构建没有固定的签名身份，所以每次安装新构建后，请先把 Meeting Wiki 从这个列表中移除，再重新添加。 |
 | 构建报 “AUDIO TOOLS BLOCKED” | 按上文设置 `MEETING_WIKI_GPL_SOURCE_OFFER`。 |
 | 构建提示 “Apple Silicon macOS only” | 不支持 Intel Mac。 |
 
