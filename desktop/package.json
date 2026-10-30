@@ -72,9 +72,6 @@
       "meet-native-host.js",
       "skills/meeting-wiki-memory/SKILL.md",
       "assets/tray-idle@2x.png",
-      "assets/tray-recording@2x.png",
-      "assets/tray-processing@2x.png",
-      "assets/tray-attention@2x.png",
       "renderer/**"
     ],
     "asarUnpack": ["node_modules/audiotee/**"],

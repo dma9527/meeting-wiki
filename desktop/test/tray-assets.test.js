@@ -9,14 +9,12 @@ const DESKTOP = path.join(__dirname, "..");
 const main = fs.readFileSync(path.join(DESKTOP, "main.js"), "utf8");
 const pkg = require("../package.json");
 
-test("tray status icons are bundled PNG template assets", () => {
-  for (const state of ["idle", "recording", "processing", "attention"]) {
-    const asset = `assets/tray-${state}@2x.png`;
-    assert.ok(fs.existsSync(path.join(DESKTOP, asset)), `missing ${asset}`);
-    assert.ok(pkg.build.files.includes(asset), `package is missing ${asset}`);
-  }
-  assert.match(main, /nativeImage\.createFromPath/);
-  assert.doesNotMatch(main, /nativeImage\.createFromDataURL/);
+test("the tray uses one bundled PNG template icon", () => {
+  const asset = "assets/tray-idle@2x.png";
+  assert.ok(fs.existsSync(path.join(DESKTOP, asset)), `missing ${asset}`);
+  assert.deepEqual(pkg.build.files.filter((entry) => entry.startsWith("assets/tray-")), [asset]);
+  assert.match(main, /nativeImage\.createFromPath\(TRAY_ICON_PATH\)/);
+  assert.doesNotMatch(main, /nativeImage\.createFromDataURL|tray\.setImage/);
 });
 
 // Decodes an 8-bit RGBA, non-interlaced PNG into rows of [r, g, b, a] pixels.
@@ -71,8 +69,8 @@ function decodePng(file) {
   return out;
 }
 
-test("recording tray PNG is a monochrome record mark distinct from idle", () => {
-  const pixels = decodePng(path.join(DESKTOP, "assets", "tray-recording@2x.png"));
+test("tray PNG is a black-only L mark with a dot inside its corner", () => {
+  const pixels = decodePng(path.join(DESKTOP, "assets", "tray-idle@2x.png"));
   assert.equal(pixels.length, 36);
   assert.equal(pixels[0].length, 36);
   for (const row of pixels) {
@@ -81,17 +79,27 @@ test("recording tray PNG is a monochrome record mark distinct from idle", () => 
     }
   }
   const alpha = (x, y) => pixels[y][x][3];
-  assert.equal(alpha(18, 18), 255, "solid center dot");
-  assert.equal(alpha(29, 18), 0, "transparent gap between dot and ring");
-  assert.equal(alpha(18, 7), 0, "transparent gap above the dot");
-  assert.equal(alpha(32, 18), 255, "outer ring right");
-  assert.equal(alpha(18, 3), 255, "outer ring top");
-  assert.equal(alpha(0, 0), 0, "transparent corner");
-
-  const idle = fs.readFileSync(path.join(DESKTOP, "assets", "tray-idle@2x.png"));
-  assert.notDeepEqual(fs.readFileSync(path.join(DESKTOP, "assets", "tray-recording@2x.png")), idle);
-  const svg = fs.readFileSync(path.join(DESKTOP, "assets", "tray-recording.svg"), "utf8");
-  assert.match(svg, /<circle cx="9" cy="9" r="7\.25" fill="none" stroke="#000000"/);
-  assert.match(svg, /<circle cx="9" cy="9" r="4\.25" fill="#000000"\/>/);
+  assert.equal(alpha(9, 16), 255, "vertical stem");
+  assert.equal(alpha(20, 29), 255, "horizontal foot");
+  assert.equal(alpha(22, 16), 255, "dot");
+  assert.equal(alpha(14, 22), 0, "gap between the stem and the dot");
+  assert.equal(alpha(22, 24), 0, "gap between the dot and the foot");
+  assert.equal(alpha(34, 2), 0, "open top right corner");
+  const svg = fs.readFileSync(path.join(DESKTOP, "assets", "tray-idle.svg"), "utf8");
   assert.doesNotMatch(svg, /#FFFFFF/i);
+});
+
+test("the app icon source is the L mark and the icns holds every macOS size", () => {
+  const svg = fs.readFileSync(path.join(DESKTOP, "assets", "app-icon.svg"), "utf8");
+  assert.match(svg, /<path d="M360 300 V700 H720"/);
+  assert.equal(pkg.build.mac.icon, "assets/icon.icns");
+  const icns = fs.readFileSync(path.join(DESKTOP, "assets", "icon.icns"));
+  assert.equal(icns.toString("ascii", 0, 4), "icns");
+  const types = new Set();
+  for (let offset = 8; offset < icns.length; offset += icns.readUInt32BE(offset + 4)) {
+    types.add(icns.toString("ascii", offset, offset + 4));
+  }
+  for (const type of ["ic04", "ic05", "ic07", "ic08", "ic09", "ic10", "ic11", "ic12", "ic13", "ic14"]) {
+    assert.ok(types.has(type), `icns is missing ${type}`);
+  }
 });
