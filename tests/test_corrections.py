@@ -26,7 +26,7 @@ from meeting_wiki.models import (
     TranscriptResult,
     TranscriptSegment,
 )
-from meeting_wiki.providers.base import CalendarEvent
+from meeting_wiki.providers.base import CalendarEvent, TranscriptionCapabilities
 from meeting_wiki.providers.local_storage import LocalFileStorage
 from meeting_wiki.providers.registry import ProviderBundle
 from meeting_wiki.worker import Worker, enqueue_meeting
@@ -36,6 +36,7 @@ REMOTE_TEXT = "Please finish the migration by Friday."
 
 class _FakeTranscriber:
     name = "fake"
+    capabilities = TranscriptionCapabilities()
 
     def __init__(self, result: TranscriptResult):
         self.result = result

@@ -14,6 +14,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from ..audio_chunks import wav_duration_seconds
 from ..config import PrivacyConfig
 from ..diagnostics import SafeProviderError
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
@@ -35,6 +36,81 @@ from .llm import _validate, analysis_messages, openai_strict_schema
 _INSTALL_HINT = "install meeting-wiki[gemini]"
 _INSTALL_ERROR = "Gemini SDK is not installed. Run: pip install 'meeting-wiki[gemini]'"
 _LIVE_PCM_MIME_TYPE = "audio/pcm;rate=16000"
+# One request per 20 minutes of audio. A 90-minute request was always rejected with HTTP 400,
+# while 28-minute requests succeeded; the engine splits longer recordings at this limit.
+BATCH_MAX_DURATION_MINUTES = 20
+BATCH_AUDIO_APIS = ("interactions", "generate_content")
+
+_TRANSCRIPT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "start_seconds": {"type": "number"},
+                    "text": {"type": "string"},
+                },
+                "required": ["start_seconds", "text"],
+            },
+        }
+    },
+    "required": ["segments"],
+}
+
+
+def _transcription_instruction(language: str | None) -> str:
+    instruction = (
+        "Transcribe the speech in this audio verbatim. Keep every language as spoken and never "
+        "translate, summarize, or skip content. Split at sentence or speaker-turn boundaries. "
+        "For each segment give start_seconds, the offset in seconds from the start of this "
+        "audio. Return an empty segments list if there is no speech."
+    )
+    if language:
+        instruction += f" The main spoken language is {language_display_name(language)}."
+    return instruction
+
+
+def _parse_transcript_segments(
+    content: str | None, duration_seconds: float | None
+) -> list[TranscriptSegment]:
+    """Build ordered, bounded segments from the structured transcription response."""
+    try:
+        data = json.loads(content or "")
+    except json.JSONDecodeError:
+        raise RuntimeError("Gemini returned non-JSON transcript") from None
+    raw_segments = data.get("segments") if isinstance(data, dict) else None
+    if not isinstance(raw_segments, list):
+        raise RuntimeError("Gemini returned an invalid transcript")
+    limit = duration_seconds if duration_seconds and duration_seconds > 0 else None
+    entries: list[tuple[float, str]] = []
+    previous = 0.0
+    for item in raw_segments:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        start = item.get("start_seconds")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        if isinstance(start, bool) or not isinstance(start, int | float) or start != start:
+            start = previous
+        start = max(previous, float(start))
+        if limit is not None:
+            start = min(start, limit)
+        entries.append((start, text.strip()))
+        previous = start
+    segments: list[TranscriptSegment] = []
+    for index, (start, text) in enumerate(entries):
+        if index + 1 < len(entries):
+            end = entries[index + 1][0]
+        else:
+            end = limit if limit is not None else start
+        segments.append(
+            TranscriptSegment(start_seconds=start, end_seconds=max(start, end), text=text)
+        )
+    return segments
+
 
 ClientFactory = Callable[[], Any]
 
@@ -101,7 +177,11 @@ class _GeminiClientMixin:
 
 class GeminiTranscriber(_GeminiClientMixin):
     name = "gemini"
-    capabilities = TranscriptionCapabilities(hardware="remote-or-server")
+    capabilities = TranscriptionCapabilities(
+        timestamps=True,
+        max_duration_minutes=BATCH_MAX_DURATION_MINUTES,
+        hardware="remote-or-server",
+    )
 
     def __init__(
         self,
@@ -109,11 +189,45 @@ class GeminiTranscriber(_GeminiClientMixin):
         api_key: str,
         timeout_seconds: float,
         client_factory: ClientFactory | None = None,
+        *,
+        api: str = "interactions",
     ):
+        if api not in BATCH_AUDIO_APIS:
+            raise ValueError(f"Unknown Gemini batch audio API: {api}")
         self.model = model
         self.api_key = api_key
         self.timeout = timeout_seconds
         self._client_factory = client_factory
+        self.api = api
+
+    def _segments_from_interactions(
+        self, client: Any, uploaded: Any, mime_type: str | None, language: str | None
+    ) -> list[TranscriptSegment]:
+        generation_config: dict[str, Any] = {}
+        if language:
+            generation_config["transcription_config"] = {"language_codes": [language]}
+        interaction = client.interactions.create(
+            model=self.model,
+            input=[{"type": "audio", "uri": uploaded.uri, "mime_type": mime_type}],
+            generation_config=generation_config,
+        )
+        text = str(interaction.output_text or "").strip()
+        return [TranscriptSegment(text=text)] if text else []
+
+    def _request_generate_content(
+        self, client: Any, uploaded: Any, language: str | None
+    ) -> str | None:
+        response = client.models.generate_content(
+            model=self.model,
+            contents=[uploaded, "Transcribe this audio."],
+            config={
+                "system_instruction": _transcription_instruction(language),
+                "temperature": 0,
+                "response_mime_type": "application/json",
+                "response_schema": _TRANSCRIPT_SCHEMA,
+            },
+        )
+        return response.text
 
     def transcribe(
         self,
@@ -122,26 +236,25 @@ class GeminiTranscriber(_GeminiClientMixin):
         context: TranscriptionContext | None = None,
     ) -> TranscriptResult:
         client = self._client()
-        generation_config: dict[str, Any] = {}
-        if language:
-            generation_config["transcription_config"] = {"language_codes": [language]}
+        structured: str | None = None
+        segments: list[TranscriptSegment] = []
         try:
             uploaded = client.files.upload(file=str(audio_path))
             mime_type = uploaded.mime_type or mimetypes.guess_type(audio_path.name)[0]
-            interaction = client.interactions.create(
-                model=self.model,
-                input=[{"type": "audio", "uri": uploaded.uri, "mime_type": mime_type}],
-                generation_config=generation_config,
-            )
-            text = str(interaction.output_text or "").strip()
+            if self.api == "generate_content":
+                structured = self._request_generate_content(client, uploaded, language)
+            else:
+                segments = self._segments_from_interactions(client, uploaded, mime_type, language)
         except Exception as error:
             # SDK messages can echo keys, paths, or transcript text.
             raise SafeProviderError("gemini", "transcription", error) from None
-        if not text:
+        if self.api == "generate_content":
+            segments = _parse_transcript_segments(structured, wav_duration_seconds(audio_path))
+        if not segments:
             raise EmptyTranscriptError("Gemini produced an empty transcript")
         return TranscriptResult(
-            text=text,
-            segments=[TranscriptSegment(text=text)],
+            text="\n".join(segment.text for segment in segments),
+            segments=segments,
             language=language,
             provider=self.name,
             model=self.model,

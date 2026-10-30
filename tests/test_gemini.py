@@ -9,9 +9,11 @@ from types import SimpleNamespace
 import pytest
 
 from meeting_wiki.config import AppConfig, PrivacyConfig
+from meeting_wiki.diagnostics import SafeProviderError
 from meeting_wiki.models import MeetingType
 from meeting_wiki.providers import gemini as gemini_module
 from meeting_wiki.providers.base import (
+    EmptyTranscriptError,
     LiveLanguageProvider,
     LiveSessionExpiredError,
     LiveSessionStatus,
@@ -196,6 +198,122 @@ def test_transcriber_surfaces_generic_runtime_error_without_details(tmp_path, fi
     assert raised.value.__cause__ is None
 
 
+def _write_wav(path, seconds, framerate=100):
+    """Write a readable 8-bit mono PCM WAV of the given duration."""
+    import wave
+
+    with wave.open(str(path), "wb") as destination:
+        destination.setnchannels(1)
+        destination.setsampwidth(1)
+        destination.setframerate(framerate)
+        destination.writeframes(bytes([1]) * int(seconds * framerate))
+
+
+def generate_content_transcriber(client):
+    return GeminiTranscriber(
+        LANGUAGE_MODEL, TEST_KEY, 600, client_factory=lambda: client, api="generate_content"
+    )
+
+
+def test_transcriber_declares_a_twenty_minute_request_limit():
+    assert GeminiTranscriber.capabilities.max_duration_minutes == 20
+    assert GeminiTranscriber.capabilities.timestamps is True
+
+
+def test_transcriber_rejects_an_unknown_batch_api():
+    with pytest.raises(ValueError, match="Unknown Gemini batch audio API"):
+        GeminiTranscriber(BATCH_MODEL, TEST_KEY, 600, client_factory=forbid_client, api="other")
+
+
+def test_generate_content_transcription_sends_the_file_with_a_structured_schema(tmp_path):
+    audio = tmp_path / "meeting.wav"
+    _write_wav(audio, seconds=30)
+    body = {
+        "segments": [
+            {"start_seconds": 0, "text": "hello"},
+            {"start_seconds": 12.5, "text": "\u4f60\u597d"},
+        ]
+    }
+    models = FakeModels(json.dumps(body))
+    client = fake_client(models=models)
+
+    result = generate_content_transcriber(client).transcribe(audio, "zh-CN")
+
+    assert client.files.calls == [str(audio)]
+    assert client.interactions.calls == []
+    call = models.calls[0]
+    assert call["model"] == LANGUAGE_MODEL
+    assert call["contents"][0] is client.files.uploaded
+    assert call["config"]["response_mime_type"] == "application/json"
+    assert call["config"]["response_schema"] == gemini_module._TRANSCRIPT_SCHEMA
+    assert "Simplified Chinese" in call["config"]["system_instruction"]
+    assert "never translate" in call["config"]["system_instruction"]
+    assert [(s.start_seconds, s.end_seconds, s.text) for s in result.segments] == [
+        (0.0, 12.5, "hello"),
+        (12.5, 30.0, "\u4f60\u597d"),
+    ]
+    assert result.text == "hello\n\u4f60\u597d"
+    assert result.model == LANGUAGE_MODEL
+
+
+def test_generate_content_segments_stay_ordered_and_inside_the_audio(tmp_path):
+    audio = tmp_path / "meeting.wav"
+    _write_wav(audio, seconds=10)
+    body = {
+        "segments": [
+            {"start_seconds": 4, "text": "second"},
+            {"start_seconds": 2, "text": "went backwards"},
+            {"start_seconds": 99, "text": "past the end"},
+            {"start_seconds": 5, "text": "   "},
+            {"start_seconds": True, "text": "boolean start"},
+        ]
+    }
+    client = fake_client(models=FakeModels(json.dumps(body)))
+
+    result = generate_content_transcriber(client).transcribe(audio)
+
+    assert [(s.start_seconds, s.end_seconds, s.text) for s in result.segments] == [
+        (4.0, 4.0, "second"),
+        (4.0, 10.0, "went backwards"),
+        (10.0, 10.0, "past the end"),
+        (10.0, 10.0, "boolean start"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "body", [{"segments": []}, {"segments": [{"start_seconds": 0, "text": " "}]}]
+)
+def test_generate_content_without_speech_is_an_empty_transcript(tmp_path, body):
+    audio = tmp_path / "meeting.wav"
+    _write_wav(audio, seconds=2)
+    client = fake_client(models=FakeModels(json.dumps(body)))
+
+    with pytest.raises(EmptyTranscriptError):
+        generate_content_transcriber(client).transcribe(audio)
+
+
+@pytest.mark.parametrize("text", ["not json", "[]", '{"segments": "x"}'])
+def test_generate_content_rejects_a_malformed_transcript(tmp_path, text):
+    audio = tmp_path / "meeting.wav"
+    _write_wav(audio, seconds=2)
+    client = fake_client(models=FakeModels(text))
+
+    with pytest.raises(RuntimeError, match="Gemini returned"):
+        generate_content_transcriber(client).transcribe(audio)
+
+
+def test_generate_content_request_failure_is_redacted(tmp_path):
+    audio = tmp_path / "meeting.wav"
+    _write_wav(audio, seconds=2)
+    models = FakeModels("{}", error=ConnectionError(f"secret transcript {TEST_KEY}"))
+    client = fake_client(models=models)
+
+    with pytest.raises(SafeProviderError) as raised:
+        generate_content_transcriber(client).transcribe(audio)
+    assert TEST_KEY not in str(raised.value)
+    assert "secret transcript" not in str(raised.value)
+
+
 def test_transcriber_imports_sdk_lazily_and_reports_missing_extra(tmp_path, monkeypatch):
     def missing_sdk():
         raise ImportError("No module named 'google.genai'")
@@ -304,6 +422,21 @@ def test_registry_builds_native_gemini_transcriber_with_configured_secret(monkey
     assert not isinstance(bundle.transcription, OpenAITranscriber)
     assert bundle.transcription.api_key == TEST_KEY
     assert bundle.transcription.model == BATCH_MODEL
+    assert bundle.transcription.api == "interactions"
+
+
+def test_registry_passes_the_configured_batch_audio_api(monkeypatch):
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+    config = AppConfig.model_validate(
+        {
+            "providers": {"transcription": "gemini"},
+            "gemini": {"batch_audio_model": LANGUAGE_MODEL, "batch_audio_api": "generate_content"},
+        }
+    )
+
+    assert build_providers(config).transcription.api == "generate_content"
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({"gemini": {"batch_audio_api": "other"}})
 
 
 def test_registry_builds_gemini_language_provider_with_configured_secret(monkeypatch):

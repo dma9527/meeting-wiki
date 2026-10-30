@@ -33,6 +33,12 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 - Live captions are display only. They label lines as You or Others by audio
   channel, not by individual speaker. Providers without a live adapter (Other
   online API key) have no live captions.
+- Gemini live captions open one connection per audio channel, so a meeting with
+  system audio uses the live model's quota twice. That quota is small; check it
+  in Google AI Studio if captions stop during long meetings.
+- Recordings longer than the provider's request limit (20 minutes for Gemini,
+  10 minutes for Other online API key) are transcribed in parts. Gemini timing
+  inside each part comes from the model and is approximate.
 - Local only setup is not available in this build.
 - The system audio permission cannot be checked before recording; a missing
   permission shows up as silent participants and a notification.

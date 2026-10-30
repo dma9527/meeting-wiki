@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 import wave
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
+from .audio_chunks import split_wav, wav_duration_seconds
 from .config import AppConfig
 from .events import Component, EventCode, EventJournal
 from .memory import MemoryStore
@@ -337,11 +339,7 @@ class MeetingEngine:
                 if self._is_provably_silent_wav(path):
                     continue
                 try:
-                    result = self.providers.transcription.transcribe(
-                        path,
-                        self.config.transcription_language,
-                        context,
-                    )
+                    result = self._transcribe_audio(path, context)
                 except EmptyTranscriptError:
                     continue
                 results.append((result, speaker))
@@ -352,12 +350,59 @@ class MeetingEngine:
 
         if not meeting.audio_path:
             raise ValueError("Meeting requires audio_path or transcript_path")
-        result = self.providers.transcription.transcribe(
-            meeting.audio_path,
-            self.config.transcription_language,
-            shared_context,
-        )
+        result = self._transcribe_audio(meeting.audio_path, shared_context)
         return self._apply_speaker_corrections(result, meeting.speaker_corrections)
+
+    def _transcribe_audio(self, path: Path, context: TranscriptionContext) -> TranscriptResult:
+        """Transcribe one stream, splitting a WAV longer than the provider's request limit."""
+        provider = self.providers.transcription
+        language = self.config.transcription_language
+        limit_minutes = provider.capabilities.max_duration_minutes
+        duration = wav_duration_seconds(path) if limit_minutes else None
+        if not limit_minutes or duration is None or duration <= limit_minutes * 60:
+            return provider.transcribe(path, language, context)
+        workroot = self.config.data_dir / "tmp"
+        workroot.mkdir(parents=True, exist_ok=True, mode=0o700)
+        parts: list[TranscriptResult] = []
+        segments: list[TranscriptSegment] = []
+        with tempfile.TemporaryDirectory(prefix="transcribe-", dir=workroot) as raw_workdir:
+            for chunk in split_wav(path, limit_minutes * 60, Path(raw_workdir)):
+                try:
+                    part = provider.transcribe(chunk.path, language, context)
+                except EmptyTranscriptError:
+                    continue
+                parts.append(part)
+                segments.extend(self._offset_segments(part, chunk.start_seconds, chunk.end_seconds))
+        if not parts:
+            raise EmptyTranscriptError("Every audio chunk produced an empty transcript")
+        return TranscriptResult(
+            text="\n".join(part.text for part in parts),
+            segments=segments,
+            language=next((part.language for part in parts if part.language), None),
+            provider=parts[0].provider,
+            model=parts[0].model,
+            diarized=any(part.diarized for part in parts),
+        )
+
+    @staticmethod
+    def _offset_segments(
+        part: TranscriptResult, start: float, end: float
+    ) -> list[TranscriptSegment]:
+        """Place chunk-relative segments on the recording timeline; untimed text spans the chunk."""
+        source = part.segments or [TranscriptSegment(text=part.text)]
+        timed = any(segment.end_seconds > 0 for segment in source)
+        if not timed:
+            text = "\n".join(segment.text for segment in source)
+            return [TranscriptSegment(start_seconds=start, end_seconds=end, text=text)]
+        return [
+            segment.model_copy(
+                update={
+                    "start_seconds": min(end, start + segment.start_seconds),
+                    "end_seconds": min(end, start + segment.end_seconds),
+                }
+            )
+            for segment in source
+        ]
 
     @staticmethod
     def _is_provably_silent_wav(path: Path) -> bool:

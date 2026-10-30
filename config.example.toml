@@ -54,6 +54,7 @@ timeout_seconds = 600
 # also require live.allow_external_providers = true.
 api_key_env = "MEETING_WIKI_GEMINI_API_KEY"
 batch_audio_model = ""  # required when providers.transcription = "gemini"
+batch_audio_api = "interactions"  # "generate_content" sends audio to a general model
 live_model = ""         # required when providers.live_transcription = "gemini"
 language_model = ""     # required when providers.llm or live_language = "gemini"
 timeout_seconds = 600

@@ -7,7 +7,7 @@ import pytest
 
 from meeting_wiki.config import AppConfig
 from meeting_wiki.engine import MeetingEngine
-from meeting_wiki.providers.base import storage_revision
+from meeting_wiki.providers.base import TranscriptionCapabilities, storage_revision
 from meeting_wiki.providers.local_storage import LocalFileStorage
 from meeting_wiki.providers.registry import ProviderBundle
 from meeting_wiki.providers.s3_storage import (
@@ -240,6 +240,7 @@ class RecordingLLM:
 
 class StaticTranscriber:
     name = "fake"
+    capabilities = TranscriptionCapabilities()
 
     def __init__(self, result):
         self.result = result

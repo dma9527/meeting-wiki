@@ -13,13 +13,14 @@ from meeting_wiki.models import (
     TranscriptResult,
     TranscriptSegment,
 )
-from meeting_wiki.providers.base import CalendarEvent
+from meeting_wiki.providers.base import CalendarEvent, TranscriptionCapabilities
 from meeting_wiki.providers.local_storage import LocalFileStorage
 from meeting_wiki.providers.registry import ProviderBundle
 
 
 class FakeTranscriber:
     name = "fake"
+    capabilities = TranscriptionCapabilities()
 
     def __init__(self, result):
         self.result = result
@@ -42,6 +43,7 @@ class PathCheckingTranscriber(FakeTranscriber):
 
 class SplitTranscriber:
     name = "split-fake"
+    capabilities = TranscriptionCapabilities()
 
     def __init__(self, results):
         self.results = results
@@ -688,3 +690,199 @@ def test_dual_stream_rejects_when_every_stream_is_silent_or_empty(tmp_path, meet
 
     with pytest.raises(ValueError, match="No non-empty audio streams"):
         MeetingEngine(AppConfig(data_dir=tmp_path), providers).ingest(meeting)
+
+
+class ChunkRecordingTranscriber:
+    """Records each chunk's duration and returns one scripted result per call."""
+
+    name = "chunk-fake"
+
+    def __init__(self, results, max_duration_minutes):
+        self.capabilities = TranscriptionCapabilities(max_duration_minutes=max_duration_minutes)
+        self.results = list(results)
+        self.durations = []
+        self.paths = []
+
+    def transcribe(self, audio_path, language=None, context=None):
+        import wave
+
+        with wave.open(str(audio_path), "rb") as source:
+            self.durations.append(source.getnframes() / source.getframerate())
+        self.paths.append(audio_path)
+        result = self.results.pop(0)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    def health(self):
+        return True, "ok"
+
+
+def write_silent_wav(path, seconds, framerate=100) -> None:
+    import wave
+
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(framerate)
+        output.writeframes(b"\x01\x00" * int(seconds * framerate))
+
+
+def chunk_engine(tmp_path, transcriber, analysis):
+    placeholder = TranscriptResult(text="unused", provider="fake", model="fake")
+    providers, _, _ = bundle(tmp_path, placeholder, analysis)
+    providers.transcription = transcriber
+    return MeetingEngine(AppConfig(data_dir=tmp_path), providers)
+
+
+def untimed(text):
+    return TranscriptResult(
+        text=text, segments=[TranscriptSegment(text=text)], provider="p", model="m"
+    )
+
+
+def test_audio_within_the_provider_limit_is_sent_whole(tmp_path, analysis):
+    from meeting_wiki.providers.base import TranscriptionContext
+
+    audio = tmp_path / "meeting.wav"
+    write_silent_wav(audio, seconds=60)
+    transcriber = ChunkRecordingTranscriber([untimed("whole")], max_duration_minutes=1)
+
+    result = chunk_engine(tmp_path, transcriber, analysis)._transcribe_audio(
+        audio, TranscriptionContext()
+    )
+
+    assert transcriber.paths == [audio]
+    assert result.text == "whole"
+
+
+def test_long_audio_is_split_at_the_limit_and_untimed_text_spans_each_chunk(tmp_path, analysis):
+    from meeting_wiki.providers.base import TranscriptionContext
+
+    audio = tmp_path / "meeting.wav"
+    write_silent_wav(audio, seconds=150)
+    transcriber = ChunkRecordingTranscriber(
+        [untimed("first"), untimed("second"), untimed("third")], max_duration_minutes=1
+    )
+
+    result = chunk_engine(tmp_path, transcriber, analysis)._transcribe_audio(
+        audio, TranscriptionContext()
+    )
+
+    assert transcriber.durations == [60.0, 60.0, 30.0]
+    assert [(s.start_seconds, s.end_seconds, s.text) for s in result.segments] == [
+        (0.0, 60.0, "first"),
+        (60.0, 120.0, "second"),
+        (120.0, 150.0, "third"),
+    ]
+    assert result.text == "first\nsecond\nthird"
+    assert list((tmp_path / "tmp").iterdir()) == []
+
+
+def test_timed_chunk_segments_are_offset_onto_the_recording_timeline(tmp_path, analysis):
+    from meeting_wiki.providers.base import TranscriptionContext
+
+    audio = tmp_path / "meeting.wav"
+    write_silent_wav(audio, seconds=90)
+    timed = TranscriptResult(
+        text="a\nb",
+        segments=[
+            TranscriptSegment(start_seconds=0, end_seconds=10, text="a"),
+            TranscriptSegment(start_seconds=10, end_seconds=30, text="b"),
+        ],
+        provider="p",
+        model="m",
+    )
+    transcriber = ChunkRecordingTranscriber([untimed("intro"), timed], max_duration_minutes=1)
+
+    result = chunk_engine(tmp_path, transcriber, analysis)._transcribe_audio(
+        audio, TranscriptionContext()
+    )
+
+    assert [(s.start_seconds, s.end_seconds, s.text) for s in result.segments] == [
+        (0.0, 60.0, "intro"),
+        (60.0, 70.0, "a"),
+        (70.0, 90.0, "b"),
+    ]
+
+
+def test_silent_chunks_are_skipped_and_all_silent_audio_is_empty(tmp_path, analysis):
+    from meeting_wiki.providers.base import EmptyTranscriptError, TranscriptionContext
+
+    audio = tmp_path / "meeting.wav"
+    write_silent_wav(audio, seconds=120)
+    engine = chunk_engine(
+        tmp_path,
+        ChunkRecordingTranscriber(
+            [EmptyTranscriptError("quiet"), untimed("later")], max_duration_minutes=1
+        ),
+        analysis,
+    )
+    result = engine._transcribe_audio(audio, TranscriptionContext())
+    assert [(s.start_seconds, s.text) for s in result.segments] == [(60.0, "later")]
+
+    engine.providers.transcription = ChunkRecordingTranscriber(
+        [EmptyTranscriptError("quiet"), EmptyTranscriptError("quiet")], max_duration_minutes=1
+    )
+    with pytest.raises(EmptyTranscriptError):
+        engine._transcribe_audio(audio, TranscriptionContext())
+
+
+def test_chunk_provider_failure_propagates_and_cleans_up_chunks(tmp_path, analysis):
+    from meeting_wiki.providers.base import TranscriptionContext
+
+    audio = tmp_path / "meeting.wav"
+    write_silent_wav(audio, seconds=120)
+    transcriber = ChunkRecordingTranscriber(
+        [untimed("first"), ConnectionError("provider unavailable")], max_duration_minutes=1
+    )
+
+    with pytest.raises(ConnectionError, match="provider unavailable"):
+        chunk_engine(tmp_path, transcriber, analysis)._transcribe_audio(
+            audio, TranscriptionContext()
+        )
+    assert list((tmp_path / "tmp").iterdir()) == []
+
+
+def test_unreadable_audio_or_no_provider_limit_is_sent_whole(tmp_path, analysis):
+    from meeting_wiki.providers.base import TranscriptionContext
+
+    not_wav = tmp_path / "meeting.mp3"
+    not_wav.write_bytes(b"ID3 not a wav")
+    unlimited = tmp_path / "long.wav"
+    write_silent_wav(unlimited, seconds=150)
+
+    class AnyAudioTranscriber(FakeTranscriber):
+        capabilities = TranscriptionCapabilities(max_duration_minutes=1)
+
+    limited = AnyAudioTranscriber(untimed("mp3"))
+    chunk_engine(tmp_path, limited, analysis)._transcribe_audio(not_wav, TranscriptionContext())
+    assert [call[0] for call in limited.calls] == [not_wav]
+
+    no_limit = FakeTranscriber(untimed("long"))
+    chunk_engine(tmp_path, no_limit, analysis)._transcribe_audio(unlimited, TranscriptionContext())
+    assert [call[0] for call in no_limit.calls] == [unlimited]
+
+
+def test_dual_stream_chunks_interleave_by_recording_time(tmp_path, meeting, analysis):
+    mic = tmp_path / "mic.wav"
+    system = tmp_path / "system.wav"
+    write_silent_wav(mic, seconds=120)
+    write_silent_wav(system, seconds=120)
+    transcriber = ChunkRecordingTranscriber(
+        [untimed("mic one"), untimed("mic two"), untimed("remote one"), untimed("remote two")],
+        max_duration_minutes=1,
+    )
+    engine = chunk_engine(tmp_path, transcriber, analysis)
+    meeting = meeting.model_copy(
+        update={"mic_audio_path": mic, "system_audio_path": system, "attendees": ["Alex"]}
+    )
+
+    result = engine.ingest(meeting)
+
+    assert [segment.text for segment in result.transcript.segments] == [
+        "mic one",
+        "remote one",
+        "mic two",
+        "remote two",
+    ]

@@ -107,6 +107,8 @@ class GeminiConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key_env: str = "MEETING_WIKI_GEMINI_API_KEY"
     batch_audio_model: str = ""
+    # interactions: a dedicated transcription model; generate_content: a general model.
+    batch_audio_api: Literal["interactions", "generate_content"] = "interactions"
     live_model: str = ""
     language_model: str = ""
     timeout_seconds: float = Field(default=600, gt=0, le=1800)

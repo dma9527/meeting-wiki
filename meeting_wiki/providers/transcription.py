@@ -101,8 +101,10 @@ class MLXWhisperTranscriber:
 
 class OpenAITranscriber:
     name = "openai_compatible"
+    # Uploads are capped at 25 MB, about 13 minutes of the 16 kHz mono 16-bit capture format.
     capabilities = TranscriptionCapabilities(
         timestamps=True,
+        max_duration_minutes=10,
         hardware="remote-or-server",
     )
 

@@ -109,6 +109,7 @@ def build_providers(config: AppConfig) -> ProviderBundle:
             config.gemini.batch_audio_model,
             config.secret(config.gemini.api_key_env),
             config.gemini.timeout_seconds,
+            api=config.gemini.batch_audio_api,
         )
     elif config.providers.transcription == "text":
         transcription = TextImportTranscriber()

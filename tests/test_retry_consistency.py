@@ -12,6 +12,7 @@ import meeting_wiki.worker as worker_module
 from meeting_wiki.config import AppConfig
 from meeting_wiki.jobs import JobQueue
 from meeting_wiki.models import JobState, MeetingType
+from meeting_wiki.providers.base import TranscriptionCapabilities
 from meeting_wiki.providers.local_storage import LocalFileStorage
 from meeting_wiki.providers.registry import ProviderBundle
 from meeting_wiki.worker import Worker, enqueue_meeting
@@ -19,6 +20,7 @@ from meeting_wiki.worker import Worker, enqueue_meeting
 
 class _Transcriber:
     name = "fake"
+    capabilities = TranscriptionCapabilities()
 
     def __init__(self, result):
         self.result = result
