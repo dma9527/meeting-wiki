@@ -30,11 +30,16 @@ const GEMINI_PROVIDER = "gemini";
 const OPENAI_PROVIDER = "openai_compatible";
 const GEMINI_API_KEY_ENV = "MEETING_WIKI_GEMINI_API_KEY";
 const GEMINI_SECRET_ID = "gemini";
+// Recordings go to the general model through generate_content: its quota is far larger than
+// the dedicated transcription model's, which rejected long meetings.
 const GEMINI_MODELS = Object.freeze({
-  batchAudioModel: "gemini-3.5-transcribe",
+  batchAudioModel: "gemini-3.5-flash",
+  batchAudioApi: "generate_content",
   liveModel: "gemini-3.5-transcribe-live",
   languageModel: "gemini-3.5-flash",
 });
+// The batch model earlier setup versions wrote, before batch_audio_api existed.
+const LEGACY_GEMINI_BATCH_MODEL = "gemini-3.5-transcribe";
 const MANAGED_KEY_ENVS = Object.freeze([API_KEY_ENV, GEMINI_API_KEY_ENV]);
 const SETUP_STATE_FILE = "setup-state.json";
 const CHECK_TIMEOUT_MS = 30_000;
@@ -163,7 +168,10 @@ function renderGeminiConfig(
   identity = EMPTY_IDENTITY,
   languages = DEFAULT_LANGUAGE_SETTINGS,
 ) {
-  const models = { ...GEMINI_MODELS, ...pickDefined(settings, ["batchAudioModel", "liveModel", "languageModel"]) };
+  const models = {
+    ...GEMINI_MODELS,
+    ...pickDefined(settings, ["batchAudioModel", "batchAudioApi", "liveModel", "languageModel"]),
+  };
   const liveLines = [];
   if (settings.summaryContextCharacters !== undefined) {
     liveLines.push(`summary_context_characters = ${Number(settings.summaryContextCharacters)}`);
@@ -189,6 +197,7 @@ function renderGeminiConfig(
     "[gemini]",
     `api_key_env = ${tomlString(GEMINI_API_KEY_ENV)}`,
     `batch_audio_model = ${tomlString(models.batchAudioModel)}`,
+    `batch_audio_api = ${tomlString(models.batchAudioApi)}`,
     `live_model = ${tomlString(models.liveModel)}`,
     `language_model = ${tomlString(models.languageModel)}`,
     "",
@@ -199,6 +208,29 @@ function pickDefined(source, keys) {
   const picked = {};
   for (const key of keys) if (source[key] !== undefined) picked[key] = source[key];
   return picked;
+}
+
+// Adds batch_audio_api to a managed config written before it existed. The old setup default
+// moves to the general model; any other batch model keeps the transcription API it used.
+// Returns the new text, or null when there is nothing to change.
+function migrateGeminiBatchAudio(text) {
+  const tables = parseManagedConfig(text);
+  const gemini = tables && tables.gemini;
+  if (!gemini || gemini.batch_audio_api !== undefined || gemini.batch_audio_model === undefined) return null;
+  const legacy = gemini.batch_audio_model === LEGACY_GEMINI_BATCH_MODEL;
+  const model = legacy ? gemini.language_model || GEMINI_MODELS.batchAudioModel : gemini.batch_audio_model;
+  const api = legacy ? GEMINI_MODELS.batchAudioApi : "interactions";
+  let section = "";
+  const lines = text.split("\n").flatMap((line) => {
+    const header = /^\[([a-z_]+)\]$/.exec(line);
+    if (header) section = header[1];
+    if (section !== "gemini" || !/^batch_audio_model = /.test(line)) return [line];
+    return [`batch_audio_model = ${tomlString(model)}`, `batch_audio_api = ${tomlString(api)}`];
+  });
+  const migrated = lines.join("\n");
+  const check = parseManagedConfig(migrated);
+  if (!check || check.gemini.batch_audio_model !== model || check.gemini.batch_audio_api !== api) return null;
+  return migrated;
 }
 
 function ensurePrivateDir(fs, dir) {
@@ -775,6 +807,7 @@ module.exports = {
   failureDetail,
   guard,
   isManagedConfig,
+  migrateGeminiBatchAudio,
   needsSetup,
   readSetupState,
   registerSetupHandlers,

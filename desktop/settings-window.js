@@ -88,7 +88,15 @@ function parseManagedGeminiConfig(text) {
     liveModel: gemini.live_model ?? GEMINI_MODELS.liveModel,
     languageModel: gemini.language_model ?? GEMINI_MODELS.languageModel,
     summaryContextCharacters: live.summary_context_characters ?? LIVE_DEFAULTS.summaryContextCharacters,
+    // Not editable in Settings; a save keeps whatever API the config already uses.
+    batchAudioApi: gemini.batch_audio_api ?? "interactions",
   };
+}
+
+// The values Settings may show and edit; batchAudioApi stays in the main process.
+function editableGeminiValues(values) {
+  const { batchAudioApi: _batchAudioApi, ...editable } = values;
+  return editable;
 }
 
 function validateGeminiFeatureSettings(raw) {
@@ -260,7 +268,7 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     getGeminiSettings() {
       const current = readiness();
       if (!current.ready) return current;
-      return { ready: true, values: current.values, bounds: { summaryContextCharacters: { ...SUMMARY_CONTEXT_BOUNDS } } };
+      return { ready: true, values: editableGeminiValues(current.values), bounds: { summaryContextCharacters: { ...SUMMARY_CONTEXT_BOUNDS } } };
     },
 
     saveGeminiSettings(raw) {
@@ -269,7 +277,8 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
       if (unsupportedLanguageFields(current.tables).length > 0) {
         throw new SettingsError("Open Languages and choose supported values before saving Gemini settings.");
       }
-      const values = validateGeminiFeatureSettings(raw);
+      const edited = validateGeminiFeatureSettings(raw);
+      const values = { ...edited, batchAudioApi: current.values.batchAudioApi };
       const config = renderGeminiConfig(
         values,
         current.identity,
@@ -283,7 +292,7 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
         throw new SettingsError(SAVE_FAILED);
       }
       write(config);
-      return { ok: true, values };
+      return { ok: true, values: edited };
     },
 
     getRecordingSettings() {

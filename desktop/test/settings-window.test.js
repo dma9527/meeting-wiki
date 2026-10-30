@@ -359,6 +359,18 @@ test("saveGeminiSettings regenerates the managed config owner-only and restarts 
   assert.deepEqual(controller.getGeminiSettings().values, VALID);
 });
 
+test("saveGeminiSettings keeps the batch audio API the config already uses", () => {
+  const interactions = setup.renderGeminiConfig({ batchAudioApi: "interactions" });
+  const dataDir = geminiDataDir(interactions);
+  const { controller, configPath } = controllerFor(dataDir);
+
+  assert.deepEqual(controller.saveGeminiSettings({ ...VALID }), { ok: true, values: VALID });
+
+  const config = fs.readFileSync(configPath, "utf8");
+  assert.match(config, /^batch_audio_api = "interactions"$/m);
+  assert.deepEqual(controller.getGeminiSettings().values, VALID);
+});
+
 test("the regenerated config loads in the Python config model", { skip: !fs.existsSync(path.join(ROOT, ".venv", "bin", "python")) }, () => {
   const dataDir = geminiDataDir();
   const { controller, configPath } = controllerFor(dataDir);

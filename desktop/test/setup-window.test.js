@@ -663,7 +663,8 @@ test("Gemini constants are provider scoped and models use the source-backed defa
   assert.equal(setup.GEMINI_SECRET_ID, "gemini");
   assert.equal(setup.GEMINI_API_KEY_ENV, "MEETING_WIKI_GEMINI_API_KEY");
   assert.deepEqual(setup.GEMINI_MODELS, {
-    batchAudioModel: "gemini-3.5-transcribe",
+    batchAudioModel: "gemini-3.5-flash",
+    batchAudioApi: "generate_content",
     liveModel: "gemini-3.5-transcribe-live",
     languageModel: "gemini-3.5-flash",
   });
@@ -701,10 +702,45 @@ test("renderGeminiConfig selects gemini everywhere with the default models and o
   assert.match(config, /^\[live\]\n(#.*\n)*allow_external_providers = true$/m);
   assert.match(config, /^\[gemini\]$/m);
   assert.match(config, /^api_key_env = "MEETING_WIKI_GEMINI_API_KEY"$/m);
-  assert.match(config, /^batch_audio_model = "gemini-3\.5-transcribe"$/m);
+  assert.match(config, /^batch_audio_model = "gemini-3\.5-flash"$/m);
+  assert.match(config, /^batch_audio_api = "generate_content"$/m);
   assert.match(config, /^live_model = "gemini-3\.5-transcribe-live"$/m);
   assert.match(config, /^language_model = "gemini-3\.5-flash"$/m);
   assert.doesNotMatch(config, /openai|MEETING_WIKI_ONLINE_API_KEY|base_url/);
+});
+
+// A managed config as setup wrote it before batch_audio_api existed.
+function legacyGeminiConfig(batchModel = "gemini-3.5-transcribe") {
+  return setup
+    .renderGeminiConfig()
+    .replace(/^batch_audio_api = .*\n/m, "")
+    .replace(/^batch_audio_model = .*$/m, `batch_audio_model = ${setup.tomlString(batchModel)}`);
+}
+
+test("the legacy batch model migrates to the general model and generate_content", () => {
+  const legacy = legacyGeminiConfig();
+  const migrated = setup.migrateGeminiBatchAudio(legacy);
+
+  assert.match(migrated, /^batch_audio_model = "gemini-3\.5-flash"\nbatch_audio_api = "generate_content"$/m);
+  assert.equal(migrated, setup.renderGeminiConfig());
+  assert.equal(setup.migrateGeminiBatchAudio(migrated), null);
+});
+
+test("a custom batch model keeps the transcription API it already used", () => {
+  const migrated = setup.migrateGeminiBatchAudio(legacyGeminiConfig("custom-transcribe-model"));
+
+  assert.match(migrated, /^batch_audio_model = "custom-transcribe-model"\nbatch_audio_api = "interactions"$/m);
+});
+
+test("migration leaves unmanaged, non-Gemini, and already migrated configs alone", () => {
+  for (const text of [
+    null,
+    "# My config\n[gemini]\nbatch_audio_model = \"gemini-3.5-transcribe\"\n",
+    setup.renderOnlineConfig({ baseUrl: "https://provider.example.test/v1", transcriptionModel: "a", languageModel: "b" }),
+    setup.renderGeminiConfig(),
+  ]) {
+    assert.equal(setup.migrateGeminiBatchAudio(text), null);
+  }
 });
 
 test("a committed Gemini setup stores the key encrypted under the gemini secret and never in plaintext", async () => {
@@ -895,7 +931,7 @@ test("managed Gemini config is accepted by AppConfig and passes doctor", { skip:
     encoding: "utf8",
   });
   assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
-  assert.match(doctor.stdout, /^OK transcription: .*gemini-3\.5-transcribe/m);
+  assert.match(doctor.stdout, /^OK transcription: .*gemini-3\.5-flash/m);
   assert.match(doctor.stdout, /^OK llm: .*gemini-3\.5-flash/m);
   assert.ok(!(doctor.stdout + doctor.stderr).includes(GEMINI_KEY));
 });

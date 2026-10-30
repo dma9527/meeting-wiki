@@ -11,7 +11,7 @@ process.umask(0o077);
 const { AudioCapture, buildCaptureManifest, captureManifestPath } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
-const { createSetupWindow, credentialFreeEnv, needsSetup, resolveProcessEnv } = require("./setup-window");
+const { createSetupWindow, credentialFreeEnv, migrateGeminiBatchAudio, needsSetup, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
 const {
   buildRecordContext,
@@ -872,11 +872,29 @@ function updateMenu() {
   tray.setContextMenu(Menu.buildFromTemplate(menuText.menuItems(items)));
 }
 
+// One-time upgrade of a managed config so the worker starts with batch_audio_api set.
+function migrateManagedConfig() {
+  let text;
+  try {
+    text = fs.readFileSync(CONFIG_PATH, "utf8");
+  } catch (_) {
+    return;
+  }
+  const migrated = migrateGeminiBatchAudio(text);
+  if (migrated === null) return;
+  try {
+    atomicWriteFile(fs, CONFIG_PATH, migrated);
+  } catch (_) {
+    notify("Configuration update needs attention", "Run setup again to update the recording transcription model.");
+  }
+}
+
 app.whenReady().then(async () => {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
   fs.mkdirSync(RECORDINGS_DIR, { recursive: true, mode: 0o700 });
   fs.chmodSync(DATA_DIR, 0o700);
   fs.chmodSync(RECORDINGS_DIR, 0o700);
+  migrateManagedConfig();
   const status = systemPreferences.getMediaAccessStatus("microphone");
   if (status !== "granted") {
     app.dock.show();

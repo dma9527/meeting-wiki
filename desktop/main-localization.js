@@ -134,6 +134,8 @@ const MESSAGES = Object.freeze({
   "The recording could not be finalized.": "录音无法完成保存。",
   "Google Meet automatic recording needs attention": "Google Meet 自动录音需要处理",
   "Open Settings to check the browser connection.": "请打开“设置”检查浏览器连接。",
+  "Configuration update needs attention": "配置更新需要处理",
+  "Run setup again to update the recording transcription model.": "请重新运行设置以更新录音转录模型。",
   "Saving your recording": "正在保存你的录音",
   "Meeting Wiki will quit after the recording is saved and queued.": "录音保存并加入队列后，Meeting Wiki 会退出。",
 
