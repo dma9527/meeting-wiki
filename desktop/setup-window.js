@@ -23,6 +23,7 @@ const {
   unsupportedLanguageFields,
 } = require("./managed-config");
 const { appliesCopy } = require("./setting-metadata");
+const { windowBackground } = require("./window-background");
 
 const API_KEY_ENV = "MEETING_WIKI_ONLINE_API_KEY";
 const SECRET_ID = "online";
@@ -755,7 +756,7 @@ function createSetupWindow(electron, context) {
     minHeight: 560,
     show: false,
     title: "Set up Meeting Wiki",
-    backgroundColor: "#f4f1ea",
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, "setup-preload.js"),
       contextIsolation: true,

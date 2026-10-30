@@ -8,6 +8,7 @@ const path = require("path");
 const { pathToFileURL } = require("url");
 
 const { DEFAULT_LANGUAGE_SETTINGS, LANGUAGE_VALUES, languageFromTables, parseManagedConfig } = require("./managed-config");
+const { windowBackground } = require("./window-background");
 
 const CHANNELS = Object.freeze({
   getContext: "record:getContext",
@@ -237,7 +238,7 @@ function createRecordWindow(electron, context) {
     minHeight: 520,
     show: false,
     title: "Start a recording",
-    backgroundColor: "#f4f1ea",
+    backgroundColor: windowBackground(),
     alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, "record-preload.js"),

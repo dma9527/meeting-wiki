@@ -9,6 +9,7 @@ const { WikiStore } = require("./wiki-store");
 const { applyCorrection, fetchInbox, planCorrection } = require("./corrections-client");
 const { addResource, listDecisions, searchMemory } = require("./memory-client");
 const { dismissJob, listDeadJobs, listDismissedJobs, restoreJob, retryDeadJobs, retryJob } = require("./status");
+const { windowBackground } = require("./window-background");
 
 let wikiWindow = null;
 let handlersRegistered = false;
@@ -122,7 +123,7 @@ function createWikiWindow(electron, context) {
     minHeight: 480,
     show: false,
     title: "Meeting Wiki",
-    backgroundColor: "#f4f1ea",
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

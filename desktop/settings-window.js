@@ -40,6 +40,7 @@ const {
 } = require("./recording-settings");
 const { settingMetadata } = require("./setting-metadata");
 const { IntegrationError } = require("./integration-service");
+const { windowBackground } = require("./window-background");
 
 const CHANNELS = Object.freeze({
   getIdentitySettings: "settings:getIdentitySettings",
@@ -460,7 +461,7 @@ function createSettingsWindow(electron, context) {
     minHeight: 520,
     show: false,
     title: "Meeting Wiki Settings",
-    backgroundColor: "#f4f1ea",
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, "settings-preload.js"),
       contextIsolation: true,

@@ -1,126 +1,39 @@
-/* First-run setup. Palette: booth grey, graphite ink, cable blue for actions,
-   moss for local, tally red for anything that leaves the Mac. */
+/* Form windows (first-run setup, Settings, recording options). Tokens and controls come from
+   theme.css; this file adds the form layout and the data boundary diagram.
+   Green marks data that stays on this Mac; red marks anything that leaves it. */
 
 :root {
-  --booth: #e3e7e1;
-  --sheet: #f8faf6;
-  --graphite: #1d2420;
-  --slate: #56605a;
-  --rule: #c3cbc2;
-  --cable: #2b468c;
-  --cable-ink: #ffffff;
-  --cable-soft: #dfe5f3;
-  --moss: #2f6a3a;
-  --moss-soft: #dcebdc;
-  --tally: #a8361c;
-  --tally-soft: #f5e1d9;
-  --focus: #1f6feb;
-
-  --display: "Avenir Next Condensed", "DIN Condensed", "Arial Narrow", system-ui, sans-serif;
-  --body: "Avenir Next", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, monospace;
-
-  --radius: 8px;
   --gap: clamp(16px, 3vw, 32px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --booth: #141815;
-    --sheet: #1c211e;
-    --graphite: #e4e9e3;
-    --slate: #a3ada6;
-    --rule: #343c37;
-    --cable: #94acef;
-    --cable-ink: #0f1626;
-    --cable-soft: #222b40;
-    --moss: #8cc48a;
-    --moss-soft: #1f2e21;
-    --tally: #f08a6c;
-    --tally-soft: #3a221b;
-    --focus: #6ea8ff;
-  }
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
 body {
-  margin: 0;
-  min-height: 100%;
-}
-
-body {
-  background: var(--booth);
-  color: var(--graphite);
-  font-family: var(--body);
-  font-size: 15px;
-  line-height: 1.55;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.skip-link {
-  position: absolute;
-  left: -999px;
-  top: 0;
-  z-index: 10;
-  padding: 8px 14px;
-  background: var(--sheet);
-  color: var(--graphite);
-  border-radius: var(--radius);
-}
-
-.skip-link:focus {
-  left: 12px;
-  top: 12px;
-}
-
-:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
-
-[hidden] {
-  display: none !important;
+  min-height: 100vh;
 }
 
 /* ---- Layout ---- */
 
 .setup-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   grid-template-areas:
     "head head"
     "main boundary";
-  gap: var(--gap);
-  max-width: 1080px;
+  gap: var(--space-5) var(--gap);
+  max-width: 1040px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: var(--gap);
+  padding: var(--space-5) var(--gap) var(--space-6);
 }
 
 .setup-head {
   grid-area: head;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px 24px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--rule);
+  gap: var(--space-3) var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
 
 .setup-main {
@@ -128,7 +41,8 @@ body {
   min-width: 0;
 }
 
-.setup-main:focus {
+.setup-main:focus,
+.panel:focus {
   outline: none;
 }
 
@@ -136,7 +50,7 @@ body {
   grid-area: boundary;
   align-self: start;
   position: sticky;
-  top: var(--gap);
+  top: var(--space-5);
 }
 
 @media (max-width: 760px) {
@@ -156,81 +70,80 @@ body {
 /* ---- Header ---- */
 
 .wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 18px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: var(--fs-title);
+  font-weight: 650;
+}
+
+.wordmark::before {
+  content: "";
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  background: center / contain no-repeat var(--brand-image);
 }
 
 .wordmark-sub {
-  margin-left: 8px;
-  color: var(--slate);
-  font-family: var(--body);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  color: var(--ink-muted);
+  font-size: var(--fs-body);
+  font-weight: 450;
 }
 
 .steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 20px;
+  gap: var(--space-2) var(--space-5);
   margin: 0;
   padding: 0;
   list-style: none;
-  color: var(--slate);
-  font-size: 13px;
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
 }
 
 .step {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .step-index {
   display: inline-grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--rule);
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-strong);
   border-radius: 50%;
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-caption);
+  font-weight: 650;
 }
 
 .step[aria-current="step"] {
-  color: var(--graphite);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .step[aria-current="step"] .step-index {
-  border-color: var(--cable);
-  background: var(--cable);
-  color: var(--cable-ink);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .step[data-done="true"] .step-index {
-  border-color: var(--graphite);
+  border-color: var(--success);
+  color: var(--success);
 }
 
-/* ---- Panels and type ---- */
-
-.panel:focus {
-  outline: none;
-}
+/* ---- Type ---- */
 
 .display {
-  margin: 8px 0 12px;
-  max-width: 18ch;
-  font-family: var(--display);
-  font-size: clamp(30px, 4.4vw, 44px);
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: -0.005em;
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .display:focus {
@@ -242,38 +155,35 @@ body {
 }
 
 .lede {
-  max-width: 58ch;
-  margin: 0 0 24px;
-  color: var(--slate);
-  font-size: 16px;
+  max-width: 60ch;
+  margin: 0 0 var(--space-5);
+  color: var(--ink-muted);
+  font-size: var(--fs-body);
 }
 
 .subhead {
-  margin: 28px 0 10px;
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  margin: var(--space-6) 0 var(--space-3);
+  font-size: var(--fs-title);
+  font-weight: 650;
 }
 
 .notice {
-  margin-bottom: 20px;
-  padding: 12px 14px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
 }
 
 .notice-error {
-  background: var(--tally-soft);
-  color: var(--tally);
-  border: 1px solid var(--tally);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
-/* ---- Path choice ---- */
+/* ---- Choice cards ---- */
 
 .paths {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   border: 0;
@@ -282,39 +192,30 @@ body {
 .path-card {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 14px;
-  padding: 18px 20px;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
-  border-left-width: 6px;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
 .path-card:hover {
-  border-color: var(--slate);
+  border-color: var(--line-strong);
 }
 
 .path-card input {
-  width: 18px;
-  height: 18px;
-  margin: 3px 0 0;
-  accent-color: var(--cable);
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
 }
 
 .path-card:has(input:checked) {
-  border-color: var(--cable);
-  background: var(--cable-soft);
-}
-
-.path-card-unavailable {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.path-card-unavailable:hover {
-  border-color: var(--rule);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .path-card:has(input:focus-visible) {
@@ -322,104 +223,96 @@ body {
   outline-offset: 2px;
 }
 
+.path-card-unavailable {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.path-card-unavailable:hover {
+  border-color: var(--line);
+}
+
 .path-body {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .path-title {
-  font-weight: 600;
-  font-size: 17px;
+  font-size: var(--fs-title);
+  font-weight: 650;
 }
 
 .path-desc {
-  color: var(--slate);
+  color: var(--ink-muted);
 }
 
 .tag {
   display: inline-block;
-  margin-left: 6px;
-  padding: 1px 8px;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
   border-radius: 999px;
-  background: var(--cable);
-  color: var(--cable-ink);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  line-height: 18px;
   vertical-align: 2px;
 }
 
 .tag-quiet {
   background: transparent;
-  color: var(--slate);
-  border: 1px solid var(--rule);
+  color: var(--ink-muted);
+  border: 1px solid var(--line-strong);
 }
 
 /* ---- Fields ---- */
 
 .field {
   display: grid;
-  gap: 6px;
-  margin-bottom: 18px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
 }
 
 .field-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0 16px;
+  gap: 0 var(--space-4);
 }
 
 .field label {
   font-weight: 600;
-  font-size: 14px;
 }
 
 input[type="url"],
-input[type="text"],
 input[type="password"] {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--sheet);
-  color: var(--graphite);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  font-family: var(--mono);
-  font-size: 14px;
+  font-family: var(--font-mono);
 }
 
 input::placeholder {
-  color: var(--slate);
-  font-family: var(--body);
-}
-
-input[aria-invalid="true"] {
-  border-color: var(--tally);
-  box-shadow: inset 3px 0 0 var(--tally);
+  font-family: var(--font-sans);
 }
 
 .hint {
   margin: 0;
-  color: var(--slate);
-  font-size: 13px;
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
 }
 
 .hint-actions {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   text-align: right;
 }
 
 .field-error {
   margin: 0;
-  color: var(--tally);
-  font-size: 13px;
+  color: var(--danger);
+  font-size: var(--fs-small);
   font-weight: 600;
 }
 
-/* API key input with Show/Hide and Paste controls. */
 .key-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: stretch;
 }
 
@@ -430,123 +323,92 @@ input[aria-invalid="true"] {
 
 .key-row .button {
   flex: 0 0 auto;
-  min-height: 0;
-  padding: 6px 12px;
 }
 
 .current-setup {
-  margin: 0 0 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--rule);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--sheet);
+  background: var(--surface);
 }
 
 .current-setup .actions {
   justify-content: flex-start;
-  margin-top: 10px;
+  margin-top: var(--space-3);
 }
 
 .consent {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--tally-soft);
-  border: 1px solid var(--tally);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   border-radius: var(--radius);
 }
 
 .consent input {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   margin: 2px 0 0;
-  accent-color: var(--tally);
+  accent-color: var(--danger);
 }
 
 .host-ref {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 #online-egress-ack-error {
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 
 .status {
-  min-height: 1.55em;
-  margin: 16px 0 0;
-  font-size: 14px;
+  min-height: 1.5em;
+  margin: var(--space-4) 0 0;
 }
 
 .status[data-tone="error"] {
-  color: var(--tally);
+  color: var(--danger);
   font-weight: 600;
 }
 
 .status[data-tone="ok"] {
-  color: var(--moss);
+  color: var(--success);
   font-weight: 600;
 }
 
-/* ---- Buttons ---- */
+.language-field {
+  max-width: 360px;
+  margin-bottom: var(--space-5);
+}
+
+/* ---- Actions ---- */
 
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.button {
-  min-height: 40px;
-  padding: 8px 18px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button-primary {
-  background: var(--cable);
-  color: var(--cable-ink);
-}
-
-.button-secondary {
-  background: var(--sheet);
-  color: var(--cable);
-  border-color: var(--cable);
-}
-
-.button-quiet {
-  background: transparent;
-  color: var(--graphite);
-  border-color: var(--rule);
-}
-
-.button:disabled,
-.button[aria-disabled="true"] {
-  opacity: 0.55;
-  cursor: not-allowed;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
 }
 
 /* ---- Local models ---- */
 
 .local-facts {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-5);
   max-width: 60ch;
 }
 
 .local-facts li + li {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .model-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -558,40 +420,40 @@ input[aria-invalid="true"] {
   grid-template-areas:
     "head control"
     "meta control";
-  gap: 6px 16px;
-  padding: 14px 16px;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
 .model[data-installed="true"] {
-  border-color: var(--moss);
+  border-color: var(--success);
 }
 
 .model-head {
   grid-area: head;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .model-name {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--fs-title);
 }
 
 .model-meta {
   grid-area: meta;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 2px 12px;
+  gap: 2px var(--space-3);
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 
 .model-meta dt {
-  color: var(--slate);
+  color: var(--ink-muted);
 }
 
 .model-meta dd {
@@ -607,29 +469,29 @@ input[aria-invalid="true"] {
 .model-actions,
 .model-progress {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
   justify-items: end;
 }
 
 .model-state {
   margin: 0;
-  font-size: 13px;
-  color: var(--slate);
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
 }
 
 .model-state-ok {
-  color: var(--moss);
+  color: var(--success);
   font-weight: 600;
 }
 
 progress {
   width: 160px;
   height: 8px;
-  accent-color: var(--cable);
+  accent-color: var(--accent);
 }
 
 .list-empty {
-  color: var(--slate);
+  color: var(--ink-muted);
 }
 
 @media (max-width: 520px) {
@@ -652,57 +514,55 @@ progress {
 .summary {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 10px 20px;
+  gap: var(--space-3) var(--space-5);
   margin: 0;
-  padding: 18px 20px;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
 .summary dt {
-  color: var(--slate);
-  font-size: 14px;
+  color: var(--ink-muted);
 }
 
 .summary dd {
   margin: 0;
-  font-weight: 600;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-/* ---- Data boundary (signature) ----
-   The Mac is drawn as a dashed enclosure. Online mode opens a port in its
-   lower edge with a line out to the named host; local mode keeps it sealed. */
+/* ---- Data boundary ----
+   The Mac is a dashed enclosure. Online mode opens a port in its lower edge with a line out
+   to the named host; local mode keeps it sealed. */
 
 .boundary-title {
-  margin: 0 0 12px;
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 600;
+  margin: 0 0 var(--space-3);
+  color: var(--ink-muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .enclosure {
   position: relative;
-  padding: 22px 18px 18px;
-  background: var(--sheet);
-  border: 2px dashed var(--moss);
-  border-radius: 14px;
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  background: var(--surface);
+  border: 1.5px dashed var(--success);
+  border-radius: var(--radius-lg);
 }
 
 .enclosure-label {
   position: absolute;
-  top: -12px;
-  left: 14px;
+  top: -9px;
+  left: var(--space-3);
   margin: 0;
-  padding: 0 8px;
-  background: var(--booth);
-  color: var(--moss);
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 15px;
+  padding: 0 var(--space-2);
+  background: var(--bg);
+  color: var(--success);
+  font-size: var(--fs-caption);
+  font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -711,13 +571,16 @@ progress {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 14px;
 }
 
 .keeps li {
-  padding: 5px 0 5px 18px;
-  border-bottom: 1px solid var(--rule);
   position: relative;
+  padding: 6px 0 6px var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.keeps li:last-child {
+  border-bottom: 0;
 }
 
 .keeps li::before {
@@ -725,42 +588,41 @@ progress {
   position: absolute;
   left: 2px;
   top: 0.95em;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--moss);
+  background: var(--success);
 }
 
 .store-path {
   display: grid;
   gap: 2px;
-  margin: 12px 0 0;
-  font-size: 12px;
+  margin: var(--space-3) 0 0;
+  font-size: var(--fs-small);
 }
 
 .store-path-label,
 .dest-label {
-  color: var(--slate);
-  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
   letter-spacing: 0.06em;
-  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .store-path code,
 .dest code {
-  font-family: var(--mono);
-  font-size: 13px;
+  font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 
-/* The port: a gap in the bottom edge, closed unless the mode is online. */
 .port {
   position: absolute;
   left: 50%;
   bottom: -2px;
   width: 0;
   height: 2px;
-  background: var(--booth);
+  background: var(--bg);
   transform: translateX(-50%);
   transition: width 220ms ease;
 }
@@ -773,7 +635,7 @@ progress {
   width: 2px;
   height: 0;
   margin: 0 auto;
-  background: var(--tally);
+  background: var(--danger);
   transition: height 220ms ease;
 }
 
@@ -783,24 +645,24 @@ progress {
 
 .boundary[data-mode="local"] .crossing,
 .boundary[data-mode="undecided"] .crossing {
-  height: 16px;
+  height: var(--space-4);
   background: transparent;
 }
 
 .outside {
-  padding: 14px 16px;
-  border: 1px solid var(--rule);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  font-size: 14px;
+  background: var(--surface);
 }
 
 .boundary[data-mode="online"] .outside {
-  border: 2px solid var(--tally);
-  background: var(--tally-soft);
+  border: 1.5px solid var(--danger);
+  background: var(--danger-soft);
 }
 
 .boundary[data-mode="local"] .outside {
-  border-color: var(--moss);
+  border-color: var(--success);
 }
 
 .outside-online,
@@ -817,27 +679,27 @@ progress {
 
 .outside-undecided {
   margin: 0;
-  color: var(--slate);
+  color: var(--ink-muted);
 }
 
 .outside-label {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   font-weight: 700;
 }
 
 .boundary[data-mode="online"] .outside-label {
-  color: var(--tally);
+  color: var(--danger);
 }
 
 .sends {
-  margin: 0 0 10px;
-  padding-left: 18px;
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-5);
 }
 
 .dest {
   display: grid;
   gap: 2px;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 
 .dest code {
@@ -845,24 +707,18 @@ progress {
 }
 
 .sealed {
-  margin: 0 0 8px;
-  color: var(--moss);
+  margin: 0 0 var(--space-2);
+  color: var(--success);
   font-weight: 600;
 }
 
 .dest-note {
-  margin: 6px 0 0;
-  color: var(--slate);
-  font-size: 12px;
+  margin: var(--space-2) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
 }
 
 /* ---- Preferences ---- */
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-  }
-}
 
 @media (forced-colors: active) {
   .enclosure,
@@ -885,23 +741,4 @@ progress {
     background: Highlight;
     color: HighlightText;
   }
-}
-
-.language-field {
-  max-width: 360px;
-  margin-bottom: 24px;
-}
-
-.language-field select {
-  width: 100%;
-}
-
-select {
-  padding: 9px 12px;
-  background: var(--sheet);
-  color: var(--graphite);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  font-family: var(--body);
-  font-size: 14px;
 }

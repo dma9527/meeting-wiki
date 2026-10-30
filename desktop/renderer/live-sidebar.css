@@ -1,38 +1,38 @@
-/* Live sidebar reuses styles.css tokens; only the narrow single-column layout is new. */
+/* Live sidebar. Tokens come from theme.css; only the narrow single-column layout is new. */
 
 .live-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-4);
   height: 100vh;
   margin: 0;
-  padding: 14px;
-  box-sizing: border-box;
-  font-family: var(--sans);
-  color: var(--ink);
-  background: var(--paper);
+  padding: var(--space-4);
+  overflow: hidden;
 }
 
 .live-head p {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
 }
 
 .live-status {
-  font-weight: 600;
+  font-size: var(--fs-title);
+  font-weight: 650;
 }
 
 .live-badges {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .live-badge {
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-  font-size: 12px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  line-height: 18px;
 }
 
 .live-badge-private,
@@ -42,16 +42,28 @@
 }
 
 .live-issue {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
   color: var(--warn);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 
 .live-section h2 {
-  margin: 0 0 6px;
-  font-size: 13px;
+  margin: 0 0 var(--space-2);
+  color: var(--ink-muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+}
+
+.live-section:first-of-type {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .live-section-grow {
@@ -62,7 +74,11 @@
 
 .live-summary {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
+}
+
+.live-summary li + li {
+  margin-top: var(--space-1);
 }
 
 .live-transcript {
@@ -72,8 +88,12 @@
 }
 
 .live-line {
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--line);
+}
+
+.live-line:last-child {
+  border-bottom: 0;
 }
 
 .live-line p {
@@ -81,25 +101,30 @@
 }
 
 .live-translation {
-  margin-top: 4px;
-  color: var(--accent);
+  margin-top: 2px;
+  color: var(--ink-muted);
 }
 
 .live-speaker {
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--ink-muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
   letter-spacing: 0.02em;
-  color: var(--muted);
 }
 
 .live-line[data-speaker="others"] .live-speaker {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .live-empty,
 .live-foot {
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
+}
+
+.live-foot {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
 }
 
 .live-foot p {

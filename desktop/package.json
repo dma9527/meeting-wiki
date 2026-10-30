@@ -41,6 +41,7 @@
       "runtime-paths.js",
       "status.js",
       "wiki-window.js",
+      "window-background.js",
       "wiki-store.js",
       "corrections-client.js",
       "memory-client.js",

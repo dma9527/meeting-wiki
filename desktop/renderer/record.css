@@ -1,39 +1,39 @@
-/* Recording confirmation reuses setup.css tokens and components; only the layout is new. */
+/* Recording options reuse theme.css and setup.css; only the layout is new. */
 
 .record-shell {
-  max-width: 560px;
+  max-width: 520px;
   margin: 0 auto;
-  padding: var(--gap);
+  padding: var(--space-5) var(--gap) var(--space-6);
 }
 
 .record-privacy {
   display: grid;
-  gap: 10px;
-  margin: 0 0 18px;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
   padding: 0;
   border: 0;
 }
 
 .record-privacy legend {
-  margin-bottom: 8px;
-  font-weight: 600;
-  font-size: 14px;
+  margin-bottom: var(--space-2);
+  font-weight: 650;
 }
 
 .record-choice {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--rule);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--sheet);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
 }
 
 .record-choice:has(input:checked) {
-  border-color: var(--cable);
-  box-shadow: inset 3px 0 0 var(--cable);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .record-choice input {
@@ -42,14 +42,14 @@
 
 .record-choice-title {
   display: block;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .record-consent {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 [data-tone="attention"] {
-  color: var(--tally);
+  color: var(--danger);
   font-weight: 600;
 }

@@ -1,13 +1,18 @@
-/* Settings reuses setup.css tokens and components; only the single-column shell is new. */
+/* Settings reuses theme.css and setup.css; only the single-column shell is new. */
 
 .settings-shell {
   display: grid;
-  gap: var(--gap);
-  max-width: 720px;
+  gap: var(--space-5);
+  max-width: 680px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: var(--gap);
+  padding: var(--space-5) var(--gap) var(--space-6);
   align-content: start;
+}
+
+/* The setup header names a grid area that this single-column shell does not define. */
+.settings-shell > .setup-head {
+  grid-area: auto;
 }
 
 .settings-main {
@@ -18,25 +23,25 @@
   outline: none;
 }
 
+/* Each settings group is a card so long pages read as separate sections. */
+.settings-main .panel {
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
 .settings-main .panel + .panel {
-  margin-top: var(--gap);
+  margin-top: var(--space-4);
 }
 
-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  background: var(--sheet);
-  color: var(--graphite);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  font-family: var(--body);
-  font-size: 14px;
-  resize: vertical;
+.settings-main .panel .display {
+  font-size: var(--fs-heading);
 }
 
-textarea[aria-invalid="true"] {
-  border-color: var(--tally);
-  box-shadow: inset 3px 0 0 var(--tally);
+.settings-main .panel .lede {
+  margin-bottom: var(--space-4);
 }
 
 .hint.applies {

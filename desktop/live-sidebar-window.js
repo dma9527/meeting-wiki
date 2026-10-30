@@ -7,6 +7,7 @@
 
 const path = require("path");
 const { sanitizeLiveEvent } = require("./live-session");
+const { windowBackground } = require("./window-background");
 
 const LIVE_EVENT_CHANNEL = "live:event";
 const LIVE_SIDEBAR_PAGE = path.join(__dirname, "renderer", "live-sidebar.html");
@@ -58,7 +59,7 @@ function createLiveSidebarWindow(electron, { uiLanguage = "system" } = {}) {
     show: false,
     alwaysOnTop: true,
     title: "Meeting Wiki Live",
-    backgroundColor: "#f4f1ea",
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, "live-sidebar-preload.js"),
       contextIsolation: true,
