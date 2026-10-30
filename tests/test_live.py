@@ -351,6 +351,7 @@ def test_chunked_runtime_publishes_ordered_deduplicated_finals_translation_and_s
         {"sequence": 3, "text": "[zh-CN] Ship on Friday"},
     ]
     assert publisher.of("summary")[-1]["points"]
+    assert runtime._summary_points == publisher.of("summary")[-1]["points"]
     assert language.summarized
     assert {output_language for _, output_language in language.summarized} == {"zh-CN"}
     states = publisher.of("state")
@@ -1135,3 +1136,61 @@ def test_ollama_live_summary_forbids_commentary_about_the_transcript(monkeypatch
     assert (
         "Never describe, quote, or comment on the transcript" in captured["messages"][0]["content"]
     )
+
+
+def _summary_runtime(tmp_path, limit):
+    return _runtime(
+        tmp_path,
+        FakeChunkedTranscriber([]),
+        FakeLanguage(),
+        RecordingPublisher(),
+        summary_context_characters=limit,
+    )
+
+
+def test_summary_context_is_the_whole_transcript_while_it_fits(tmp_path):
+    runtime = _summary_runtime(tmp_path, 500)
+    runtime._finals = [TranscriptSegment(text="first point"), TranscriptSegment(text="second")]
+    runtime._summary_points = ["stale summary"]
+
+    assert runtime._summary_context() == "first point second"
+
+
+def test_long_meetings_carry_the_previous_summary_into_the_bounded_context(tmp_path):
+    runtime = _summary_runtime(tmp_path, 500)
+    runtime._finals = [
+        TranscriptSegment(text="early decision " * 40),
+        TranscriptSegment(text="latest"),
+    ]
+    runtime._summary_points = ["Team chose option B", "Sam owns the migration"]
+
+    context = runtime._summary_context()
+
+    assert len(context) <= 500
+    assert context.startswith(
+        "Earlier in this meeting:\n- Team chose option B\n- Sam owns the migration"
+    )
+    assert "\n\nMost recent discussion:\n" in context
+    assert context.endswith("latest")
+
+
+def test_without_a_previous_summary_the_context_is_the_recent_tail(tmp_path):
+    runtime = _summary_runtime(tmp_path, 500)
+    runtime._finals = [TranscriptSegment(text="x" * 600), TranscriptSegment(text="latest")]
+
+    context = runtime._summary_context()
+
+    assert len(context) == 500
+    assert context.endswith("latest")
+
+
+def test_an_oversized_previous_summary_keeps_room_for_recent_discussion(tmp_path):
+    runtime = _summary_runtime(tmp_path, 500)
+    runtime._finals = [TranscriptSegment(text="y" * 600), TranscriptSegment(text="latest")]
+    runtime._summary_points = ["z" * 400, "w" * 400]
+
+    context = runtime._summary_context()
+
+    assert len(context) <= 500
+    assert context.endswith("latest")
+    assert context.index("Most recent discussion") < 300

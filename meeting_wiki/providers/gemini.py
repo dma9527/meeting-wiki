@@ -378,7 +378,7 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
             return []
         language = language_display_name(output_language)
         instruction = (
-            f"Summarize in {language} as up to three concise bullet points, one per line, "
+            f"Summarize in {language} as up to five concise bullet points, one per line, "
             f"each starting with '- '. {LIVE_SUMMARY_RULES} Return only the bullets."
         )
         result = self._ask("summary", instruction, transcript)

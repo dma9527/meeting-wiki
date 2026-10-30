@@ -41,6 +41,7 @@ BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH
 TOKEN_ENV = "MEETING_WIKI_LIVE_TOKEN"
 MAX_EVENT_TEXT = 2_000
 MAX_SUMMARY_POINTS = 5
+_RECENT_HEADING = "\n\nMost recent discussion:\n"
 
 
 def _normalized_text(text: str) -> str:
@@ -360,6 +361,9 @@ class LiveRuntime:
         self.audio_start_timeout = audio_start_timeout_seconds
         self.run_blocking = run_blocking
         self._finals: list[TranscriptSegment] = []
+        # Latest display-only summary, carried into the next one so long meetings keep
+        # their early points after the transcript outgrows summary_context_characters.
+        self._summary_points: list[str] = []
         self._sequence = 0
         self._partial_issue: str | None = None
         self._chunk_lock = asyncio.Lock()
@@ -635,7 +639,15 @@ class LiveRuntime:
             transcript = "\n".join(lines)
         else:
             transcript = " ".join(segment.text for segment in self._finals)
-        return transcript[-self.summary_context_characters :]
+        limit = self.summary_context_characters
+        if len(transcript) <= limit or not self._summary_points:
+            return transcript[-limit:]
+        earlier = "Earlier in this meeting:\n" + "\n".join(
+            f"- {point}" for point in self._summary_points
+        )
+        earlier = earlier[: limit // 2]
+        recent = transcript[-(limit - len(earlier) - len(_RECENT_HEADING)) :]
+        return f"{earlier}{_RECENT_HEADING}{recent}"
 
     async def _language_worker(self) -> None:
         while True:
@@ -657,6 +669,8 @@ class LiveRuntime:
                         self.summary_language,
                     )
                     cleaned = [_clip(str(point), 400) for point in points if str(point).strip()]
+                    if cleaned:
+                        self._summary_points = cleaned[:MAX_SUMMARY_POINTS]
                     await self.publisher.publish(
                         "summary", {"sequence": sequence, "points": cleaned[:MAX_SUMMARY_POINTS]}
                     )

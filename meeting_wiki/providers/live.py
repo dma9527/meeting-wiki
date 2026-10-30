@@ -60,7 +60,7 @@ class OllamaLiveLanguageProvider:
             return []
         language = language_display_name(output_language)
         result = self._ask(
-            f"Summarize in {language} as up to three concise bullet points. {LIVE_SUMMARY_RULES}",
+            f"Summarize in {language} as up to five concise bullet points. {LIVE_SUMMARY_RULES}",
             transcript,
         )
         return [line.removeprefix("- ").strip() for line in result.splitlines() if line.strip()]
