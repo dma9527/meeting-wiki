@@ -53,12 +53,12 @@ const {
   QUIT_NOTICE,
   RecordingSession,
   SAVING_LABEL,
+  formatDuration,
   recordingLabel,
 } = require("./recording-session");
 const {
   RestartBackoff,
   formatQueueLabel,
-  trayIconState,
   readQueueStatus,
   retryDeadJobs,
 } = require("./status");
@@ -75,12 +75,8 @@ const RUNTIME = resolveRuntimePaths({
 });
 const PYTHON = RUNTIME.python;
 const AUDIO_TEE = path.join(__dirname, "node_modules", "audiotee", "bin", "audiotee").replace("app.asar", "app.asar.unpacked");
-const TRAY_ICON_PATHS = Object.freeze({
-  idle: path.join(__dirname, "assets", "tray-idle@2x.png"),
-  recording: path.join(__dirname, "assets", "tray-recording@2x.png"),
-  processing: path.join(__dirname, "assets", "tray-processing@2x.png"),
-  attention: path.join(__dirname, "assets", "tray-attention@2x.png"),
-});
+// One general icon at all times; recording state shows as the tray title text instead.
+const TRAY_ICON_PATH = path.join(__dirname, "assets", "tray-idle@2x.png");
 const INSTALL_SKILL_LABEL = "Install Claude skill for meeting memory...";
 const INSTALL_SKILL_TOOLTIP = "Adds a data-free skill so Claude can search your meeting memory. Never overwrites files.";
 
@@ -102,7 +98,7 @@ let queueSummary = { total: 0, active: 0, action_required: 0 };
 let queueStatusReady = false;
 let queueStatusError = false;
 let queueStatusRefreshing = false;
-let currentTrayIconState = null;
+let currentTrayTitle = null;
 let liveIssue = null;
 let noAdapterNotified = false;
 
@@ -235,25 +231,22 @@ function ingestEnv() {
   return credentialFreeEnv(process.env);
 }
 
-function icon(state) {
-  const image = nativeImage.createFromPath(TRAY_ICON_PATHS[state] || TRAY_ICON_PATHS.idle);
+function icon() {
+  const image = nativeImage.createFromPath(TRAY_ICON_PATH);
   if (image.isEmpty()) {
-    throw new Error(`Tray icon asset is unavailable for state: ${state}`);
+    throw new Error("Tray icon asset is unavailable");
   }
   image.setTemplateImage(true);
   return image;
 }
 
+// The icon never changes; while recording, the title next to it shows the elapsed duration.
 function updateTrayIcon() {
   if (!tray) return;
-  const state = trayIconState({
-    isRecording: !recordingSession.idle,
-    queueStatusError,
-    queueSummary,
-  });
-  if (state === currentTrayIconState) return;
-  tray.setImage(icon(state));
-  currentTrayIconState = state;
+  const title = recordingSession.idle ? "" : formatDuration(recordingSession.elapsedMs());
+  if (title === currentTrayTitle) return;
+  tray.setTitle(title);
+  currentTrayTitle = title;
 }
 
 function timestamp() {
@@ -890,7 +883,7 @@ app.whenReady().then(async () => {
     await systemPreferences.askForMediaAccess("microphone");
   }
   app.dock.hide();
-  tray = new Tray(icon("idle"));
+  tray = new Tray(icon());
   tray.on("click", () => tray.popUpContextMenu());
   globalShortcut.register("CommandOrControl+Shift+0", () => {
     if (recordingSession.recording) void stopRecording("user");

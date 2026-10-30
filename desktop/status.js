@@ -198,13 +198,6 @@ async function retryDeadJobs(python, configPath, execFileFn = execFile, env = un
   return retried;
 }
 
-function trayIconState({ isRecording, queueStatusError, queueSummary }) {
-  if (isRecording) return "recording";
-  if (queueStatusError || queueSummary.action_required > 0) return "attention";
-  if (queueSummary.active > 0) return "processing";
-  return "idle";
-}
-
 // Bounded exponential delay for restarting the worker while credentials are unavailable.
 class RestartBackoff {
   constructor({ baseMs = 2_000, maxMs = 60_000 } = {}) {
@@ -228,7 +221,6 @@ class RestartBackoff {
 module.exports = {
   RestartBackoff,
   formatQueueLabel,
-  trayIconState,
   readQueueStatus,
   listDeadJobs,
   listDismissedJobs,

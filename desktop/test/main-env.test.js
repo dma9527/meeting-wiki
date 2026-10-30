@@ -111,11 +111,11 @@ test("background status polling notifies once per key outage", () => {
 });
 
 
-test("updateMenu updates the tray image from derived status state", () => {
-  assert.match(source, /trayIconState/);
+test("updateMenu refreshes the tray title with the recording elapsed time", () => {
   const body = functionBody("updateMenu");
   assert.match(body, /updateTrayIcon\(\);/);
-  assert.match(functionBody("updateTrayIcon"), /tray\.setImage\(icon\(state\)\)/);
+  assert.match(functionBody("updateTrayIcon"), /tray\.setTitle\(title\)/);
+  assert.match(functionBody("updateTrayIcon"), /formatDuration\(recordingSession\.elapsedMs\(\)\)/);
 });
 
 test("missing Python marks the tray status as attention before returning", () => {
