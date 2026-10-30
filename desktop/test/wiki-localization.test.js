@@ -199,10 +199,53 @@ test("the Chinese Wiki window translates static text, attributes, and rendered r
   assert.equal(card.children[0].children[2].textContent, "没有截止日期");
   const recovery = view.byId("recovery-list").children[0];
   assert.equal(recovery.children[0].textContent, "Planning sync", "meeting titles are never translated");
-  assert.match(recovery.children[1].textContent, /^采集于 .* · 任务 #7 · 转写中 · 第 2 次，共 3 次$/);
+  assert.match(recovery.children[1].textContent, /^采集于 .* · 任务 #7 · 在“转写中”阶段停止 · 第 2 次，共 3 次$/);
   assert.equal(recovery.children[2].textContent, "任务在“转写中”阶段停止。");
   assert.equal(view.byId("recovery-retry-all").dataset.count, "1");
+  assert.equal(view.byId("recovery-retry-all").hidden, true, "Retry all is hidden with only one job");
   assert.match(view.byId("recovery-updated").textContent, /^最后更新于 /);
+});
+
+async function recoveryCardFor(uiLanguage, diagnostic) {
+  const job = { id: 15, stage: "transcribing", attempts: 5, max_attempts: 5, label: "Recording", captured_at: "2026-10-26T15:07:18Z", diagnostic };
+  const view = loadRenderer({ uiLanguage, api: { jobs: { listDead: async () => [job, { ...job, id: 16 }], listDismissed: async () => [] } } });
+  await view.documentObject.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await view.context.switchView("recovery");
+  await new Promise((resolve) => setImmediate(resolve));
+  return { view, card: view.byId("recovery-list").children[0] };
+}
+
+const providerFailure = (httpStatus) => ({
+  category: "provider_request_failed",
+  provider: "gemini",
+  operation: "transcription",
+  sdk_error_type: "BadRequestError",
+  http_status: httpStatus,
+});
+
+test("a failed provider request explains the next step and keeps the raw error behind a disclosure", async () => {
+  const { view, card } = await recoveryCardFor("en", providerFailure(400));
+  assert.equal(card.children[2].textContent, "Google Gemini rejected the request. Retry the job. If it fails again, choose Export diagnostics in the menu bar.");
+  const details = card.children[3];
+  assert.equal(details.className, "recovery-details");
+  assert.equal(details.children[0].textContent, "Technical details");
+  assert.equal(details.children[1].textContent, "gemini transcription failed (BadRequestError, HTTP 400).");
+  assert.equal(view.byId("recovery-retry-all").hidden, false, "Retry all shows with two or more jobs");
+
+  const cases = [
+    [401, /did not accept the API key/],
+    [429, /rate limit or quota/],
+    [503, /server problem/],
+    [0, /could not be reached/],
+  ];
+  for (const [status, pattern] of cases) {
+    const { card: next } = await recoveryCardFor("en", providerFailure(status));
+    assert.match(next.children[2].textContent, pattern, `HTTP ${status}`);
+  }
+  const { card: chinese } = await recoveryCardFor("zh-CN", providerFailure(429));
+  assert.equal(chinese.children[2].textContent, "Google Gemini 达到了速率限制或配额。请等几分钟后重试。");
+  assert.equal(chinese.children[3].children[0].textContent, "技术细节");
 });
 
 test("English, system, and unreadable choices keep or follow the right language", async () => {
@@ -304,7 +347,7 @@ test("a memory result shows its citation in the chosen language and opens the ci
   assert.ok(texts(english).includes("From Platform sync · 2026-09-04"));
   const [chinese] = await memoryCardsFor("zh-CN", [memoryItem()]);
   assert.ok(texts(chinese).includes("来自 Platform sync · 2026-09-04"));
-  assert.equal(chinese.children.at(-1).textContent, "打开来源会议");
+  assert.equal(chinese.children.at(-1).textContent, "打开会议");
 });
 
 test("a transcript line shows the time inside the meeting from its anchor", async () => {
@@ -326,14 +369,14 @@ test("a transcript line shows the time inside the meeting from its anchor", asyn
 test("a result without a citation shows no source line and no open button", async () => {
   const [card] = await memoryCardsFor("en", [memoryItem({ nodeType: "topic", citation: null })]);
   assert.ok(!texts(card).some((line) => line.startsWith("From ")));
-  assert.ok(!texts(card).includes("Open source meeting"));
+  assert.ok(!texts(card).includes("Open meeting"));
 });
 
 test("a private citation is labeled private and never offers to open a page", async () => {
   const privateCitation = { ...CITATION, privacy: "private", sourcePath: "" };
   const [card] = await memoryCardsFor("en", [memoryItem({ privacy: "private", citation: privateCitation })]);
   assert.ok(texts(card).includes("From Platform sync · 2026-09-04 (private)"));
-  assert.ok(!texts(card).includes("Open source meeting"));
+  assert.ok(!texts(card).includes("Open meeting"));
 });
 
 test("each relation shows its own citation title", async () => {
@@ -380,7 +423,7 @@ test("a superseded decision keeps its place, gains a badge, and links to its rep
   assert.ok(texts(first).includes("Poll every 5 minutes."));
   assert.equal(second.children[0].children.length, 0, "the current decision has no badge");
   assert.ok(texts(second).includes("Replaces “Use polling” (2026-09-01)"));
-  assert.equal(first.children.at(-1).textContent, "Open source meeting");
+  assert.equal(first.children.at(-1).textContent, "Open meeting");
 });
 
 test("the Chinese decision history translates badges, links, and the empty state", async () => {

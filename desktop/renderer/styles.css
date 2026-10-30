@@ -248,6 +248,51 @@ body {
   margin-top: var(--space-2);
 }
 
+/* The title button stretches over the whole card, so one click target opens the meeting. */
+.card-clickable {
+  position: relative;
+  transition: border-color 120ms ease;
+}
+
+.card-clickable:hover {
+  border-color: var(--line-strong);
+}
+
+.card-link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.card-link:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-text);
+}
+
+.card-link:focus-visible {
+  outline: none;
+}
+
+.card-clickable:has(.card-link:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .snippet {
   margin: var(--space-2) 0;
   padding-left: var(--space-3);
@@ -376,6 +421,20 @@ body {
 .recovery-card {
   display: flex;
   flex-direction: column;
+}
+
+.recovery-advice {
+  margin: var(--space-1) 0 0;
+}
+
+.recovery-details {
+  margin-top: var(--space-2);
+}
+
+.recovery-details summary {
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
+  cursor: pointer;
 }
 
 .recovery-diagnostic {

@@ -74,6 +74,16 @@ test("settings.js loads and saves identity through the bridge and mirrors the na
   assert.equal(rendererPattern[1], String(managed.NAME_PATTERN));
 });
 
+test("settings has one page heading and a section link for each settings panel, in page order", () => {
+  const html = read("settings.html");
+  assert.equal((html.match(/<h1\b/g) || []).length, 1);
+  const targets = [...html.matchAll(/<a id="nav-[a-z]+" href="#(panel-[a-z-]+)">/g)].map((match) => match[1]);
+  const panels = [...html.matchAll(/<section id="(panel-[a-z-]+-settings)"/g)].map((match) => match[1]);
+  assert.deepEqual(targets, panels);
+  assert.match(html, /<nav id="settings-nav"[^>]*hidden>/);
+  assert.match(read("settings.js"), /nav\.hidden = shown < 2;/);
+});
+
 test("the unsupported panel explains the reason and offers to rerun setup", () => {
   const panel = section(read("settings.html"), "panel-unsupported");
   assert.match(panel, /id="unsupported-reason"/);

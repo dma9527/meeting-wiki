@@ -19,6 +19,36 @@
   min-width: 0;
 }
 
+/* Section links stay on screen while the long settings page scrolls. */
+.settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: calc(-1 * var(--space-3)) 0;
+  padding: var(--space-2) 0;
+  background: var(--bg);
+}
+
+.settings-nav a {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  color: var(--ink-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-nav a:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.settings-main .panel {
+  scroll-margin-top: 56px;
+}
+
 .settings-main:focus {
   outline: none;
 }

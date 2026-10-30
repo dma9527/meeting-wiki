@@ -44,7 +44,7 @@ for transcript lines). See [Memory citations](../reference/citations.md).
 ## Decision history
 
 **Decision history** in the window lists shared decisions oldest first, each
-with its meeting, date, owner, and an **Open source meeting** button. A decision
+with its meeting, date, owner, and an **Open meeting** button. A decision
 is marked **Superseded** only when a later decision names it exactly, by its
 `decision_id` or its `wiki/decisions/` page path. Titles are never matched.
 Superseded decisions stay in place with a link to their replacement. Run

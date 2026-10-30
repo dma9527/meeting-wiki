@@ -598,6 +598,19 @@
     if (error) setStatus(error, "error");
   }
 
+  // Section links match the panels that are shown; the bar appears only with two or more.
+  function syncNav() {
+    const nav = $("settings-nav");
+    if (!nav) return;
+    let shown = 0;
+    for (const link of nav.querySelectorAll("a[href^='#panel-']")) {
+      const panel = $(link.getAttribute("href").slice(1));
+      link.hidden = !panel || panel.hidden;
+      if (!link.hidden) shown += 1;
+    }
+    nav.hidden = shown < 2;
+  }
+
   async function load() {
     applyLocale("system");
     if (!bridge) $("bridge-missing").hidden = false;
@@ -627,6 +640,7 @@
     if (languageReady) showLanguages(languages);
     if (recordingReady) showRecording(recording);
     if (!errorOf(integrationSettings) && integrationSettings.ready === true) showIntegrations(integrationSettings);
+    syncNav();
     if (!geminiReady) {
       const reason = reasonOf(result);
       const manual = result && result.manualConfig === true && metadata.manualEdit ? metadata.manualEdit : "";
@@ -648,6 +662,7 @@
     let geminiValues = readForm();
     $("settings-loading").hidden = true;
     $("panel-gemini-settings").hidden = false;
+    syncNav();
 
     $("gemini-settings-form").addEventListener("submit", async (event) => {
       event.preventDefault();

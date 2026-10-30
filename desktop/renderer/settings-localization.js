@@ -6,6 +6,12 @@
     : globalObject.meetingWikiI18n;
   const ZH = Object.freeze({
     title: "Meeting Wiki 设置",
+    "#settings-title": "设置",
+    "#nav-identity": "你的名字",
+    "#nav-language": "语言",
+    "#nav-recording": "录音",
+    "#nav-integration": "自动录音",
+    "#nav-gemini": "Gemini",
     ".wordmark-sub": "设置",
     "#settings-loading": "正在加载设置。",
     "#bridge-missing": "“设置”无法连接 App。请关闭窗口并重新打开 Meeting Wiki。",

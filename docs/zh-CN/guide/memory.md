@@ -28,7 +28,7 @@ meeting-wiki reindex-memory   # 升级或恢复后重建索引，只输出数量
 
 ## 决定历史
 
-窗口里的 **决定历史** 按时间从旧到新列出共享的决定，每条显示所属会议、日期、负责人和“打开来源会议”按钮。只有后来的决定用 `decision_id` 或 `wiki/decisions/` 页面路径明确指向它时，它才会标为“已被取代”，标题不会参与匹配。被取代的决定保持原位，并链接到取代它的决定。升级后运行一次 `meeting-wiki reindex-memory`，让早期会议带上取代引用。
+窗口里的 **决定历史** 按时间从旧到新列出共享的决定，每条显示所属会议、日期、负责人和“打开会议”按钮。只有后来的决定用 `decision_id` 或 `wiki/decisions/` 页面路径明确指向它时，它才会标为“已被取代”，标题不会参与匹配。被取代的决定保持原位，并链接到取代它的决定。升级后运行一次 `meeting-wiki reindex-memory`，让早期会议带上取代引用。
 
 ```bash
 meeting-wiki memory-decisions --limit=50

@@ -155,12 +155,13 @@ async function loadRecent() {
     return;
   }
   for (const meeting of result.items) {
-    const card = el("article", { class: "card" }, [
-      el("h3", { class: "card-title", text: meeting.title }),
+    const open = el("button", { class: "card-link", type: "button", text: meeting.title });
+    open.addEventListener("click", () => openPage(meeting.path));
+    const card = el("article", { class: "card card-clickable" }, [
+      el("h3", { class: "card-title" }, [open]),
       el("p", { class: "card-meta", text: `${meeting.meeting_type} · ${meeting.timestamp}` }),
     ]);
     if (meeting.description) card.appendChild(el("p", { text: meeting.description }));
-    card.appendChild(openPageButton(meeting.path, "Open meeting"));
     list.appendChild(card);
   }
 }
@@ -350,7 +351,7 @@ function renderMemoryCard(item) {
     card.appendChild(relations);
   }
   if (item.citation && item.citation.sourcePath) {
-    card.appendChild(openPageButton(item.citation.sourcePath, "Open source meeting"));
+    card.appendChild(openPageButton(item.citation.sourcePath, "Open meeting"));
   }
   if (item.nodeType === "meeting" && item.privacy === "shared" && item.meetingNodeId && api.memory.addResource) {
     for (const node of resourceForm(item)) card.appendChild(node);
@@ -398,7 +399,7 @@ function renderDecisionCard(decision) {
   const origin = sourceLine(decision.citation);
   if (origin) card.appendChild(el("p", { class: "card-meta", text: origin }));
   if (decision.citation && decision.citation.sourcePath) {
-    card.appendChild(openPageButton(decision.citation.sourcePath, "Open source meeting"));
+    card.appendChild(openPageButton(decision.citation.sourcePath, "Open meeting"));
   }
   return card;
 }
@@ -452,7 +453,7 @@ async function loadActions() {
     ]);
     const card = el("article", { class: "card" }, [row]);
     const path = sourcePath(item.source);
-    if (path) card.appendChild(openPageButton(path, "Open source meeting"));
+    if (path) card.appendChild(openPageButton(path, "Open meeting"));
     list.appendChild(card);
   }
 }
@@ -609,19 +610,43 @@ async function loadCorrections() {
   for (const entry of entries) list.appendChild(renderCorrectionCard(entry));
 }
 
+const PROVIDER_NAMES = Object.freeze({ gemini: "Google Gemini", openai_compatible: "Your online provider" });
+
+// Plain-language cause and next step, chosen from the HTTP status class, never from message text.
+function diagnosticAdvice(diagnostic) {
+  const status = Number(diagnostic.http_status) || 0;
+  const provider = t(PROVIDER_NAMES[diagnostic.provider] || diagnostic.provider || "The provider");
+  if (status === 401 || status === 403) {
+    return t("{provider} did not accept the API key. Run setup again with a working key, then retry.", { provider });
+  }
+  if (status === 429) return t("{provider} reached a rate limit or quota. Wait a few minutes, then retry.", { provider });
+  if (status >= 500) return t("{provider} had a server problem. Retry later.", { provider });
+  if (status >= 400) {
+    return t("{provider} rejected the request. Retry the job. If it fails again, choose Export diagnostics in the menu bar.", { provider });
+  }
+  return t("{provider} could not be reached. Check the network connection, then retry.", { provider });
+}
+
 function diagnosticText(job) {
   const diagnostic = job.diagnostic;
   if (!diagnostic) return t("The job stopped during {stage}.", { stage: t(job.stage) });
   if (diagnostic.category !== "provider_request_failed") {
     return t("The app stopped during {stage}.", { stage: t(diagnostic.stage) });
   }
+  return diagnosticAdvice(diagnostic);
+}
+
+// The raw provider error stays available behind a disclosure for bug reports.
+function diagnosticDetails(job) {
+  const diagnostic = job.diagnostic;
+  if (!diagnostic || diagnostic.category !== "provider_request_failed") return "";
   const details = [diagnostic.sdk_error_type];
   if (diagnostic.http_status) details.push(`HTTP ${diagnostic.http_status}`);
   if (diagnostic.provider_status) details.push(diagnostic.provider_status);
   return t("{provider} {operation} failed ({details}).", {
     provider: diagnostic.provider,
     operation: diagnostic.operation,
-    details: details.join(", "),
+    details: details.filter(Boolean).join(", "),
   });
 }
 
@@ -641,7 +666,7 @@ function capturedText(value) {
 }
 
 function recoveryMeta(job) {
-  return t("{captured} · Job #{id} · {stage} · attempt {attempts} of {max}", {
+  return t("{captured} · Job #{id} · stopped while {stage} · attempt {attempts} of {max}", {
     captured: capturedText(job.captured_at),
     id: job.id,
     stage: t(job.stage),
@@ -654,8 +679,15 @@ function recoveryCard(job, actions) {
   const card = el("article", { class: "card recovery-card" }, [
     el("h3", { class: "card-title", text: !job.label || job.label === "Recording" ? t("Recording") : job.label }),
     el("p", { class: "card-meta", text: recoveryMeta(job) }),
-    el("p", { class: "recovery-diagnostic", text: diagnosticText(job) }),
+    el("p", { class: "recovery-advice", text: diagnosticText(job) }),
   ]);
+  const details = diagnosticDetails(job);
+  if (details) {
+    card.appendChild(el("details", { class: "recovery-details" }, [
+      el("summary", { text: t("Technical details") }),
+      el("p", { class: "recovery-diagnostic", text: details }),
+    ]));
+  }
   const buttons = actions.map((action) => {
     const button = el("button", {
       class: action.primary ? "primary" : "",
@@ -689,6 +721,7 @@ function renderRecovery(deadJobs, dismissedJobs) {
   clear(activeList);
   clear(dismissedList);
   retryAll.disabled = recoveryBusy || deadJobs.length === 0;
+  retryAll.hidden = deadJobs.length < 2;
   retryAll.dataset.count = String(deadJobs.length);
   if (deadJobs.length === 0) {
     activeList.appendChild(emptyNote("No processing jobs need action."));

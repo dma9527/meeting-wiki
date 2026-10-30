@@ -16,7 +16,16 @@
     <div class="settings-shell">
       <header class="setup-head">
         <p class="wordmark">Meeting Wiki <span class="wordmark-sub">settings</span></p>
+        <h1 id="settings-title" class="visually-hidden">Settings</h1>
       </header>
+
+      <nav id="settings-nav" class="settings-nav" aria-labelledby="settings-title" hidden>
+        <a id="nav-identity" href="#panel-identity-settings">Your name</a>
+        <a id="nav-language" href="#panel-language-settings">Languages</a>
+        <a id="nav-recording" href="#panel-recording-settings">Recording</a>
+        <a id="nav-integration" href="#panel-integration-settings">Automatic recording</a>
+        <a id="nav-gemini" href="#panel-gemini-settings">Gemini</a>
+      </nav>
 
       <main id="settings-main" class="settings-main" tabindex="-1">
         <div id="bridge-missing" class="notice notice-error" role="alert" hidden>
@@ -26,7 +35,7 @@
         <p id="settings-loading" class="status" role="status" aria-live="polite">Loading settings.</p>
 
         <section id="panel-unsupported" class="panel" aria-labelledby="unsupported-heading" tabindex="-1" hidden>
-          <h1 id="unsupported-heading" class="display">Settings are not available</h1>
+          <h2 id="unsupported-heading" class="display">Settings are not available</h2>
           <p id="unsupported-reason" class="lede"></p>
           <p id="unsupported-manual" class="hint" hidden></p>
           <div class="actions">
@@ -35,7 +44,7 @@
         </section>
 
         <section id="panel-identity-settings" class="panel" aria-labelledby="identity-settings-heading" tabindex="-1" hidden>
-          <h1 id="identity-settings-heading" class="display">Your name in meetings</h1>
+          <h2 id="identity-settings-heading" class="display">Your name in meetings</h2>
           <p class="lede">
             Your microphone is always attributed to this name. Aliases are other names people or transcripts use for
             you, so notes and action items land on your profile.
@@ -67,7 +76,7 @@
         </section>
 
         <section id="panel-language-settings" class="panel" aria-labelledby="language-settings-heading" tabindex="-1" hidden>
-          <h1 id="language-settings-heading" class="display">Languages</h1>
+          <h2 id="language-settings-heading" class="display">Languages</h2>
           <p class="lede">
             Choose separate languages for speech recognition, live translation, live summary, saved memory, and the
             app windows. Changing these values does not automatically rewrite existing meetings or completed
@@ -133,7 +142,7 @@
         </section>
 
         <section id="panel-recording-settings" class="panel" aria-labelledby="recording-settings-heading" tabindex="-1" hidden>
-          <h1 id="recording-settings-heading" class="display">Recording defaults</h1>
+          <h2 id="recording-settings-heading" class="display">Recording defaults</h2>
           <p class="lede">
             Normal Start recording actions use these choices without opening the options form. Use Start with options
             for a one-record override. A meeting title is never saved as a default.
@@ -186,7 +195,7 @@
         </section>
 
         <section id="panel-integration-settings" class="panel" aria-labelledby="integration-settings-heading" tabindex="-1" hidden>
-          <h1 id="integration-settings-heading" class="display">Automatic recording</h1>
+          <h2 id="integration-settings-heading" class="display">Automatic recording</h2>
           <p class="lede">
             When turned on, Meeting Wiki starts recording as soon as you join a meeting and stops, saves, and processes
             it when you leave. There is no countdown before it starts. The tray icon switches to the recording icon and
@@ -265,7 +274,7 @@
         </section>
 
         <section id="panel-gemini-settings" class="panel" aria-labelledby="gemini-settings-heading" tabindex="-1" hidden>
-          <h1 id="gemini-settings-heading" class="display">Gemini features</h1>
+          <h2 id="gemini-settings-heading" class="display">Gemini features</h2>
           <p class="lede">
             Choose the Gemini models and live options. The API key stays encrypted on this Mac and is not shown or
             changed here.
