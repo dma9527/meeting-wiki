@@ -359,6 +359,22 @@ def test_transcriber_health_never_sends_audio(monkeypatch):
     )
 
 
+def test_language_provider_keeps_a_long_transcript_whole(meeting, transcript):
+    long_text = "word " * 50_000
+    long_transcript = transcript.model_copy(update={"text": long_text})
+    models = FakeModels(json.dumps(analysis_payload()))
+    client = fake_client(models=models)
+    provider = GeminiLanguageProvider(
+        LANGUAGE_MODEL, TEST_KEY, 600, PrivacyConfig(), client_factory=lambda: client
+    )
+
+    provider.analyze(meeting, long_transcript)
+
+    sent = json.loads(models.calls[0]["contents"])["transcript"]
+    assert len(long_text) > 120_000
+    assert sent == long_text
+
+
 def test_language_provider_requests_json_analysis(meeting, transcript):
     models = FakeModels(json.dumps(analysis_payload()))
     client = fake_client(models=models)

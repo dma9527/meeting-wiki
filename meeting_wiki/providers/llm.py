@@ -15,10 +15,10 @@ from ..privacy import classify
 _MAX_TRANSCRIPT_CHARS = 120_000
 
 
-def _transcript_window(text: str) -> str:
-    if len(text) <= _MAX_TRANSCRIPT_CHARS:
+def _transcript_window(text: str, limit: int = _MAX_TRANSCRIPT_CHARS) -> str:
+    if len(text) <= limit:
         return text
-    half = _MAX_TRANSCRIPT_CHARS // 2
+    half = limit // 2
     return text[:half] + "\n\n[... middle omitted ...]\n\n" + text[-half:]
 
 
@@ -51,6 +51,7 @@ def analysis_messages(
     transcript: TranscriptResult,
     policy: PrivacyConfig,
     output_language: str = "en",
+    max_transcript_chars: int = _MAX_TRANSCRIPT_CHARS,
 ):
     meeting_type = classify(meeting, policy)
     system = """You extract structured facts from a meeting transcript.
@@ -89,7 +90,7 @@ Markdown; do not return Markdown pages."""
             "attendees": meeting.attendees,
             "occurred_at": meeting.occurred_at.isoformat(),
             "notes": meeting.notes,
-            "transcript": _transcript_window(transcript.text),
+            "transcript": _transcript_window(transcript.text, max_transcript_chars),
         },
         ensure_ascii=False,
     )

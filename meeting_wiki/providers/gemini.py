@@ -40,6 +40,8 @@ _LIVE_PCM_MIME_TYPE = "audio/pcm;rate=16000"
 # while 28-minute requests succeeded; the engine splits longer recordings at this limit.
 BATCH_MAX_DURATION_MINUTES = 20
 BATCH_AUDIO_APIS = ("interactions", "generate_content")
+# Gemini models take a 1M-token context, so analysis keeps several hours of transcript whole.
+ANALYSIS_TRANSCRIPT_CHARS = 500_000
 
 _TRANSCRIPT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -286,7 +288,7 @@ class GeminiLanguageProvider(_GeminiClientMixin):
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
         system, user, meeting_type = analysis_messages(
-            meeting, transcript, self.privacy, self.output_language
+            meeting, transcript, self.privacy, self.output_language, ANALYSIS_TRANSCRIPT_CHARS
         )
         client = self._client()
         structured_config = {
