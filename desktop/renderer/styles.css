@@ -248,6 +248,21 @@ body {
   margin-top: var(--space-2);
 }
 
+/* Opening the source is a secondary action, so it reads as a link rather than a large button. */
+button.card-open {
+  min-height: 0;
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+button.card-open:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
 /* The title button stretches over the whole card, so one click target opens the meeting. */
 .card-clickable {
   position: relative;
@@ -478,7 +493,7 @@ body {
   border: 1px solid var(--line);
   border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: var(--shadow-sheet);
+  box-shadow: var(--shadow-sheet), 0 0 0 100vmax var(--scrim);
 }
 
 .viewer-head {
@@ -496,13 +511,84 @@ body {
 
 .page-content {
   margin: 0;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) var(--space-6) var(--space-6);
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.page-content > * {
+  max-width: 68ch;
+}
+
+.page-content h2,
+.page-content h3,
+.page-content h4,
+.page-content h5 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--fs-title);
+}
+
+.page-content h2 {
+  font-size: var(--fs-heading);
+}
+
+.page-content > :first-child {
+  margin-top: 0;
+}
+
+.page-content p,
+.page-content ul {
+  margin: 0 0 var(--space-3);
+}
+
+.page-content ul {
+  padding-left: var(--space-5);
+}
+
+.page-content li + li {
+  margin-top: var(--space-1);
+}
+
+.page-content code {
+  padding: 0 var(--space-1);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.page-content pre {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow-x: auto;
+}
+
+.page-content pre code {
+  padding: 0;
+  background: none;
+}
+
+.page-wikilink {
+  color: var(--accent-text);
+  font-weight: 550;
+}
+
+.page-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.page-path {
+  margin-top: var(--space-5);
+  color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: var(--fs-small);
-  line-height: 1.65;
 }
 
 .toast {
@@ -527,6 +613,7 @@ body {
 
   .workbench {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
       "masthead"
       "rail"
@@ -538,6 +625,7 @@ body {
   .rail {
     flex-direction: row;
     flex-wrap: wrap;
+    align-content: start;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }

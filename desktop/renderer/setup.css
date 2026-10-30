@@ -21,6 +21,7 @@ body {
   gap: var(--space-5) var(--gap);
   max-width: 1040px;
   min-height: 100vh;
+  align-content: start;
   margin: 0 auto;
   padding: var(--space-5) var(--gap) var(--space-6);
 }
@@ -343,16 +344,46 @@ input::placeholder {
   grid-template-columns: auto 1fr;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  background: var(--danger-soft);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+
+/* A chosen option is marked; an egress acknowledgement is always tinted because data leaves the Mac. */
+.consent:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.consent-egress,
+.consent-egress:has(input:checked) {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .consent input {
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.consent-egress input {
   accent-color: var(--danger);
+}
+
+.settings-choices {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.settings-choices > legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
 }
 
 .host-ref {

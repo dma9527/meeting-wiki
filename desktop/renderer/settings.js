@@ -67,15 +67,39 @@
       : entry.copy;
   }
 
-  function applyMetadata(result) {
-    if (result && typeof result === "object" && result.settings && typeof result.settings === "object") {
-      metadata = { settings: result.settings, manualEdit: typeof result.manualEdit === "string" ? result.manualEdit : "" };
-    }
+  // Each field shows when it takes effect. When every field in a panel shares one line,
+  // that line appears once above the panel's save button instead.
+  function renderApplies() {
     for (const node of document.querySelectorAll("[data-applies-for]")) {
       const copy = copyFor(node.dataset.appliesFor);
       node.textContent = copy;
       node.hidden = !copy;
     }
+    for (const panel of document.querySelectorAll(".panel")) {
+      const nodes = [...panel.querySelectorAll("[data-applies-for]")];
+      const lines = new Set(nodes.map((node) => node.textContent).filter(Boolean));
+      const shared = nodes.length > 1 && lines.size === 1 ? [...lines][0] : "";
+      let summary = panel.querySelector(".panel-applies");
+      const submit = panel.querySelector("form button[type='submit']");
+      const actions = submit ? submit.closest(".actions") : null;
+      if (!summary && shared && actions) {
+        summary = document.createElement("p");
+        summary.className = "hint applies panel-applies";
+        actions.before(summary);
+      }
+      if (summary) {
+        summary.textContent = shared;
+        summary.hidden = !shared;
+      }
+      if (shared) for (const node of nodes) node.hidden = true;
+    }
+  }
+
+  function applyMetadata(result) {
+    if (result && typeof result === "object" && result.settings && typeof result.settings === "object") {
+      metadata = { settings: result.settings, manualEdit: typeof result.manualEdit === "string" ? result.manualEdit : "" };
+    }
+    renderApplies();
   }
 
   // "Saved." plus each distinct applies-after line for the keys that changed.
@@ -301,11 +325,7 @@
     if (localization && typeof localization.applySettingsLocale === "function") {
       localization.applySettingsLocale(document, choice, navigator.language);
     }
-    for (const node of document.querySelectorAll("[data-applies-for]")) {
-      const copy = copyFor(node.dataset.appliesFor);
-      node.textContent = copy;
-      node.hidden = !copy;
-    }
+    renderApplies();
     for (const [node, message] of localizedNodeMessages) node.textContent = localizedMessage(message);
     for (const renderer of localeRenderers) renderer();
   }
@@ -609,6 +629,21 @@
       if (!link.hidden) shown += 1;
     }
     nav.hidden = shown < 2;
+    if (nav.hidden || nav.dataset.watching || typeof IntersectionObserver !== "function") return;
+    nav.dataset.watching = "true";
+    // The link for the section nearest the top of the window is marked current.
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (!visible.length) return;
+      for (const link of nav.querySelectorAll("a")) {
+        if (link.getAttribute("href") === `#${visible[0].target.id}`) link.setAttribute("aria-current", "true");
+        else link.removeAttribute("aria-current");
+      }
+    }, { rootMargin: "-60px 0px -55% 0px" });
+    for (const link of nav.querySelectorAll("a")) {
+      const panel = $(link.getAttribute("href").slice(1));
+      if (panel) observer.observe(panel);
+    }
   }
 
   async function load() {

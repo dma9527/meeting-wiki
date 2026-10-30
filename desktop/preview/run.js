@@ -20,6 +20,15 @@ const SHOTS = [
   { name: "settings", file: "settings.html", stub: "settings", width: 720, height: 760 },
   { name: "record", file: "record.html", stub: "record", width: 560, height: 680 },
   { name: "live-sidebar", file: "live-sidebar.html", stub: "live", width: 380, height: 640 },
+  { name: "wiki-search", file: "index.html", stub: "wiki", width: 1120, height: 780, script: 'document.querySelector("[data-view=search]").click(); document.getElementById("search-input").value = "migration"; document.getElementById("search-button").click()' },
+  { name: "wiki-memory", file: "index.html", stub: "wiki", width: 1120, height: 780, script: 'document.querySelector("[data-view=memory]").click(); document.getElementById("memory-input").value = "migration"; document.getElementById("memory-button").click()' },
+  { name: "wiki-corrections", file: "index.html", stub: "wiki", width: 1120, height: 780, script: 'document.querySelector("[data-view=corrections]").click()' },
+  { name: "wiki-page", file: "index.html", stub: "wiki", width: 1120, height: 780, script: 'document.querySelector(".card-link").click()' },
+  { name: "wiki-narrow", file: "index.html", stub: "wiki", width: 720, height: 780 },
+  { name: "setup-gemini", file: "setup.html", stub: "setup", width: 980, height: 760, script: 'document.getElementById("mode-gemini").click(); document.getElementById("choose-continue").click()' },
+  { name: "settings-integrations", file: "settings.html", stub: "settings", width: 720, height: 760, script: 'document.getElementById("panel-integration-settings").scrollIntoView()' },
+  { name: "settings-gemini", file: "settings.html", stub: "settings", width: 720, height: 760, script: 'document.getElementById("panel-gemini-settings").scrollIntoView()' },
+  { name: "record-details", file: "record.html", stub: "record", width: 560, height: 680, script: 'document.getElementById("record-more").open = true; document.getElementById("record-more").scrollIntoView()' },
 ];
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

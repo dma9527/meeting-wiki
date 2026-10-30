@@ -147,7 +147,8 @@ function loadRenderer({ uiLanguage, navigatorLanguage = "en-US", api = {} }) {
     documentElement: { lang: "en" },
     body: fakeElement("body"),
     getElementById: byId,
-    createElement: () => fakeElement(""),
+    createElement: (tag) => Object.assign(fakeElement(""), { tagName: String(tag).toUpperCase() }),
+    createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
     querySelectorAll(selector) {
       if ([".rail-item", ".view", "[data-recovery-action]", ".workbench > *"].includes(selector)) return [];
       if (!statics.has(selector)) statics.set(selector, [fakeElement(selector, `EN ${selector}`)]);
@@ -246,6 +247,38 @@ test("a failed provider request explains the next step and keeps the raw error b
   const { card: chinese } = await recoveryCardFor("zh-CN", providerFailure(429));
   assert.equal(chinese.children[2].textContent, "Google Gemini 达到了速率限制或配额。请等几分钟后重试。");
   assert.equal(chinese.children[3].children[0].textContent, "技术细节");
+});
+
+async function openedPage(content) {
+  const view = loadRenderer({ uiLanguage: "en", api: { readPage: async (pagePath) => ({ path: pagePath, content, truncated: false }) } });
+  await view.documentObject.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await view.context.openPage("meetings/2026-10-20-roadmap-sync.md");
+  return view;
+}
+
+test("the page viewer shows the page heading as its title and renders Markdown as plain nodes", async () => {
+  const view = await openedPage([
+    "---", "privacy: shared", "---",
+    "# Roadmap sync", "",
+    "## Decisions", "- Use **option B** with `staged` rollout", "- Owner [[people/sam|Sam]]", "",
+    "<img src=x onerror=alert(1)> stays text.",
+  ].join("\n"));
+  assert.equal(view.byId("page-title").textContent, "Roadmap sync");
+  const blocks = view.byId("page-content").children;
+  assert.deepEqual(blocks.map((block) => block.tagName || "TEXT"), ["H3", "UL", "P", "P"]);
+  const [first, second] = blocks[1].children;
+  assert.deepEqual(first.children.map((node) => node.tagName || "TEXT"), ["TEXT", "STRONG", "TEXT", "CODE", "TEXT"]);
+  assert.equal(second.children[1].className, "page-wikilink");
+  assert.equal(second.children[1].textContent, "Sam");
+  assert.equal(blocks[2].children[0].textContent, "<img src=x onerror=alert(1)> stays text.", "markup in a page stays text");
+  assert.equal(blocks[3].className, "page-path");
+  assert.equal(blocks[3].textContent, "meetings/2026-10-20-roadmap-sync.md");
+});
+
+test("a page without a heading keeps its path as the title", async () => {
+  const view = await openedPage("Just notes.");
+  assert.equal(view.byId("page-title").textContent, "meetings/2026-10-20-roadmap-sync.md");
 });
 
 test("English, system, and unreadable choices keep or follow the right language", async () => {

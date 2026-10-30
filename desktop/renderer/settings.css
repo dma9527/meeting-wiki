@@ -45,6 +45,11 @@
   color: var(--ink);
 }
 
+.settings-nav a[aria-current="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
 .settings-main .panel {
   scroll-margin-top: 56px;
 }

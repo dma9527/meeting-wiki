@@ -94,6 +94,13 @@ function openPageButton(pagePath, label) {
   return button;
 }
 
+// A title button that covers the whole card, so the card itself opens the page.
+function cardLink(title, pagePath) {
+  const button = el("button", { class: "card-link", type: "button", text: title });
+  button.addEventListener("click", () => openPage(pagePath));
+  return button;
+}
+
 const DIALOG_FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -125,13 +132,92 @@ function trapDialogFocus(event) {
   }
 }
 
+const INLINE_MARKUP = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\*\*([^*]+)\*\*|`([^`]+)`/g;
+
+// Wiki links, bold, and code become nodes; everything else stays plain text.
+function inlineNodes(text) {
+  const nodes = [];
+  let last = 0;
+  for (const match of text.matchAll(INLINE_MARKUP)) {
+    if (match.index > last) nodes.push(document.createTextNode(text.slice(last, match.index)));
+    if (match[1]) nodes.push(el("span", { class: "page-wikilink", text: match[2] || match[1].split("/").pop() }));
+    else if (match[3]) nodes.push(el("strong", { text: match[3] }));
+    else nodes.push(el("code", { text: match[4] }));
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) nodes.push(document.createTextNode(text.slice(last)));
+  return nodes;
+}
+
+function withInline(tag, text, props = {}) {
+  const node = el(tag, props);
+  for (const child of inlineNodes(text)) node.appendChild(child);
+  return node;
+}
+
+// A small Markdown subset for reading wiki pages, built only from DOM nodes and text.
+function renderMarkdown(source) {
+  const blocks = [];
+  let list = null;
+  let fence = null;
+  let paragraph = [];
+  const flushParagraph = () => {
+    if (paragraph.length) blocks.push(withInline("p", paragraph.join(" ")));
+    paragraph = [];
+  };
+  const lines = source.replace(/^---\n[\s\S]*?\n---\n/, "").split("\n");
+  for (const line of lines) {
+    if (fence) {
+      if (/^```/.test(line)) { blocks.push(el("pre", {}, [el("code", { text: fence.join("\n") })])); fence = null; }
+      else fence.push(line);
+      continue;
+    }
+    if (/^```/.test(line)) { flushParagraph(); list = null; fence = []; continue; }
+    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
+    const item = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(line);
+    const tableRow = /^\|.*\|\s*$/.test(line);
+    if (heading) {
+      flushParagraph(); list = null;
+      blocks.push(withInline(`h${Math.min(heading[1].length + 1, 5)}`, heading[2]));
+    } else if (item) {
+      flushParagraph();
+      if (!list) { list = el("ul"); blocks.push(list); }
+      list.appendChild(withInline("li", item[1]));
+    } else if (tableRow) {
+      flushParagraph(); list = null;
+      if (/^\|[\s:|-]+\|\s*$/.test(line)) continue;
+      const cells = line.trim().slice(1, -1).split("|").map((cell) => cell.trim());
+      blocks.push(el("p", { class: "page-row" }, cells.map((cell) => withInline("span", cell))));
+    } else if (!line.trim()) {
+      flushParagraph(); list = null;
+    } else {
+      list = null;
+      paragraph.push(line.trim());
+    }
+  }
+  if (fence) blocks.push(el("pre", {}, [el("code", { text: fence.join("\n") })]));
+  flushParagraph();
+  return blocks;
+}
+
+function pageHeading(content, fallback) {
+  const match = /^#\s+(.+)$/m.exec(content || "");
+  return match ? match[1].trim() : fallback;
+}
+
 async function openPage(pagePath) {
   const page = await api.readPage(pagePath);
   if (failed(page)) return;
   lastFocused = document.activeElement;
-  document.getElementById("page-title").textContent = page.path || pagePath;
-  document.getElementById("page-content").textContent =
-    page.content + (page.truncated ? `\n\n… ${t("(truncated)")}` : "");
+  const content = typeof page.content === "string" ? page.content : "";
+  document.getElementById("page-title").textContent = pageHeading(content, page.path || pagePath);
+  const body = document.getElementById("page-content");
+  clear(body);
+  const blocks = renderMarkdown(content);
+  if (blocks.length && blocks[0].tagName === "H2") blocks.shift();
+  for (const block of blocks) body.appendChild(block);
+  body.appendChild(el("p", { class: "page-path", text: page.path || pagePath }));
+  if (page.truncated) body.appendChild(el("p", { class: "page-path", text: t("(truncated)") }));
   const viewer = document.getElementById("page-viewer");
   viewer.hidden = false;
   setBackgroundInert(true);
@@ -155,10 +241,8 @@ async function loadRecent() {
     return;
   }
   for (const meeting of result.items) {
-    const open = el("button", { class: "card-link", type: "button", text: meeting.title });
-    open.addEventListener("click", () => openPage(meeting.path));
     const card = el("article", { class: "card card-clickable" }, [
-      el("h3", { class: "card-title" }, [open]),
+      el("h3", { class: "card-title" }, [cardLink(meeting.title, meeting.path)]),
       el("p", { class: "card-meta", text: `${meeting.meeting_type} · ${meeting.timestamp}` }),
     ]);
     if (meeting.description) card.appendChild(el("p", { text: meeting.description }));
@@ -181,14 +265,13 @@ async function runSearch() {
     return;
   }
   for (const hit of result.items) {
-    const card = el("article", { class: "card" }, [
-      el("h3", { class: "card-title", text: hit.title }),
+    const card = el("article", { class: "card card-clickable" }, [
+      el("h3", { class: "card-title" }, [cardLink(hit.title, hit.path)]),
       el("p", { class: "card-meta", text: hit.path }),
     ]);
     for (const snippet of hit.snippets) {
       card.appendChild(el("p", { class: "snippet", text: snippet.text }));
     }
-    card.appendChild(openPageButton(hit.path, "Open page"));
     list.appendChild(card);
   }
 }
@@ -471,7 +554,7 @@ function renderCorrectionCard(entry) {
     card.appendChild(
       el("div", { class: "rename-row" }, [
         el("label", { for: inputId }, [
-          el("span", { class: "label-chip", text: `${label.label} (${label.segments})` }),
+          el("span", { class: "label-chip", text: t("{label} · {count} lines", { label: label.label, count: label.segments }) }),
         ]),
         field,
       ]),
