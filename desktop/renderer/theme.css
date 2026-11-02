@@ -251,6 +251,15 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* A disabled primary action turns neutral, so dimmed coral never reads as low-contrast text. */
+button.primary:disabled,
+.button-primary:disabled {
+  background: var(--surface-sunken);
+  border-color: var(--line);
+  color: var(--ink-muted);
+  opacity: 1;
+}
+
 input[type="text"],
 input[type="search"],
 input[type="url"],

@@ -27,6 +27,11 @@ test("every custom property in theme.css is a named declaration", () => {
   assert.doesNotMatch(theme, /;\s*:/, "a declaration lost its property name");
 });
 
+test("a disabled primary button turns neutral instead of dimmed coral", () => {
+  const theme = read("theme.css");
+  assert.match(theme, /button\.primary:disabled,\s*\.button-primary:disabled \{\s*background: var\(--surface-sunken\);[\s\S]*?color: var\(--ink-muted\);\s*opacity: 1;/);
+});
+
 test("only theme.css defines colors, and it covers light and dark", () => {
   const theme = read("theme.css");
   assert.match(theme, /@media \(prefers-color-scheme: dark\)/);
