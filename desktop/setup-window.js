@@ -34,11 +34,13 @@ const GEMINI_SECRET_ID = "gemini";
 // Recordings go to the general model through generate_content: its quota is far larger than
 // the dedicated transcription model's, which rejected long meetings.
 const GEMINI_MODELS = Object.freeze({
-  batchAudioModel: "gemini-3.5-flash",
+  batchAudioModel: "gemini-3.6-flash",
   batchAudioApi: "generate_content",
   liveModel: "gemini-3.5-transcribe-live",
-  languageModel: "gemini-3.5-flash",
+  languageModel: "gemini-3.6-flash",
 });
+// Google retired gemini-3.5-flash and routes it to gemini-3.6-flash; managed configs follow by name.
+const RETIRED_GEMINI_MODELS = Object.freeze({ "gemini-3.5-flash": "gemini-3.6-flash" });
 // The batch model earlier setup versions wrote, before batch_audio_api existed.
 const LEGACY_GEMINI_BATCH_MODEL = "gemini-3.5-transcribe";
 const MANAGED_KEY_ENVS = Object.freeze([API_KEY_ENV, GEMINI_API_KEY_ENV]);
@@ -231,6 +233,26 @@ function migrateGeminiBatchAudio(text) {
   const migrated = lines.join("\n");
   const check = parseManagedConfig(migrated);
   if (!check || check.gemini.batch_audio_model !== model || check.gemini.batch_audio_api !== api) return null;
+  return migrated;
+}
+
+// Renames retired model values in a managed [gemini] table. Returns null when nothing changes.
+function migrateRetiredGeminiModels(text) {
+  const tables = parseManagedConfig(text);
+  const gemini = tables && tables.gemini;
+  if (!gemini) return null;
+  const keys = ["batch_audio_model", "language_model"].filter((key) => Object.hasOwn(RETIRED_GEMINI_MODELS, gemini[key]));
+  if (!keys.length) return null;
+  let section = "";
+  const migrated = text.split("\n").map((line) => {
+    const header = /^\[([a-z_]+)\]$/.exec(line);
+    if (header) section = header[1];
+    const match = /^([a-z_]+) = /.exec(line);
+    if (section !== "gemini" || !match || !keys.includes(match[1])) return line;
+    return `${match[1]} = ${tomlString(RETIRED_GEMINI_MODELS[gemini[match[1]]])}`;
+  }).join("\n");
+  const check = parseManagedConfig(migrated);
+  if (!check || keys.some((key) => check.gemini[key] !== RETIRED_GEMINI_MODELS[gemini[key]])) return null;
   return migrated;
 }
 
@@ -809,6 +831,7 @@ module.exports = {
   guard,
   isManagedConfig,
   migrateGeminiBatchAudio,
+  migrateRetiredGeminiModels,
   needsSetup,
   readSetupState,
   registerSetupHandlers,

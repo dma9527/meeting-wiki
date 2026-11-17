@@ -663,10 +663,10 @@ test("Gemini constants are provider scoped and models use the source-backed defa
   assert.equal(setup.GEMINI_SECRET_ID, "gemini");
   assert.equal(setup.GEMINI_API_KEY_ENV, "MEETING_WIKI_GEMINI_API_KEY");
   assert.deepEqual(setup.GEMINI_MODELS, {
-    batchAudioModel: "gemini-3.5-flash",
+    batchAudioModel: "gemini-3.6-flash",
     batchAudioApi: "generate_content",
     liveModel: "gemini-3.5-transcribe-live",
-    languageModel: "gemini-3.5-flash",
+    languageModel: "gemini-3.6-flash",
   });
   assert.notEqual(setup.GEMINI_SECRET_ID, setup.SECRET_ID);
   assert.notEqual(setup.GEMINI_API_KEY_ENV, setup.API_KEY_ENV);
@@ -702,10 +702,10 @@ test("renderGeminiConfig selects gemini everywhere with the default models and o
   assert.match(config, /^\[live\]\n(#.*\n)*allow_external_providers = true$/m);
   assert.match(config, /^\[gemini\]$/m);
   assert.match(config, /^api_key_env = "MEETING_WIKI_GEMINI_API_KEY"$/m);
-  assert.match(config, /^batch_audio_model = "gemini-3\.5-flash"$/m);
+  assert.match(config, /^batch_audio_model = "gemini-3\.6-flash"$/m);
   assert.match(config, /^batch_audio_api = "generate_content"$/m);
   assert.match(config, /^live_model = "gemini-3\.5-transcribe-live"$/m);
-  assert.match(config, /^language_model = "gemini-3\.5-flash"$/m);
+  assert.match(config, /^language_model = "gemini-3\.6-flash"$/m);
   assert.doesNotMatch(config, /openai|MEETING_WIKI_ONLINE_API_KEY|base_url/);
 });
 
@@ -721,7 +721,7 @@ test("the legacy batch model migrates to the general model and generate_content"
   const legacy = legacyGeminiConfig();
   const migrated = setup.migrateGeminiBatchAudio(legacy);
 
-  assert.match(migrated, /^batch_audio_model = "gemini-3\.5-flash"\nbatch_audio_api = "generate_content"$/m);
+  assert.match(migrated, /^batch_audio_model = "gemini-3\.6-flash"\nbatch_audio_api = "generate_content"$/m);
   assert.equal(migrated, setup.renderGeminiConfig());
   assert.equal(setup.migrateGeminiBatchAudio(migrated), null);
 });
@@ -741,6 +741,25 @@ test("migration leaves unmanaged, non-Gemini, and already migrated configs alone
   ]) {
     assert.equal(setup.migrateGeminiBatchAudio(text), null);
   }
+});
+
+test("the retired gemini-3.5-flash name moves to gemini-3.6-flash and nothing else changes", () => {
+  const current = setup.renderGeminiConfig();
+  const retired = current.replaceAll('"gemini-3.6-flash"', '"gemini-3.5-flash"');
+  assert.notEqual(retired, current);
+
+  assert.equal(setup.migrateRetiredGeminiModels(retired), current);
+  assert.equal(setup.migrateRetiredGeminiModels(current), null);
+  const custom = retired.replace(/^language_model = .*$/m, 'language_model = "my-model"');
+  const migrated = setup.migrateRetiredGeminiModels(custom);
+  assert.match(migrated, /^batch_audio_model = "gemini-3\.6-flash"$/m);
+  assert.match(migrated, /^language_model = "my-model"$/m);
+  assert.equal(setup.migrateRetiredGeminiModels('# My config\n[gemini]\nlanguage_model = "gemini-3.5-flash"\n'), null);
+});
+
+test("main applies the batch API migration and then the retired model rename", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+  assert.match(main, /const renamed = migrateRetiredGeminiModels\(current\);/);
 });
 
 test("a committed Gemini setup stores the key encrypted under the gemini secret and never in plaintext", async () => {
@@ -931,8 +950,8 @@ test("managed Gemini config is accepted by AppConfig and passes doctor", { skip:
     encoding: "utf8",
   });
   assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
-  assert.match(doctor.stdout, /^OK transcription: .*gemini-3\.5-flash/m);
-  assert.match(doctor.stdout, /^OK llm: .*gemini-3\.5-flash/m);
+  assert.match(doctor.stdout, /^OK transcription: .*gemini-3\.6-flash/m);
+  assert.match(doctor.stdout, /^OK llm: .*gemini-3\.6-flash/m);
   assert.ok(!(doctor.stdout + doctor.stderr).includes(GEMINI_KEY));
 });
 

@@ -108,7 +108,7 @@ function settings() {
       choices: { transcriptLanguage: ["auto", "en", "zh-CN"], liveTranslationLanguage: ["en", "zh-CN"], liveSummaryLanguage: ["en", "zh-CN"], memoryLanguage: ["source", "en", "zh-CN"], uiLanguage: ["system", "en", "zh-CN"] },
     }),
     saveLanguageSettings: resolved({ ok: true, values: {} }),
-    getGeminiSettings: resolved({ ready: true, values: { batchAudioModel: "gemini-3.5-flash", liveModel: "gemini-3.5-transcribe-live", languageModel: "gemini-3.5-flash", summaryContextCharacters: 12000 }, bounds: { summaryContextCharacters: { min: 500, max: 100000 } } }),
+    getGeminiSettings: resolved({ ready: true, values: { batchAudioModel: "gemini-3.6-flash", liveModel: "gemini-3.5-transcribe-live", languageModel: "gemini-3.6-flash", summaryContextCharacters: 12000 }, bounds: { summaryContextCharacters: { min: 500, max: 100000 } } }),
     saveGeminiSettings: resolved({ ok: true, values: {} }),
     getRecordingSettings: resolved({ ready: true, values: { maxDurationMinutes: 120, defaultsConfigured: true, defaultPrivacyMode: "shared", liveEnabled: true }, bounds: { maxDurationMinutes: { min: 15, max: 480 } } }),
     saveRecordingSettings: resolved({ ok: true, values: {} }),

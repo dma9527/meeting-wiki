@@ -11,7 +11,7 @@ process.umask(0o077);
 const { AudioCapture, buildCaptureManifest, captureManifestPath } = require("./capture");
 const { createWikiWindow } = require("./wiki-window");
 const { createSecretStore } = require("./secret-store");
-const { createSetupWindow, credentialFreeEnv, migrateGeminiBatchAudio, needsSetup, resolveProcessEnv } = require("./setup-window");
+const { createSetupWindow, credentialFreeEnv, migrateGeminiBatchAudio, migrateRetiredGeminiModels, needsSetup, resolveProcessEnv } = require("./setup-window");
 const { createSettingsWindow } = require("./settings-window");
 const {
   buildRecordContext,
@@ -872,7 +872,7 @@ function updateMenu() {
   tray.setContextMenu(Menu.buildFromTemplate(menuText.menuItems(items)));
 }
 
-// One-time upgrade of a managed config so the worker starts with batch_audio_api set.
+// One-time upgrades of a managed config: batch_audio_api, then retired Gemini model names.
 function migrateManagedConfig() {
   let text;
   try {
@@ -880,7 +880,10 @@ function migrateManagedConfig() {
   } catch (_) {
     return;
   }
-  const migrated = migrateGeminiBatchAudio(text);
+  const withApi = migrateGeminiBatchAudio(text);
+  const current = withApi === null ? text : withApi;
+  const renamed = migrateRetiredGeminiModels(current);
+  const migrated = renamed === null ? withApi : renamed;
   if (migrated === null) return;
   try {
     atomicWriteFile(fs, CONFIG_PATH, migrated);

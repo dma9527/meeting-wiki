@@ -1206,6 +1206,46 @@ def test_live_language_summarize_requests_concise_bullets():
     )
 
 
+def test_live_translation_thinks_minimally_and_summaries_think_low():
+    models = FakeModels("- point")
+    provider = live_language_provider(fake_client(models=models))
+
+    provider.translate("Hello", "zh-CN")
+    provider.summarize("Alex: hello", "zh-CN")
+
+    assert models.calls[0]["config"]["thinking_config"] == {"thinking_level": "minimal"}
+    assert models.calls[1]["config"]["thinking_config"] == {"thinking_level": "low"}
+
+
+def test_a_model_that_rejects_thinking_level_retries_once_without_it():
+    class RejectThinking(FakeModels):
+        def generate_content(self, *, model, contents, config):
+            self.calls.append({"model": model, "contents": contents, "config": config})
+            if "thinking_config" in config:
+                error = RuntimeError("thinking_level is not supported")
+                error.code = 400
+                raise error
+            return SimpleNamespace(text=self.text)
+
+    models = RejectThinking("你好")
+    provider = live_language_provider(fake_client(models=models))
+
+    assert provider.translate("Hello", "zh-CN") == "你好"
+    assert provider.translate("Again", "zh-CN") == "你好"
+    assert ["thinking_config" in call["config"] for call in models.calls] == [True, False, False]
+
+
+def test_other_errors_with_thinking_are_not_retried():
+    error = RuntimeError("quota")
+    error.code = 429
+    models = FakeModels("unused", error=error)
+    provider = live_language_provider(fake_client(models=models))
+
+    with pytest.raises(RuntimeError):
+        provider.translate("Hello", "zh-CN")
+    assert len(models.calls) == 1
+
+
 @pytest.mark.parametrize("text", [None, ""])
 def test_live_language_handles_empty_model_output(text):
     provider = live_language_provider(fake_client(models=FakeModels(text)))

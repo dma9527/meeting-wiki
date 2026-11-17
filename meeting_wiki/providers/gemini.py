@@ -16,7 +16,7 @@ from typing import Any
 
 from ..audio_chunks import wav_duration_seconds
 from ..config import PrivacyConfig
-from ..diagnostics import SafeProviderError
+from ..diagnostics import SafeProviderError, _http_status
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult, TranscriptSegment
 from .base import (
     LIVE_SUMMARY_RULES,
@@ -42,6 +42,9 @@ BATCH_MAX_DURATION_MINUTES = 20
 BATCH_AUDIO_APIS = ("interactions", "generate_content")
 # Gemini models take a 1M-token context, so analysis keeps several hours of transcript whole.
 ANALYSIS_TRANSCRIPT_CHARS = 500_000
+# Live calls run every few seconds, so they think less than the default medium level.
+LIVE_TRANSLATION_THINKING = "minimal"
+LIVE_SUMMARY_THINKING = "low"
 
 _TRANSCRIPT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -347,19 +350,31 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
         self.api_key = api_key
         self.timeout = timeout_seconds
         self._client_factory = client_factory
+        # A model override may not accept thinking_level; one HTTP 400 turns it off for the session.
+        self._thinking_supported = True
 
-    def _ask(self, action: str, instruction: str, text: str) -> str:
+    def _ask(self, action: str, instruction: str, text: str, thinking_level: str) -> str:
         client = self._client()
+        config: dict[str, object] = {
+            "system_instruction": instruction,
+            "temperature": 0,
+            "response_mime_type": "text/plain",
+        }
+        if self._thinking_supported:
+            config["thinking_config"] = {"thinking_level": thinking_level}
         try:
-            response = client.models.generate_content(
-                model=self.model,
-                contents=text,
-                config={
-                    "system_instruction": instruction,
-                    "temperature": 0,
-                    "response_mime_type": "text/plain",
-                },
-            )
+            try:
+                response = client.models.generate_content(
+                    model=self.model, contents=text, config=config
+                )
+            except Exception as error:
+                if "thinking_config" not in config or _http_status(error) != 400:
+                    raise
+                self._thinking_supported = False
+                plain = {key: value for key, value in config.items() if key != "thinking_config"}
+                response = client.models.generate_content(
+                    model=self.model, contents=text, config=plain
+                )
             content = response.text
         except Exception as error:
             raise _redacted(action, error) from None
@@ -373,7 +388,7 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
             f"Translate accurately into {language}. "
             "Return only the translation as plain text, with no notes or formatting."
         )
-        return self._ask("translation", instruction, text)
+        return self._ask("translation", instruction, text, LIVE_TRANSLATION_THINKING)
 
     def summarize(self, transcript: str, output_language: str) -> list[str]:
         if not transcript.strip():
@@ -383,7 +398,7 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
             f"Summarize in {language} as up to five concise bullet points, one per line, "
             f"each starting with '- '. {LIVE_SUMMARY_RULES} Return only the bullets."
         )
-        result = self._ask("summary", instruction, transcript)
+        result = self._ask("summary", instruction, transcript, LIVE_SUMMARY_THINKING)
         bullets = (
             line.strip().removeprefix("- ").removeprefix("* ") for line in result.splitlines()
         )

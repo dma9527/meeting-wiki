@@ -313,6 +313,7 @@ def _runtime(tmp_path, transcriber, language, publisher, **overrides):
         "summary_context_characters": 500,
         "reconnect_delay_seconds": 0.01,
         "poll_seconds": 0.02,
+        "summary_interval_seconds": 0,
     }
     options.update(overrides)
     return LiveRuntime(**options)
@@ -358,6 +359,62 @@ def test_chunked_runtime_publishes_ordered_deduplicated_finals_translation_and_s
     assert states[0] == {"phase": "listening", "private": True, "scope": "local"}
     assert states[-1]["phase"] == "stopped"
     assert list((tmp_path / "work").iterdir()) == []
+
+
+def test_live_summaries_run_at_once_then_at_most_once_per_interval_on_the_latest_text(tmp_path):
+    import asyncio
+    import time
+
+    class PacedLanguage(FakeLanguage):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        def summarize(self, transcript, output_language):
+            self.calls.append((time.monotonic(), transcript))
+            return ["point"]
+
+    language = PacedLanguage()
+    runtime = _runtime(
+        tmp_path,
+        FakeChunkedTranscriber([]),
+        language,
+        RecordingPublisher(),
+        summary_interval_seconds=0.3,
+    )
+
+    async def final(text):
+        segment = TranscriptSegment(start_seconds=0, end_seconds=1, text=text)
+        runtime._finals.append(segment)
+        await runtime._emit_final(segment)
+
+    async def until(condition):
+        while not condition():
+            await asyncio.sleep(0.01)
+
+    async def scenario():
+        async def run_inline(function, *args):
+            return function(*args)
+
+        runtime.run_blocking = run_inline
+        worker = asyncio.create_task(runtime._summary_worker())
+        try:
+            await final("one")
+            await asyncio.wait_for(until(lambda: len(language.calls) == 1), 1)
+            await final("two")
+            await final("three")
+            await asyncio.sleep(0.1)
+            assert len(language.calls) == 1, "a second summary waits for the interval"
+            await asyncio.wait_for(until(lambda: len(language.calls) == 2), 2)
+            await asyncio.sleep(0.4)
+        finally:
+            worker.cancel()
+        (first_at, first), (second_at, second) = language.calls
+        assert first == "one"
+        assert second.endswith("three"), "the delayed summary covers the newest line"
+        assert second_at - first_at >= 0.29
+
+    asyncio.run(scenario())
 
 
 def test_runtime_redacts_provider_errors_to_fixed_issue_codes(tmp_path):

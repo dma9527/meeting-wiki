@@ -15,6 +15,7 @@ import shutil
 import signal
 import struct
 import tempfile
+import time
 import wave
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -41,6 +42,8 @@ BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH
 TOKEN_ENV = "MEETING_WIKI_LIVE_TOKEN"
 MAX_EVENT_TEXT = 2_000
 MAX_SUMMARY_POINTS = 5
+# The first summary runs at once; later ones start at most this often, always on the latest text.
+SUMMARY_INTERVAL_SECONDS = 10.0
 _RECENT_HEADING = "\n\nMost recent discussion:\n"
 
 
@@ -337,6 +340,8 @@ class LiveRuntime:
         poll_seconds: float = 0.25,
         audio_start_timeout_seconds: float = 30.0,
         run_blocking: Callable[..., Awaitable[object]] = asyncio.to_thread,
+        summary_interval_seconds: float = SUMMARY_INTERVAL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.channels = [_Channel(SPEAKER_YOU, WavTail(mic_path))]
         if system_path is not None:
@@ -360,6 +365,8 @@ class LiveRuntime:
         self.poll_seconds = poll_seconds
         self.audio_start_timeout = audio_start_timeout_seconds
         self.run_blocking = run_blocking
+        self.summary_interval = max(0.0, summary_interval_seconds)
+        self.clock = clock
         self._finals: list[TranscriptSegment] = []
         # Latest display-only summary, carried into the next one so long meetings keep
         # their early points after the transcript outgrows summary_context_characters.
@@ -368,6 +375,7 @@ class LiveRuntime:
         self._partial_issue: str | None = None
         self._chunk_lock = asyncio.Lock()
         self._language_queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
+        self._summary_due = asyncio.Event()
 
     async def state(self, phase: str, issue: str | None = None) -> None:
         payload: dict[str, object] = {
@@ -398,6 +406,7 @@ class LiveRuntime:
     async def run(self) -> None:
         await self.state("listening")
         language_task = asyncio.create_task(self._language_worker())
+        summary_task = asyncio.create_task(self._summary_worker())
         pending = {
             asyncio.create_task(self._guarded(channel)): channel for channel in self.channels
         }
@@ -420,9 +429,10 @@ class LiveRuntime:
             for task in pending:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-            language_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await language_task
+            for task in (language_task, summary_task):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         if len(failures) == len(self.channels):
             issue = failures.get(SPEAKER_YOU) or next(iter(failures.values()))
             await self.state("stopped" if issue == "audio_unavailable" else "unavailable", issue)
@@ -629,6 +639,7 @@ class LiveRuntime:
             payload["speaker"] = segment.speaker
         await self.publisher.publish("transcript", payload)
         self._language_queue.put_nowait((self._sequence, clipped))
+        self._summary_due.set()
 
     def _summary_context(self) -> str:
         if len(self.channels) > 1:
@@ -661,19 +672,35 @@ class LiveRuntime:
                     await self.publisher.publish(
                         "translation", {"sequence": sequence, "text": _clip(str(translation))}
                     )
-                # Coalesce summaries so a backlog does not trigger one call per segment.
-                if self._language_queue.empty():
-                    points = await self.run_blocking(
-                        self.language.summarize,
-                        self._summary_context(),
-                        self.summary_language,
-                    )
-                    cleaned = [_clip(str(point), 400) for point in points if str(point).strip()]
-                    if cleaned:
-                        self._summary_points = cleaned[:MAX_SUMMARY_POINTS]
-                    await self.publisher.publish(
-                        "summary", {"sequence": sequence, "points": cleaned[:MAX_SUMMARY_POINTS]}
-                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                self._report("live_language_failed", error=error)
+                await self._listening("language_error")
+
+    async def _summary_worker(self) -> None:
+        last_start: float | None = None
+        while True:
+            await self._summary_due.wait()
+            if last_start is not None:
+                remaining = last_start + self.summary_interval - self.clock()
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+            self._summary_due.clear()
+            last_start = self.clock()
+            sequence = self._sequence
+            try:
+                points = await self.run_blocking(
+                    self.language.summarize,
+                    self._summary_context(),
+                    self.summary_language,
+                )
+                cleaned = [_clip(str(point), 400) for point in points if str(point).strip()]
+                if cleaned:
+                    self._summary_points = cleaned[:MAX_SUMMARY_POINTS]
+                await self.publisher.publish(
+                    "summary", {"sequence": sequence, "points": cleaned[:MAX_SUMMARY_POINTS]}
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as error:
