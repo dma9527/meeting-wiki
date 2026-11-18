@@ -5,7 +5,12 @@ from __future__ import annotations
 import httpx
 
 from ..models import TranscriptSegment
-from .base import LIVE_SUMMARY_RULES, LiveTranscriptRequest, language_display_name
+from .base import (
+    LIVE_SUMMARY_RULES,
+    LiveProviderError,
+    LiveTranscriptRequest,
+    language_display_name,
+)
 from .transcription import MLXWhisperTranscriber
 
 
@@ -32,6 +37,12 @@ class OllamaLiveLanguageProvider:
         self.timeout = timeout_seconds
 
     def _ask(self, instruction: str, text: str) -> str:
+        try:
+            return self._post(instruction, text)
+        except httpx.HTTPError as error:
+            raise LiveProviderError("Ollama", "language", error) from None
+
+    def _post(self, instruction: str, text: str) -> str:
         response = httpx.post(
             f"{self.base_url}/api/chat",
             json={

@@ -12,7 +12,7 @@ import sqlite3
 from pathlib import Path
 
 from .config import load_config
-from .diagnostics import safe_identifier
+from .diagnostics import AUTH, BILLING, failure_kind, safe_identifier
 
 SELF_CHECK_VERSION = 1
 CAPABILITIES = ("transcription", "analysis", "live", "storage", "memory")
@@ -21,7 +21,14 @@ _SQLITE_HEADER = b"SQLite format 3\x00"
 _LIVE_PROBE_SECONDS = 20.0
 # 100 ms of silence at 16 kHz mono 16-bit; enough for the provider to accept the stream.
 _LIVE_PROBE_AUDIO = b"\x00\x00" * 1_600
-_LIVE_ERROR_FIELDS = ("sdk_error_type", "http_status", "close_code", "provider_status")
+_LIVE_ERROR_FIELDS = (
+    "sdk_error_type",
+    "http_status",
+    "close_code",
+    "provider_status",
+    "provider_code",
+)
+_LIVE_STOP_STATUSES = {BILLING: "billing_exhausted", AUTH: "key_rejected"}
 
 
 def _health(provider) -> str:
@@ -60,6 +67,9 @@ def _live_connection(provider, language: str | None) -> tuple[str, dict[str, obj
         for key in _LIVE_ERROR_FIELDS:
             if key in metadata:
                 detail[key] = metadata[key]
+        kind = failure_kind(metadata) if metadata else None
+        if kind in _LIVE_STOP_STATUSES:
+            return _LIVE_STOP_STATUSES[kind], detail
         return "connection_failed", detail
     return "ready", {}
 

@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .config import load_config
-from .diagnostics import decode_diagnostic, safe_identifier
+from .diagnostics import FAILURE_KINDS, decode_diagnostic, safe_identifier
 from .events import _IDENTIFIER, _REF, Component, EventCode, component_version
 from .models import JobStage, JobState, JobType
 
@@ -224,6 +224,8 @@ def _safe_diagnostic(diagnostic: dict[str, object]) -> dict[str, object]:
     provider_status = diagnostic.get("provider_status")
     if isinstance(provider_status, str) and _PROVIDER_STATUS.fullmatch(provider_status):
         safe["provider_status"] = provider_status
+    if diagnostic.get("failure_kind") in FAILURE_KINDS:
+        safe["failure_kind"] = diagnostic["failure_kind"]
     return safe
 
 

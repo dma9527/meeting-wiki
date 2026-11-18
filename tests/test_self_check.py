@@ -258,3 +258,27 @@ def test_live_probe_reports_only_allowlisted_failure_codes(tmp_path, monkeypatch
     text = json.dumps(report) + (data_dir / "logs" / "live.log").read_text()
     for secret in (TEST_KEY, "secret transcript", "/Users/test"):
         assert secret not in text
+
+
+def test_live_probe_reports_no_credit_as_its_own_status(tmp_path, monkeypatch):
+    use_data_dir(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEETING_WIKI_GEMINI_API_KEY", TEST_KEY)
+
+    class FakeClientError(Exception):
+        def __init__(self):
+            super().__init__("secret: prepayment credits are depleted")
+            self.code = 402
+            self.status = "RESOURCE_EXHAUSTED"
+
+    client, _live, _session = _live_probe_client(connect_error=FakeClientError())
+    monkeypatch.setattr(gemini_module, "_import_genai", lambda: SimpleNamespace())
+    monkeypatch.setattr(gemini_module.GeminiLiveTranscriber, "_client", lambda self: client)
+    monkeypatch.setattr(
+        gemini_module, "_import_genai_types", lambda: SimpleNamespace(Blob=lambda **kw: kw)
+    )
+
+    report = run_self_check(write_config(tmp_path, GEMINI_CONFIG), probe_live=True)
+
+    assert report["capabilities"]["live"] == "billing_exhausted"
+    assert report["live_error"]["http_status"] == 402
+    assert "secret" not in json.dumps(report)

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from .diagnostics import safe_identifier
+from .diagnostics import AUTH, BILLING, failure_kind, safe_identifier
 from .models import TranscriptSegment
 from .providers.base import (
     EmptyTranscriptError,
@@ -262,6 +262,16 @@ PARTIAL_ISSUES = {
     SPEAKER_YOU: "microphone_unavailable",
     SPEAKER_OTHERS: "system_audio_unavailable",
 }
+# Failures that waiting or reconnecting cannot fix, with the issue code the sidebar shows.
+STOP_ISSUES = {BILLING: "provider_billing", AUTH: "provider_auth"}
+
+
+def _stop_issue(error: BaseException) -> str | None:
+    if isinstance(error, LiveProviderError):
+        return STOP_ISSUES.get(failure_kind(error.metadata))
+    return None
+
+
 # A connection that lasted this long counts as healthy, so its failure restarts the retry budget.
 HEALTHY_CONNECTION_SECONDS = 30.0
 # System audio that stays exact digital zero this long usually means the audio tap has no
@@ -376,6 +386,8 @@ class LiveRuntime:
         self._chunk_lock = asyncio.Lock()
         self._language_queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
         self._summary_due = asyncio.Event()
+        # Set once the language provider reports no credit or a rejected key.
+        self._language_stopped: str | None = None
 
     async def state(self, phase: str, issue: str | None = None) -> None:
         payload: dict[str, object] = {
@@ -388,7 +400,7 @@ class LiveRuntime:
         await self.publisher.publish("state", payload)
 
     async def _listening(self, issue: str | None = None) -> None:
-        await self.state("listening", issue or self._partial_issue)
+        await self.state("listening", issue or self._partial_issue or self._language_stopped)
 
     def _report(self, event: str, channel: _Channel | None = None, error=None) -> None:
         if self.report is None:
@@ -457,7 +469,7 @@ class LiveRuntime:
             return "provider_session_expired"
         except Exception as error:
             self._report("live_transcription_failed", channel, error)
-            return "transcription_failed"
+            return _stop_issue(error) or "transcription_failed"
         return None
 
     async def _wait_poll(self) -> bool:
@@ -581,6 +593,8 @@ class LiveRuntime:
                 except Exception as error:
                     if self.stop.is_set():
                         return
+                    if _stop_issue(error):
+                        raise
                     if loop.time() - opened_at >= HEALTHY_CONNECTION_SECONDS:
                         attempt = 0
                     attempt += 1
@@ -663,6 +677,8 @@ class LiveRuntime:
     async def _language_worker(self) -> None:
         while True:
             sequence, text = await self._language_queue.get()
+            if self._language_stopped:
+                continue
             try:
                 translation = await self.run_blocking(
                     self.language.translate, text, self.target_language
@@ -675,8 +691,14 @@ class LiveRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                self._report("live_language_failed", error=error)
-                await self._listening("language_error")
+                await self._language_failed(error)
+
+    async def _language_failed(self, error: BaseException) -> None:
+        self._report("live_language_failed", error=error)
+        stop = _stop_issue(error)
+        if stop:
+            self._language_stopped = stop
+        await self._listening(stop or "language_error")
 
     async def _summary_worker(self) -> None:
         last_start: float | None = None
@@ -687,6 +709,8 @@ class LiveRuntime:
                 if remaining > 0:
                     await asyncio.sleep(remaining)
             self._summary_due.clear()
+            if self._language_stopped:
+                continue
             last_start = self.clock()
             sequence = self._sequence
             try:
@@ -704,8 +728,7 @@ class LiveRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                self._report("live_language_failed", error=error)
-                await self._listening("language_error")
+                await self._language_failed(error)
 
 
 class LiveDiagnosticsLog:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from meeting_wiki.config import PrivacyConfig
 from meeting_wiki.models import MeetingAnalysis, MeetingType
 from meeting_wiki.providers.llm import (
@@ -117,3 +119,29 @@ def test_validation_keeps_explicit_meeting_title_across_output_languages(meeting
         == "Architecture Review"
     )
     assert _validate(payload, automatic, MeetingType.DESIGN_REVIEW, transcript).title == "架构评审"
+
+
+def test_an_out_of_credit_openai_compatible_endpoint_reports_billing(
+    monkeypatch, meeting, transcript
+):
+    import httpx
+
+    from meeting_wiki.diagnostics import SafeProviderError, failure_kind
+
+    def fake_post(url, *, headers, json, timeout):
+        request = httpx.Request("POST", url)
+        body = {"error": {"message": "secret balance text", "code": "insufficient_balance"}}
+        return httpx.Response(402, json=body, request=request)
+
+    monkeypatch.setattr("meeting_wiki.providers.llm.httpx.post", fake_post)
+    provider = OpenAICompatibleProvider(
+        "https://provider.example.test/v1", "test-model", "test-key", 30, PrivacyConfig()
+    )
+
+    with pytest.raises(SafeProviderError) as raised:
+        provider.analyze(meeting, transcript)
+
+    assert raised.value.provider == "openai_compatible"
+    assert raised.value.metadata["http_status"] == 402
+    assert failure_kind(raised.value.metadata) == "billing"
+    assert "secret" not in str(raised.value)

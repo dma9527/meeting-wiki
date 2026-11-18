@@ -9,6 +9,7 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import PrivacyConfig
+from ..diagnostics import provider_errors
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult
 from ..privacy import classify
 
@@ -182,30 +183,31 @@ class OllamaProvider:
         self.output_language = output_language
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
-        system, user, meeting_type = analysis_messages(
-            meeting, transcript, self.privacy, self.output_language
-        )
-        response = httpx.post(
-            f"{self.base_url}/api/chat",
-            json={
-                "model": self.model,
-                "stream": False,
-                "format": MeetingAnalysis.model_json_schema(),
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "options": {"temperature": 0, "num_ctx": self.num_ctx, "seed": 0},
-            },
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        content = response.json().get("message", {}).get("content", "")
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError as error:
-            raise RuntimeError("Ollama returned non-JSON analysis") from error
-        return _validate(data, meeting, meeting_type, transcript)
+        with provider_errors("ollama", "analysis"):
+            system, user, meeting_type = analysis_messages(
+                meeting, transcript, self.privacy, self.output_language
+            )
+            response = httpx.post(
+                f"{self.base_url}/api/chat",
+                json={
+                    "model": self.model,
+                    "stream": False,
+                    "format": MeetingAnalysis.model_json_schema(),
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "options": {"temperature": 0, "num_ctx": self.num_ctx, "seed": 0},
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            content = response.json().get("message", {}).get("content", "")
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as error:
+                raise RuntimeError("Ollama returned non-JSON analysis") from error
+            return _validate(data, meeting, meeting_type, transcript)
 
     def health(self) -> tuple[bool, str]:
         try:
@@ -240,58 +242,62 @@ class OpenAICompatibleProvider:
         self.output_language = output_language
 
     def analyze(self, meeting: MeetingInput, transcript: TranscriptResult) -> MeetingAnalysis:
-        system, user, meeting_type = analysis_messages(
-            meeting, transcript, self.privacy, self.output_language
-        )
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        schema = openai_strict_schema(MeetingAnalysis.model_json_schema())
-        payload = {
-            "model": self.model,
-            "temperature": 0,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {"name": "meeting_analysis", "strict": True, "schema": schema},
-            },
-        }
-        response = httpx.post(
-            f"{self.base_url}/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=self.timeout,
-        )
-        if response.status_code == 400:
-            fallback_system = (
-                f"{system}\n\nReturn exactly one JSON object matching this output schema: "
-                f"{json.dumps(schema, ensure_ascii=False)}\n"
-                "The user payload is wrapped in an input object. Analyze its transcript, "
-                "do not return input fields, and do not add any fields outside the output schema."
+        with provider_errors("openai_compatible", "analysis"):
+            system, user, meeting_type = analysis_messages(
+                meeting, transcript, self.privacy, self.output_language
             )
-            fallback_input = json.dumps({"input": json.loads(user)}, ensure_ascii=False)
-            fallback_payload = {
-                **payload,
+            headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+            schema = openai_strict_schema(MeetingAnalysis.model_json_schema())
+            payload = {
+                "model": self.model,
+                "temperature": 0,
                 "messages": [
-                    {"role": "system", "content": fallback_system},
-                    {"role": "user", "content": fallback_input},
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
                 ],
-                "response_format": {"type": "json_object"},
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "meeting_analysis", "strict": True, "schema": schema},
+                },
             }
             response = httpx.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
-                json=fallback_payload,
+                json=payload,
                 timeout=self.timeout,
             )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError as error:
-            raise RuntimeError("OpenAI-compatible endpoint returned non-JSON analysis") from error
-        return _validate(data, meeting, meeting_type, transcript)
+            if response.status_code == 400:
+                fallback_system = (
+                    f"{system}\n\nReturn exactly one JSON object matching this output schema: "
+                    f"{json.dumps(schema, ensure_ascii=False)}\n"
+                    "The user payload is wrapped in an input object. Analyze its transcript, "
+                    "do not return input fields, and do not add any fields outside the "
+                    "output schema."
+                )
+                fallback_input = json.dumps({"input": json.loads(user)}, ensure_ascii=False)
+                fallback_payload = {
+                    **payload,
+                    "messages": [
+                        {"role": "system", "content": fallback_system},
+                        {"role": "user", "content": fallback_input},
+                    ],
+                    "response_format": {"type": "json_object"},
+                }
+                response = httpx.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=fallback_payload,
+                    timeout=self.timeout,
+                )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(
+                    "OpenAI-compatible endpoint returned non-JSON analysis"
+                ) from error
+            return _validate(data, meeting, meeting_type, transcript)
 
     def health(self) -> tuple[bool, str]:
         try:

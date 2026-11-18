@@ -45,7 +45,7 @@ def test_failure_backoff_and_dead_letter(tmp_path, monkeypatch):
     [
         ({"http_status": 429}, [60, 240, 960, 3600]),
         ({"provider_status": "RESOURCE_EXHAUSTED"}, [60, 240, 960, 3600]),
-        ({"http_status": 400}, [5, 10, 20, 40]),
+        ({"http_status": 503}, [5, 10, 20, 40]),
     ],
 )
 def test_rate_limited_failures_wait_minutes_before_retrying(
@@ -365,3 +365,43 @@ def test_snapshot_columns_are_added_to_existing_databases(tmp_path):
     with sqlite3.connect(path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
     assert {"claim_token", "analysis_snapshot"}.issubset(columns)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "dead_after"),
+    [
+        ({"http_status": 402}, 1),
+        ({"http_status": 429, "provider_code": "insufficient_quota"}, 1),
+        ({"http_status": 401}, 1),
+        ({"http_status": 400}, 2),
+        ({"http_status": 503}, 5),
+    ],
+)
+def test_billing_and_rejected_keys_stop_at_once_and_bad_requests_retry_once(
+    tmp_path, metadata, dead_after
+):
+    from meeting_wiki.diagnostics import encode_diagnostic
+
+    queue = JobQueue(tmp_path / "jobs.db", max_attempts=5, backoff_base_seconds=0)
+    job_id = queue.enqueue(JobType.INGEST, {"x": 1}, "job")
+    diagnostic = encode_diagnostic(
+        {
+            "version": 1,
+            "stage": "transcribing",
+            "attempt": 1,
+            "max_attempts": 5,
+            "category": "provider_request_failed",
+            "error_type": "SafeProviderError",
+            "provider": "openai_compatible",
+            "operation": "transcription",
+            "sdk_error_type": "HTTPStatusError",
+            **metadata,
+        }
+    )
+    states = []
+    while not states or states[-1] is not JobState.DEAD:
+        job = queue.claim()
+        assert job.id == job_id
+        states.append(queue.fail(job.id, diagnostic))
+    assert len(states) == dead_after
+    assert queue.retry(job_id).attempts == 0, "a manual retry after topping up starts fresh"

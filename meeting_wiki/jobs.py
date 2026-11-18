@@ -9,13 +9,31 @@ import time
 import uuid
 from pathlib import Path
 
-from .diagnostics import decode_diagnostic, is_rate_limited
+from .diagnostics import (
+    AUTH,
+    BAD_REQUEST,
+    BILLING,
+    decode_diagnostic,
+    diagnostic_failure_kind,
+    is_rate_limited,
+)
 from .events import Component, EventCode, EventJournal
 from .models import JobRecord, JobStage, JobState, JobType
 
 # A quota refusal clears with time, so wait minutes rather than seconds: 1, 4, 16, then 60.
 RATE_LIMIT_BASE_SECONDS = 60
 RATE_LIMIT_MAX_SECONDS = 3600
+
+
+# No credit or a rejected key does not clear by waiting; a rejected request gets one more try.
+_NO_RETRY_KINDS = frozenset({BILLING, AUTH})
+_BAD_REQUEST_ATTEMPTS = 2
+
+
+def _out_of_retries(attempts: int, max_attempts: int, kind: str | None) -> bool:
+    if attempts >= max_attempts or kind in _NO_RETRY_KINDS:
+        return True
+    return kind == BAD_REQUEST and attempts >= _BAD_REQUEST_ATTEMPTS
 
 
 def _retry_delay(attempts: int, base_seconds: int, rate_limited: bool) -> float:
@@ -238,7 +256,9 @@ class JobQueue:
                 claim_token is not None and row["claim_token"] != claim_token
             ):
                 raise self._not_running(job_id, claim_token)
-            dead = row["attempts"] >= row["max_attempts"]
+            dead = _out_of_retries(
+                row["attempts"], row["max_attempts"], diagnostic_failure_kind(diagnostic)
+            )
             state = JobState.DEAD if dead else JobState.FAILED
             delay = (
                 0

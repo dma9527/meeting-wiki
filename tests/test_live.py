@@ -928,6 +928,89 @@ def _provider_error(code=1008, status="PERMISSION_DENIED"):
     return LiveProviderError("Gemini", "connection", FakeAPIError())
 
 
+def _billing_error():
+    from meeting_wiki.providers.base import LiveProviderError
+
+    class FakeClientError(Exception):
+        def __init__(self):
+            super().__init__("secret: prepayment credits are depleted")
+            self.code = 402
+            self.status = "RESOURCE_EXHAUSTED"
+
+    return LiveProviderError("Gemini", "connection", FakeClientError())
+
+
+def test_no_credit_stops_live_captions_without_reconnecting(tmp_path):
+    import asyncio
+
+    provider = _session_provider([_billing_error() for _ in range(4)])
+    publisher = RecordingPublisher()
+    runtime = _runtime(
+        tmp_path, provider, FakeLanguage(), publisher, external=True, reconnect_attempts=3
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    async def drive():
+        task = asyncio.create_task(runtime.run())
+        with mic.open("ab") as handle:
+            handle.write(_pcm(1))
+        await asyncio.wait_for(task, 5)
+
+    asyncio.run(drive())
+
+    assert provider.opens == 1
+    states = publisher.of("state")
+    assert "provider_reconnecting" not in [state.get("issue") for state in states]
+    assert states[-1]["issue"] == "provider_billing"
+
+
+def test_no_credit_for_translation_stops_further_language_calls(tmp_path):
+    import asyncio
+
+    class NoCreditLanguage(FakeLanguage):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def translate(self, text, target_language):
+            self.calls += 1
+            raise _billing_error()
+
+        def summarize(self, transcript, output_language):
+            self.calls += 1
+            raise _billing_error()
+
+    language = NoCreditLanguage()
+    publisher = RecordingPublisher()
+    runtime = _runtime(tmp_path, FakeChunkedTranscriber([]), language, publisher)
+
+    async def scenario():
+        async def run_inline(function, *args):
+            return function(*args)
+
+        runtime.run_blocking = run_inline
+        workers = [
+            asyncio.create_task(runtime._language_worker()),
+            asyncio.create_task(runtime._summary_worker()),
+        ]
+        try:
+            for text in ("one", "two", "three"):
+                segment = TranscriptSegment(start_seconds=0, end_seconds=1, text=text)
+                runtime._finals.append(segment)
+                await runtime._emit_final(segment)
+                await asyncio.sleep(0.05)
+        finally:
+            for worker in workers:
+                worker.cancel()
+
+    asyncio.run(scenario())
+
+    assert language.calls <= 2, "after the first no-credit answer, nothing more is sent"
+    assert runtime._language_stopped == "provider_billing"
+    assert publisher.of("state")[-1]["issue"] == "provider_billing"
+
+
 def test_connection_failure_retries_then_reports_terminal_failure_with_safe_metadata(tmp_path):
     import asyncio
     import json

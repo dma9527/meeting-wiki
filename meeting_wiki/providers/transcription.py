@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from ..diagnostics import provider_errors
 from ..models import TranscriptResult, TranscriptSegment
 from .base import EmptyTranscriptError, TranscriptionCapabilities, TranscriptionContext
 
@@ -124,15 +125,16 @@ class OpenAITranscriber:
         data = {"model": self.model, "response_format": "verbose_json"}
         if language:
             data["language"] = transcription_language_code(language)
-        with audio_path.open("rb") as handle:
-            response = httpx.post(
-                f"{self.base_url}/audio/transcriptions",
-                headers=headers,
-                data=data,
-                files={"file": (audio_path.name, handle, "application/octet-stream")},
-                timeout=self.timeout,
-            )
-        response.raise_for_status()
+        with provider_errors("openai_compatible", "transcription"):
+            with audio_path.open("rb") as handle:
+                response = httpx.post(
+                    f"{self.base_url}/audio/transcriptions",
+                    headers=headers,
+                    data=data,
+                    files={"file": (audio_path.name, handle, "application/octet-stream")},
+                    timeout=self.timeout,
+                )
+            response.raise_for_status()
         result = response.json()
         text = str(result.get("text", "")).strip()
         if not text:
