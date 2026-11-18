@@ -65,6 +65,8 @@ const CAPABILITY_TEXT = Object.freeze({
     failed: ["attention", "Not ready. Recording and processing still work without live captions."],
     connection_failed: ["attention", "The live provider rejected the connection. Recording and processing still work without live captions."],
     connection_timeout: ["attention", "The live provider did not answer within 20 seconds. Check the network, then try again."],
+    billing_exhausted: ["attention", "The live provider reports no credit or quota left for this API key. Add credit or turn on billing with your provider. Recording still works."],
+    key_rejected: ["attention", "The live provider did not accept the API key. Run setup again with a working key."],
   },
   storage: {
     ready: ["ok", "Ready on this Mac."],
@@ -149,6 +151,9 @@ function projectLiveError(source) {
   if (typeof source.provider_status === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(source.provider_status)) {
     error.providerStatus = source.provider_status;
   }
+  if (typeof source.provider_code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(source.provider_code)) {
+    error.providerCode = source.provider_code;
+  }
   return Object.keys(error).length ? error : null;
 }
 
@@ -161,8 +166,12 @@ function liveErrorLine(error, t = englishText) {
   if (error.httpStatus) parts.push(`HTTP ${error.httpStatus}`);
   if (error.closeCode) parts.push(t("close code {code}", { code: error.closeCode }));
   if (error.providerStatus) parts.push(error.providerStatus);
+  if (error.providerCode) parts.push(error.providerCode);
   if (error.sdkErrorType) parts.push(error.sdkErrorType);
-  return t("Live connection error: {parts}. Details are also in live.log under Open logs.", { parts: parts.join(", ") });
+  const line = t("Live connection error: {parts}. Details are also in live.log under Open logs.", { parts: parts.join(", ") });
+  // 1011 is a server-side close with no reason code; a missing credit balance is its usual cause.
+  if (error.closeCode !== 1011) return line;
+  return `${line}\n${t("Close code 1011 is a provider-side error. It often means the project has no billing or no remaining credit. Check Billing with your provider.")}`;
 }
 
 function runCli(python, configPath, execFileFn, env) {

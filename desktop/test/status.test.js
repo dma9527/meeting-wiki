@@ -123,3 +123,22 @@ test("job records keep only a clipped printable label and a valid capture time",
   assert.equal(jobs[2].label, "Recording");
   assert.equal(jobs[2].captured_at, null);
 });
+
+test("dead job diagnostics keep a known failure kind and a safe provider code only", async () => {
+  const { listDeadJobs } = require("../status");
+  const diagnostic = {
+    version: 1, stage: "transcribing", attempt: 1, max_attempts: 5, category: "provider_request_failed",
+    error_type: "SafeProviderError", provider: "openai_compatible", operation: "transcription",
+    sdk_error_type: "HTTPStatusError", http_status: 429,
+  };
+  const base = { job_type: "ingest", state: "dead", stage: "transcribing", attempts: 1, max_attempts: 5, error_type: "SafeProviderError" };
+  const execFile = fakeExec([{ stdout: JSON.stringify([
+    { ...base, id: 1, diagnostic: { ...diagnostic, provider_code: "insufficient_quota", failure_kind: "billing" } },
+    { ...base, id: 2, diagnostic: { ...diagnostic, provider_code: "Has Text", failure_kind: "made_up" } },
+  ]) }], []);
+  const [known, unknown] = await listDeadJobs("/python", "/config.toml", execFile);
+  assert.equal(known.diagnostic.failure_kind, "billing");
+  assert.equal(known.diagnostic.provider_code, "insufficient_quota");
+  assert.equal(unknown.diagnostic.failure_kind, undefined);
+  assert.equal(unknown.diagnostic.provider_code, undefined);
+});

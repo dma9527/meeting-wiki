@@ -236,7 +236,8 @@ test("a failed provider request explains the next step and keeps the raw error b
 
   const cases = [
     [401, /did not accept the API key/],
-    [429, /rate limit or quota/],
+    [429, /rate limit\. Wait/],
+    [402, /no credit or quota left/],
     [503, /server problem/],
     [0, /could not be reached/],
   ];
@@ -245,7 +246,7 @@ test("a failed provider request explains the next step and keeps the raw error b
     assert.match(next.children[2].textContent, pattern, `HTTP ${status}`);
   }
   const { card: chinese } = await recoveryCardFor("zh-CN", providerFailure(429));
-  assert.equal(chinese.children[2].textContent, "Google Gemini 达到了速率限制或配额。请等几分钟后重试。");
+  assert.equal(chinese.children[2].textContent, "Google Gemini 达到了速率限制。请等几分钟后重试。");
   assert.equal(chinese.children[3].children[0].textContent, "技术细节");
 });
 
@@ -279,6 +280,14 @@ test("the page viewer shows the page heading as its title and renders Markdown a
 test("a page without a heading keeps its path as the title", async () => {
   const view = await openedPage("Just notes.");
   assert.equal(view.byId("page-title").textContent, "meetings/2026-10-20-roadmap-sync.md");
+});
+
+test("the engine's failure kind wins over the HTTP status for every provider", async () => {
+  const quota = { ...providerFailure(429), provider: "openai_compatible", provider_code: "insufficient_quota", failure_kind: "billing" };
+  const { card } = await recoveryCardFor("en", quota);
+  assert.equal(card.children[2].textContent, "Your online provider has no credit or quota left for this API key. Add credit or turn on billing with your provider, then retry. The recording is saved.");
+  const { card: chinese } = await recoveryCardFor("zh-CN", providerFailure(402));
+  assert.match(chinese.children[2].textContent, /^Google Gemini 上这个 API key 的余额或配额已经用完/);
 });
 
 test("English, system, and unreadable choices keep or follow the right language", async () => {
@@ -475,4 +484,11 @@ test("the Chinese decision history translates badges, links, and the empty state
 test("the decision history titles are shown as written and never as markup", async () => {
   const [card] = await decisionCardsFor("en", [{ ...DECISION, title: "<img src=x onerror=alert(1)>" }]);
   assert.equal(card.children[0].textContent, "<img src=x onerror=alert(1)>");
+});
+
+test("every failure kind has advice with Chinese copy", () => {
+  const view = loadRenderer({ uiLanguage: "zh-CN" });
+  const advice = vm.runInContext("FAILURE_ADVICE", view.context);
+  assert.deepEqual(Object.keys(advice).sort(), ["auth", "bad_request", "billing", "network", "rate_limited", "server"]);
+  for (const text of Object.values(advice)) assert.ok(Object.hasOwn(localization.messages, text), text);
 });

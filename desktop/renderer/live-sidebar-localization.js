@@ -38,6 +38,8 @@
     "Translation or summary is temporarily unavailable.": "翻译或总结暂时不可用。",
     "Renewing the live provider session. Recording continues normally.": "正在续接 live provider 会话，录音正常进行。",
     "The live provider session expired and could not be renewed.": "live provider 会话已过期，无法续接。",
+    "The live provider has no credit left for this API key. Recording continues and is saved. After adding credit, retry it in Processing recovery.": "live provider 上这个 API key 的余额已经用完。录音会继续并保存。充值后，请在 Processing recovery 里重试处理。",
+    "The live provider did not accept the API key. Recording continues normally.": "live provider 不接受这个 API key，录音正常进行。",
     "Live view could not start.": "实时视图无法启动。",
     "Live view lost its connection.": "实时视图连接已断开。",
     "External provider": "外部 provider",

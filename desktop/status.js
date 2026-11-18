@@ -35,6 +35,9 @@ function safeIdentifier(value) {
   return typeof value === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,79}$/.test(value);
 }
 
+// Provider-neutral kinds computed by the engine (meeting_wiki/diagnostics.py).
+const FAILURE_KINDS = new Set(["billing", "rate_limited", "auth", "bad_request", "server", "network"]);
+
 function safeDiagnostic(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const providerFailure = value.category === "provider_request_failed";
@@ -64,6 +67,10 @@ function safeDiagnostic(value) {
   if (typeof value.provider_status === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value.provider_status)) {
     diagnostic.provider_status = value.provider_status;
   }
+  if (typeof value.provider_code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(value.provider_code)) {
+    diagnostic.provider_code = value.provider_code;
+  }
+  if (FAILURE_KINDS.has(value.failure_kind)) diagnostic.failure_kind = value.failure_kind;
   return diagnostic;
 }
 

@@ -247,6 +247,9 @@ const MESSAGES = Object.freeze({
   "Live captions send microphone audio and all audio played on this Mac to an external provider.": "实时字幕会把麦克风音频和这台 Mac 播放的全部音频发送给外部 provider。",
   "Live captions run on this Mac.": "实时字幕在这台 Mac 上运行。",
   "close code {code}": "关闭码 {code}",
+  "Close code 1011 is a provider-side error. It often means the project has no billing or no remaining credit. Check Billing with your provider.": "关闭码 1011 是 provider 端的错误，常见原因是项目没有开启付费或余额已经用完。请到 provider 那里检查 Billing。",
+  "The live provider reports no credit or quota left for this API key. Add credit or turn on billing with your provider. Recording still works.": "live provider 表示这个 API key 的余额或配额已经用完。请在 provider 那里充值或开启付费。录音仍可正常使用。",
+  "The live provider did not accept the API key. Run setup again with a working key.": "live provider 不接受这个 API key。请用可用的 key 重新运行设置向导。",
   "Live connection error: {parts}. Details are also in live.log under Open logs.": "Live 连接错误：{parts}。详情也记录在“打开日志”中的 live.log。",
 });
 

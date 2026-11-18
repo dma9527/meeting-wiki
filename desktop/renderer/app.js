@@ -695,19 +695,32 @@ async function loadCorrections() {
 
 const PROVIDER_NAMES = Object.freeze({ gemini: "Google Gemini", openai_compatible: "Your online provider" });
 
-// Plain-language cause and next step, chosen from the HTTP status class, never from message text.
-function diagnosticAdvice(diagnostic) {
+// The engine records a provider-neutral kind; older records fall back to the HTTP status.
+function failureKindOf(diagnostic) {
+  if (typeof diagnostic.failure_kind === "string") return diagnostic.failure_kind;
   const status = Number(diagnostic.http_status) || 0;
+  if (status === 402) return "billing";
+  if (status === 401 || status === 403) return "auth";
+  if (status === 429 || diagnostic.provider_status === "RESOURCE_EXHAUSTED") return "rate_limited";
+  if (status >= 500) return "server";
+  if (status >= 400) return "bad_request";
+  return "network";
+}
+
+const FAILURE_ADVICE = Object.freeze({
+  billing: "{provider} has no credit or quota left for this API key. Add credit or turn on billing with your provider, then retry. The recording is saved.",
+  auth: "{provider} did not accept the API key. Run setup again with a working key, then retry.",
+  rate_limited: "{provider} reached a rate limit. Wait a few minutes, then retry.",
+  server: "{provider} had a server problem. Retry later.",
+  bad_request: "{provider} rejected the request. Retry the job. If it fails again, choose Export diagnostics in the menu bar.",
+  network: "{provider} could not be reached. Check the network connection, then retry.",
+});
+
+// Plain-language cause and next step, chosen from structured codes, never from message text.
+function diagnosticAdvice(diagnostic) {
   const provider = t(PROVIDER_NAMES[diagnostic.provider] || diagnostic.provider || "The provider");
-  if (status === 401 || status === 403) {
-    return t("{provider} did not accept the API key. Run setup again with a working key, then retry.", { provider });
-  }
-  if (status === 429) return t("{provider} reached a rate limit or quota. Wait a few minutes, then retry.", { provider });
-  if (status >= 500) return t("{provider} had a server problem. Retry later.", { provider });
-  if (status >= 400) {
-    return t("{provider} rejected the request. Retry the job. If it fails again, choose Export diagnostics in the menu bar.", { provider });
-  }
-  return t("{provider} could not be reached. Check the network connection, then retry.", { provider });
+  const advice = FAILURE_ADVICE[failureKindOf(diagnostic)] || FAILURE_ADVICE.network;
+  return t(advice, { provider });
 }
 
 function diagnosticText(job) {

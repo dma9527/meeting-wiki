@@ -122,6 +122,21 @@ test("a granted screen recording permission shows system audio as allowed", asyn
   assert.match(selfCheck.formatSelfCheck(report).detail, /OK {2}System audio permission: Allowed\./);
 });
 
+test("no credit and a rejected key get their own live lines, and 1011 points to billing", async () => {
+  const ready = JSON.parse(READY_REPORT);
+  const withLive = (live, liveError) => fakeCli(JSON.stringify({ ...ready, capabilities: { ...ready.capabilities, live }, live_error: liveError }));
+  const billing = await selfCheck.runSelfCheck(baseOptions({ execFileFn: withLive("billing_exhausted", { sdk_error_type: "ClientError", http_status: 402, provider_status: "RESOURCE_EXHAUSTED" }) }));
+  assert.match(selfCheck.formatSelfCheck(billing).detail, /Live captions: The live provider reports no credit or quota left/);
+  const rejected = await selfCheck.runSelfCheck(baseOptions({ execFileFn: withLive("key_rejected", { sdk_error_type: "HTTPStatusError", http_status: 401, provider_code: "invalid_api_key" }) }));
+  const rejectedDetail = selfCheck.formatSelfCheck(rejected).detail;
+  assert.match(rejectedDetail, /did not accept the API key/);
+  assert.match(rejectedDetail, /HTTP 401, invalid_api_key, HTTPStatusError/);
+  const closed = await selfCheck.runSelfCheck(baseOptions({ execFileFn: withLive("connection_failed", { sdk_error_type: "APIError", close_code: 1011 }) }));
+  assert.match(selfCheck.formatSelfCheck(closed).detail, /Close code 1011 is a provider-side error/);
+  const policy = await selfCheck.runSelfCheck(baseOptions({ execFileFn: withLive("connection_failed", { sdk_error_type: "APIError", close_code: 1008 }) }));
+  assert.doesNotMatch(selfCheck.formatSelfCheck(policy).detail, /Close code 1011/);
+});
+
 test("every capability table entry is fixed text with a known tone", () => {
   const tables = [selfCheck.ENGINE_TEXT, ...Object.values(selfCheck.PERMISSION_TEXT), ...Object.values(selfCheck.CAPABILITY_TEXT)];
   for (const table of tables) {

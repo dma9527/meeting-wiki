@@ -87,6 +87,20 @@ not an error.
   the menu bar, first asks you to confirm the number of jobs.
 - **Dismiss** hides a failed job without removing its recording, transcript,
   wiki pages, or local diagnostic record. Restore it from **Dismissed jobs**.
+- Each card says why the job stopped and what to do next. The reason comes
+  from fixed codes, not provider text, and works the same for Gemini and
+  OpenAI-compatible providers:
+
+  | Reason | Retries on its own | What to do |
+  |---|---|---|
+  | No credit or quota left (HTTP 402, or `insufficient_quota`) | No | Add credit or turn on billing, then **Retry job** |
+  | API key not accepted (HTTP 401 or 403) | No | Run setup again with a working key, then retry |
+  | Rate limit (HTTP 429, or `RESOURCE_EXHAUSTED` without 402) | Yes, after 1, 4, 16, then 60 minutes | Wait |
+  | Request rejected (other 4xx) | Once | Retry; if it fails again, export diagnostics |
+  | Server problem (5xx) or no connection | Yes | Wait or check the network |
+
+  When live captions get a no-credit or rejected-key answer, they stop
+  instead of reconnecting, and the recording continues.
 - [Job states and recovery actions](../reference/job-states.md) lists every
   state, what the app does on its own, and what you can do, including what to
   try when jobs wait or a job seems stuck.
