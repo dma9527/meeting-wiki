@@ -273,6 +273,10 @@ def _stop_issue(error: BaseException) -> str | None:
     return None
 
 
+# A server-side close with no reason code; out of credit is a common cause on Gemini.
+UNCLEAR_CLOSE_CODE = 1011
+
+
 # A connection that lasted this long counts as healthy, so its failure restarts the retry budget.
 HEALTHY_CONNECTION_SECONDS = 30.0
 # System audio that stays exact digital zero this long usually means the audio tap has no
@@ -389,6 +393,7 @@ class LiveRuntime:
         self._summary_due = asyncio.Event()
         # Set once the language provider reports no credit or a rejected key.
         self._language_stopped: str | None = None
+        self._credit_probed = False
 
     async def state(self, phase: str, issue: str | None = None) -> None:
         payload: dict[str, object] = {
@@ -470,7 +475,7 @@ class LiveRuntime:
             return "provider_session_expired"
         except Exception as error:
             self._report("live_transcription_failed", channel, error)
-            return _stop_issue(error) or "transcription_failed"
+            return _stop_issue(error) or self._language_stopped or "transcription_failed"
         return None
 
     async def _wait_poll(self) -> bool:
@@ -594,7 +599,7 @@ class LiveRuntime:
                 except Exception as error:
                     if self.stop.is_set():
                         return
-                    if _stop_issue(error):
+                    if _stop_issue(error) or await self._no_credit_behind(error):
                         raise
                     if loop.time() - opened_at >= HEALTHY_CONNECTION_SECONDS:
                         attempt = 0
@@ -693,6 +698,19 @@ class LiveRuntime:
                 raise
             except Exception as error:
                 await self._language_failed(error)
+
+    async def _no_credit_behind(self, error: BaseException) -> bool:
+        """After an unexplained 1011 close, ask once with a tiny request whether credit is out."""
+        metadata = error.metadata if isinstance(error, LiveProviderError) else {}
+        if self._credit_probed or metadata.get("close_code") != UNCLEAR_CLOSE_CODE:
+            return self._language_stopped is not None
+        self._credit_probed = True
+        try:
+            await self.run_blocking(self.language.translate, "ok", self.target_language)
+        except Exception as probe_error:
+            if _stop_issue(probe_error):
+                await self._language_failed(probe_error)
+        return self._language_stopped is not None
 
     async def _language_failed(self, error: BaseException) -> None:
         self._report("live_language_failed", error=error)

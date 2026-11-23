@@ -492,3 +492,18 @@ test("every failure kind has advice with Chinese copy", () => {
   assert.deepEqual(Object.keys(advice).sort(), ["auth", "bad_request", "billing", "network", "rate_limited", "server"]);
   for (const text of Object.values(advice)) assert.ok(Object.hasOwn(localization.messages, text), text);
 });
+
+test("the credit banner says jobs wait and retry on their own, in both languages", async () => {
+  const wait = { waiting: 2, provider: "gemini", nextTryAt: 1800000000 };
+  for (const [uiLanguage, pattern] of [["en", /^2 recordings are waiting because Google Gemini has no credit left/], ["zh-CN", /^有 2 条录音在等待，因为 Google Gemini 的余额已经用完/]]) {
+    const view = loadRenderer({ uiLanguage, api: { jobs: { listDead: async () => [], listDismissed: async () => [], creditWait: async () => wait } } });
+    await view.documentObject.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(view.byId("credit-banner").hidden, false);
+    assert.match(view.byId("credit-banner-text").textContent, pattern);
+  }
+  const none = loadRenderer({ uiLanguage: "en", api: { jobs: { listDead: async () => [], listDismissed: async () => [], creditWait: async () => ({ waiting: 0 }) } } });
+  await none.documentObject.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(none.byId("credit-banner").hidden, true);
+});

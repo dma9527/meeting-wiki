@@ -39,6 +39,7 @@ const MESSAGES = Object.freeze({
   "Saving recording...": "正在保存录音...",
   "Last recording stopped at the time limit": "上次录音已在时长上限处停止",
   "Action required: {count} failed": "需要处理：{count} 个失败",
+  "Waiting for provider credit: {count}": "等待 provider 余额：{count} 个",
   "Processing: {count}": "正在处理：{count}",
   "Processing: {count} ({stages})": "正在处理：{count}（{stages}）",
   ", ": "、",

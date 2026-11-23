@@ -965,6 +965,50 @@ def test_no_credit_stops_live_captions_without_reconnecting(tmp_path):
     assert states[-1]["issue"] == "provider_billing"
 
 
+@pytest.mark.parametrize(("credit", "opens"), [(False, 1), (True, 3)])
+def test_an_unclear_1011_close_checks_credit_once_before_reconnecting(tmp_path, credit, opens):
+    import asyncio
+
+    class ProbedLanguage(FakeLanguage):
+        def __init__(self):
+            super().__init__()
+            self.probes = 0
+
+        def translate(self, text, target_language):
+            self.probes += 1
+            if not credit:
+                raise _billing_error()
+            return "ok"
+
+    language = ProbedLanguage()
+    provider = _session_provider([_provider_error(code=1011, status=None) for _ in range(4)])
+    publisher = RecordingPublisher()
+    runtime = _runtime(
+        tmp_path,
+        provider,
+        language,
+        publisher,
+        external=True,
+        reconnect_attempts=2,
+        reconnect_delay_seconds=0.01,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    async def drive():
+        task = asyncio.create_task(runtime.run())
+        with mic.open("ab") as handle:
+            handle.write(_pcm(1))
+        await asyncio.wait_for(task, 5)
+
+    asyncio.run(drive())
+
+    assert language.probes == 1
+    assert provider.opens == opens
+    expected = "transcription_failed" if credit else "provider_billing"
+    assert publisher.of("state")[-1]["issue"] == expected
+
+
 def test_no_credit_for_translation_stops_further_language_calls(tmp_path):
     import asyncio
 

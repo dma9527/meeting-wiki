@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("meetingWiki", {
     listDismissed: () => ipcRenderer.invoke("jobs:listDismissed"),
     retry: (jobId) => ipcRenderer.invoke("jobs:retry", jobId),
     retryAllDead: () => ipcRenderer.invoke("jobs:retryAllDead"),
+    creditWait: () => ipcRenderer.invoke("jobs:creditWait"),
+    retryCredit: () => ipcRenderer.invoke("jobs:retryCredit"),
     dismiss: (jobId) => ipcRenderer.invoke("jobs:dismiss", jobId),
     restore: (jobId) => ipcRenderer.invoke("jobs:restore", jobId),
   },

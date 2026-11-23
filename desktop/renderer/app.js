@@ -920,6 +920,39 @@ async function retryAllRecoveryJobs() {
   await loadRecovery(true);
 }
 
+// Jobs waiting for provider credit retry on their own; the banner says so and offers a retry now.
+async function refreshCreditBanner() {
+  if (!api.jobs || typeof api.jobs.creditWait !== "function") return;
+  const wait = await api.jobs.creditWait();
+  const banner = document.getElementById("credit-banner");
+  if (!wait || typeof wait !== "object" || "error" in wait || !(wait.waiting > 0)) {
+    banner.hidden = true;
+    return;
+  }
+  const provider = t(PROVIDER_NAMES[wait.provider] || wait.provider || "The provider");
+  const next = Number.isInteger(wait.nextTryAt) && wait.nextTryAt > 0
+    ? new Date(wait.nextTryAt * 1000).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" })
+    : "";
+  const message = wait.waiting === 1
+    ? "1 recording is waiting because {provider} has no credit left. It tries again on its own every 30 minutes, next at {time}, and continues once you add credit."
+    : "{count} recordings are waiting because {provider} has no credit left. They try again on their own every 30 minutes, next at {time}, and continue once you add credit.";
+  document.getElementById("credit-banner-text").textContent = t(message, { count: wait.waiting, provider, time: next || t("soon") });
+  banner.hidden = false;
+}
+
+async function retryCreditNow() {
+  const button = document.getElementById("credit-banner-retry");
+  button.disabled = true;
+  const result = await api.jobs.retryCredit();
+  button.disabled = false;
+  if (result && typeof result === "object" && "error" in result) {
+    toast(t("Try now did not finish: {reason}", { reason: errorText(result.error) }));
+    return;
+  }
+  toast(t("Trying again now."));
+  await refreshCreditBanner();
+}
+
 async function refreshRecoveryBadge() {
   if (!api.jobs) return;
   const jobs = await api.jobs.listDead();
@@ -975,6 +1008,7 @@ async function init() {
   document.getElementById("page-close").addEventListener("click", closePage);
   document.getElementById("recovery-retry-all").addEventListener("click", retryAllRecoveryJobs);
   document.getElementById("recovery-error-retry").addEventListener("click", () => { void loadRecovery(true); });
+  document.getElementById("credit-banner-retry").addEventListener("click", () => { void retryCreditNow(); });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !document.getElementById("page-viewer").hidden) closePage();
   });
@@ -982,6 +1016,7 @@ async function init() {
   loadRecent();
   refreshBadge();
   refreshRecoveryBadge();
+  refreshCreditBanner();
 }
 
 document.addEventListener("DOMContentLoaded", () => { void init(); });

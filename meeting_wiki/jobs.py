@@ -23,10 +23,13 @@ from .models import JobRecord, JobStage, JobState, JobType
 # A quota refusal clears with time, so wait minutes rather than seconds: 1, 4, 16, then 60.
 RATE_LIMIT_BASE_SECONDS = 60
 RATE_LIMIT_MAX_SECONDS = 3600
+# A job with no provider credit waits and tries again this often until credit returns.
+CREDIT_WAIT_SECONDS = 1800
 
 
-# No credit or a rejected key does not clear by waiting; a rejected request gets one more try.
-_NO_RETRY_KINDS = frozenset({BILLING, AUTH})
+# A rejected key does not clear by waiting; a rejected request gets one more try. No credit
+# waits for a top-up instead of counting against the retry budget.
+_NO_RETRY_KINDS = frozenset({AUTH})
 _BAD_REQUEST_ATTEMPTS = 2
 
 
@@ -256,22 +259,25 @@ class JobQueue:
                 claim_token is not None and row["claim_token"] != claim_token
             ):
                 raise self._not_running(job_id, claim_token)
-            dead = _out_of_retries(
-                row["attempts"], row["max_attempts"], diagnostic_failure_kind(diagnostic)
-            )
+            kind = diagnostic_failure_kind(diagnostic)
+            waiting_for_credit = kind == BILLING
+            attempts = int(row["attempts"])
+            dead = not waiting_for_credit and _out_of_retries(attempts, row["max_attempts"], kind)
             state = JobState.DEAD if dead else JobState.FAILED
-            delay = (
-                0
-                if dead
-                else _retry_delay(
-                    row["attempts"], self.backoff_base_seconds, is_rate_limited(diagnostic)
+            if waiting_for_credit:
+                attempts = max(0, attempts - 1)
+                delay = CREDIT_WAIT_SECONDS
+            elif dead:
+                delay = 0
+            else:
+                delay = _retry_delay(
+                    attempts, self.backoff_base_seconds, is_rate_limited(diagnostic)
                 )
-            )
             cursor = connection.execute(
-                f"""UPDATE jobs SET state=?, last_error=?, not_before=?,
+                f"""UPDATE jobs SET state=?, attempts=?, last_error=?, not_before=?,
                    claimed_at=NULL, lease_expires_at=NULL, claim_token=NULL, updated_at=?
                    WHERE id=? AND state='running'{owned}""",
-                (state.value, error[:4000], now + delay, now, job_id, *params),
+                (state.value, attempts, error[:4000], now + delay, now, job_id, *params),
             )
             if cursor.rowcount != 1:
                 raise self._not_running(job_id, claim_token)
@@ -419,7 +425,30 @@ class JobQueue:
             + counts[JobState.FAILED.value]
         )
         counts["action_required"] = counts[JobState.DEAD.value]
-        return {**counts, "stages": stage_counts}
+        return {**counts, "stages": stage_counts, **self._credit_wait()}
+
+    def _credit_wait(self) -> dict[str, object]:
+        """Failed jobs waiting for provider credit, with the provider and next try time."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT last_error, not_before FROM jobs WHERE state='failed'"
+            ).fetchall()
+        waiting = 0
+        provider: str | None = None
+        next_try: float | None = None
+        for row in rows:
+            diagnostic = decode_diagnostic(row["last_error"]) or {}
+            if diagnostic_failure_kind(diagnostic) != BILLING:
+                continue
+            waiting += 1
+            provider = provider or str(diagnostic.get("provider") or "") or None
+            not_before = float(row["not_before"] or 0)
+            next_try = not_before if next_try is None else min(next_try, not_before)
+        summary: dict[str, object] = {"waiting_for_credit": waiting}
+        if waiting:
+            summary["credit_provider"] = provider
+            summary["credit_next_try_at"] = int(next_try or 0)
+        return summary
 
     def dismiss(self, job_id: int) -> JobRecord:
         """Hide a dead job from active recovery without deleting meeting data."""

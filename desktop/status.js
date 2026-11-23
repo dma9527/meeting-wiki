@@ -152,6 +152,7 @@ const englishText = require("./renderer/i18n").fill;
 
 function formatQueueLabel(summary, t = englishText) {
   if (summary.action_required > 0) return t("Action required: {count} failed", { count: summary.action_required });
+  if (summary.waiting_for_credit > 0) return t("Waiting for provider credit: {count}", { count: summary.waiting_for_credit });
   if (summary.active > 0) {
     const activeStages = Object.entries(summary.stages || {})
       .filter(([, count]) => Number.isInteger(count) && count > 0)
@@ -195,6 +196,28 @@ async function restoreJob(python, configPath, jobId, execFileFn = execFile, env 
   return runJobAction(python, configPath, "restore", jobId, execFileFn, env);
 }
 
+// Failed jobs whose last attempt found no provider credit; they retry on their own.
+async function listCreditWaitingJobs(python, configPath, execFileFn = execFile, env = undefined) {
+  const jobs = await listJobs(python, configPath, "failed", execFileFn, env);
+  return jobs.filter((job) => job.diagnostic && job.diagnostic.failure_kind === "billing");
+}
+
+async function readCreditWait(python, configPath, execFileFn = execFile, env = undefined) {
+  const summary = await readQueueStatus(python, configPath, execFileFn, env);
+  const waiting = Number.isInteger(summary.waiting_for_credit) && summary.waiting_for_credit > 0 ? summary.waiting_for_credit : 0;
+  const wait = { waiting, provider: null, nextTryAt: null };
+  if (!waiting) return wait;
+  if (safeIdentifier(summary.credit_provider)) wait.provider = summary.credit_provider;
+  if (Number.isInteger(summary.credit_next_try_at) && summary.credit_next_try_at > 0) wait.nextTryAt = summary.credit_next_try_at;
+  return wait;
+}
+
+async function retryCreditWaitingJobs(python, configPath, execFileFn = execFile, env = undefined) {
+  const jobs = await listCreditWaitingJobs(python, configPath, execFileFn, env);
+  for (const job of jobs) await retryJob(python, configPath, job.id, execFileFn, env);
+  return jobs.length;
+}
+
 async function retryDeadJobs(python, configPath, execFileFn = execFile, env = undefined) {
   const jobs = await listDeadJobs(python, configPath, execFileFn, env);
   let retried = 0;
@@ -230,6 +253,9 @@ module.exports = {
   formatQueueLabel,
   readQueueStatus,
   listDeadJobs,
+  listCreditWaitingJobs,
+  readCreditWait,
+  retryCreditWaitingJobs,
   listDismissedJobs,
   retryJob,
   dismissJob,

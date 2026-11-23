@@ -93,14 +93,16 @@ not an error.
 
   | Reason | Retries on its own | What to do |
   |---|---|---|
-  | No credit or quota left (HTTP 402, or `insufficient_quota`) | No | Add credit or turn on billing, then **Retry job** |
+  | No credit or quota left (HTTP 402, or `insufficient_quota`) | Yes, every 30 minutes, without using up retries | Add credit or turn on billing. A banner at the top of the Wiki window shows the next try; **Try now** retries at once |
   | API key not accepted (HTTP 401 or 403) | No | Run setup again with a working key, then retry |
   | Rate limit (HTTP 429, or `RESOURCE_EXHAUSTED` without 402) | Yes, after 1, 4, 16, then 60 minutes | Wait |
   | Request rejected (other 4xx) | Once | Retry; if it fails again, export diagnostics |
   | Server problem (5xx) or no connection | Yes | Wait or check the network |
 
   When live captions get a no-credit or rejected-key answer, they stop
-  instead of reconnecting, and the recording continues.
+  instead of reconnecting, and the recording continues. After an unexplained
+  close code 1011, the app sends one tiny request to check for missing credit
+  before it reconnects.
 - [Job states and recovery actions](../reference/job-states.md) lists every
   state, what the app does on its own, and what you can do, including what to
   try when jobs wait or a job seems stuck.

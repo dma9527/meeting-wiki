@@ -152,6 +152,7 @@ def test_summary_counts_all_job_states(tmp_path, monkeypatch):
             "rendering": 0,
             "integrating": 0,
         },
+        "waiting_for_credit": 0,
     }
 
 
@@ -370,16 +371,12 @@ def test_snapshot_columns_are_added_to_existing_databases(tmp_path):
 @pytest.mark.parametrize(
     ("metadata", "dead_after"),
     [
-        ({"http_status": 402}, 1),
-        ({"http_status": 429, "provider_code": "insufficient_quota"}, 1),
         ({"http_status": 401}, 1),
         ({"http_status": 400}, 2),
         ({"http_status": 503}, 5),
     ],
 )
-def test_billing_and_rejected_keys_stop_at_once_and_bad_requests_retry_once(
-    tmp_path, metadata, dead_after
-):
+def test_rejected_keys_stop_at_once_and_bad_requests_retry_once(tmp_path, metadata, dead_after):
     from meeting_wiki.diagnostics import encode_diagnostic
 
     queue = JobQueue(tmp_path / "jobs.db", max_attempts=5, backoff_base_seconds=0)
@@ -405,3 +402,42 @@ def test_billing_and_rejected_keys_stop_at_once_and_bad_requests_retry_once(
         states.append(queue.fail(job.id, diagnostic))
     assert len(states) == dead_after
     assert queue.retry(job_id).attempts == 0, "a manual retry after topping up starts fresh"
+
+
+@pytest.mark.parametrize(
+    "metadata", [{"http_status": 402}, {"http_status": 429, "provider_code": "insufficient_quota"}]
+)
+def test_no_credit_waits_thirty_minutes_without_using_up_retries(tmp_path, monkeypatch, metadata):
+    from meeting_wiki.diagnostics import encode_diagnostic
+    from meeting_wiki.jobs import CREDIT_WAIT_SECONDS
+
+    now = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    queue = JobQueue(tmp_path / "jobs.db", max_attempts=2, backoff_base_seconds=5)
+    job_id = queue.enqueue(JobType.INGEST, {"x": 1}, "job")
+    diagnostic = encode_diagnostic(
+        {
+            "version": 1,
+            "stage": "transcribing",
+            "attempt": 1,
+            "max_attempts": 2,
+            "category": "provider_request_failed",
+            "error_type": "SafeProviderError",
+            "provider": "gemini",
+            "operation": "transcription",
+            "sdk_error_type": "ClientError",
+            **metadata,
+        }
+    )
+    for _ in range(5):
+        job = queue.claim()
+        assert job is not None and job.id == job_id
+        assert queue.fail(job.id, diagnostic) is JobState.FAILED
+        assert queue.get(job_id).attempts == 0, "waiting for credit never spends a retry"
+        assert queue.claim() is None, "it waits before trying again"
+        summary = queue.summary()
+        assert summary["waiting_for_credit"] == 1
+        assert summary["credit_provider"] == "gemini"
+        assert summary["credit_next_try_at"] == int(now[0] + CREDIT_WAIT_SECONDS)
+        now[0] += CREDIT_WAIT_SECONDS
+    assert queue.summary()["action_required"] == 0

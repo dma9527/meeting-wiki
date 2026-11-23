@@ -142,3 +142,25 @@ test("dead job diagnostics keep a known failure kind and a safe provider code on
   assert.equal(unknown.diagnostic.failure_kind, undefined);
   assert.equal(unknown.diagnostic.provider_code, undefined);
 });
+
+test("jobs waiting for credit get their own tray label, summary, and retry list", async () => {
+  const { formatQueueLabel, readCreditWait, listCreditWaitingJobs } = require("../status");
+  assert.equal(formatQueueLabel({ total: 3, active: 2, action_required: 0, waiting_for_credit: 2, stages: {} }), "Waiting for provider credit: 2");
+  assert.equal(formatQueueLabel({ total: 3, active: 2, action_required: 1, waiting_for_credit: 2, stages: {} }), "Action required: 1 failed");
+
+  const summary = { total: 2, active: 2, action_required: 0, waiting_for_credit: 2, credit_provider: "gemini", credit_next_try_at: 1800000000 };
+  assert.deepEqual(await readCreditWait("/python", "/config.toml", fakeExec([{ stdout: JSON.stringify(summary) }], [])), { waiting: 2, provider: "gemini", nextTryAt: 1800000000 });
+  const unsafe = { ...summary, credit_provider: "not safe!", credit_next_try_at: -1 };
+  assert.deepEqual(await readCreditWait("/python", "/config.toml", fakeExec([{ stdout: JSON.stringify(unsafe) }], [])), { waiting: 2, provider: null, nextTryAt: null });
+
+  const diagnostic = {
+    version: 1, stage: "transcribing", attempt: 1, max_attempts: 5, category: "provider_request_failed",
+    error_type: "SafeProviderError", provider: "gemini", operation: "transcription", sdk_error_type: "ClientError", http_status: 402,
+  };
+  const base = { job_type: "ingest", state: "failed", stage: "transcribing", attempts: 0, max_attempts: 5, error_type: "SafeProviderError" };
+  const jobs = await listCreditWaitingJobs("/python", "/config.toml", fakeExec([{ stdout: JSON.stringify([
+    { ...base, id: 1, diagnostic: { ...diagnostic, failure_kind: "billing" } },
+    { ...base, id: 2, diagnostic: { ...diagnostic, http_status: 503, failure_kind: "server" } },
+  ]) }], []));
+  assert.deepEqual(jobs.map((job) => job.id), [1]);
+});

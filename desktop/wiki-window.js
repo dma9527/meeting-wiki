@@ -8,7 +8,7 @@ const path = require("path");
 const { WikiStore } = require("./wiki-store");
 const { applyCorrection, fetchInbox, planCorrection } = require("./corrections-client");
 const { addResource, listDecisions, searchMemory } = require("./memory-client");
-const { dismissJob, listDeadJobs, listDismissedJobs, restoreJob, retryDeadJobs, retryJob } = require("./status");
+const { dismissJob, listDeadJobs, listDismissedJobs, readCreditWait, restoreJob, retryCreditWaitingJobs, retryDeadJobs, retryJob } = require("./status");
 const { windowBackground } = require("./window-background");
 
 let wikiWindow = null;
@@ -98,6 +98,12 @@ function registerHandlers(ipcMain, context) {
   );
   ipcMain.handle("jobs:retryAllDead", () =>
     guard(() => retryDeadJobs(context.python, context.configPath)),
+  );
+  ipcMain.handle("jobs:creditWait", () =>
+    guard(() => readCreditWait(context.python, context.configPath)),
+  );
+  ipcMain.handle("jobs:retryCredit", () =>
+    guard(() => retryCreditWaitingJobs(context.python, context.configPath)),
   );
   ipcMain.handle("jobs:dismiss", (_event, jobId) =>
     guard(() => dismissJob(context.python, context.configPath, safeJobId(jobId))),

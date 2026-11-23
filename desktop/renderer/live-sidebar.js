@@ -37,7 +37,7 @@
     language_error: "Translation or summary is temporarily unavailable.",
     provider_session_renewing: "Renewing the live provider session. Recording continues normally.",
     provider_session_expired: "The live provider session expired and could not be renewed.",
-    provider_billing: "The live provider has no credit left for this API key. Recording continues and is saved. After adding credit, retry it in Processing recovery.",
+    provider_billing: "The live provider has no credit left for this API key. Recording continues and is saved. Processing waits and continues on its own after you add credit.",
     provider_auth: "The live provider did not accept the API key. Recording continues normally.",
     startup_failed: "Live view could not start.",
     connection_lost: "Live view lost its connection.",
