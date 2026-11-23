@@ -223,6 +223,23 @@ def report_gemini(response: object, model: str, operation: str) -> None:
     )
 
 
+def report_gemini_interaction(interaction: object, model: str, operation: str) -> None:
+    """Record the token counts a Gemini Interactions response reports, thinking included."""
+    stats = getattr(interaction, "usage", None)
+    if stats is None:
+        return
+    output = _count(getattr(stats, "total_output_tokens", 0)) + _count(
+        getattr(stats, "total_thought_tokens", 0)
+    )
+    report(
+        "gemini",
+        model,
+        operation,
+        input_tokens=getattr(stats, "total_input_tokens", 0),
+        output_tokens=output,
+    )
+
+
 def report_openai(body: Mapping[str, object], model: str, operation: str) -> None:
     """Record usage or audio duration from an OpenAI-compatible JSON response."""
     usage = body.get("usage") if isinstance(body, Mapping) else None

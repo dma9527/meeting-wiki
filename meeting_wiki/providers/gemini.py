@@ -228,6 +228,7 @@ class GeminiTranscriber(_GeminiClientMixin):
             input=[{"type": "audio", "uri": uploaded.uri, "mime_type": mime_type}],
             generation_config=generation_config,
         )
+        usage.report_gemini_interaction(interaction, self.model, "transcription")
         text = str(interaction.output_text or "").strip()
         return [TranscriptSegment(text=text)] if text else []
 

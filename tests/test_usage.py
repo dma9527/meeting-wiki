@@ -77,6 +77,11 @@ def test_gemini_and_openai_responses_report_tokens_including_thinking(tmp_path):
         {"usage": {"prompt_tokens": 7, "completion_tokens": 3}}, "gpt-test", "analysis"
     )
     usage.report_openai({"text": "hi", "duration": 12.5}, "whisper-test", "transcription")
+    interaction = SimpleNamespace(
+        usage=SimpleNamespace(total_input_tokens=40, total_output_tokens=9, total_thought_tokens=1)
+    )
+    usage.report_gemini_interaction(interaction, "gemini-3.5-transcribe", "transcription")
+    usage.report_gemini_interaction(SimpleNamespace(), "gemini-3.5-transcribe", "transcription")
 
     items = {
         item["model"]: item
@@ -88,6 +93,12 @@ def test_gemini_and_openai_responses_report_tokens_including_thinking(tmp_path):
     )
     assert items["gpt-test"]["input_tokens"] == 7
     assert items["whisper-test"]["audio_seconds"] == 12.5
+    transcribe = items["gemini-3.5-transcribe"]
+    assert (transcribe["calls"], transcribe["input_tokens"], transcribe["output_tokens"]) == (
+        1,
+        40,
+        10,
+    )
 
 
 def test_live_budget_is_reached_only_when_set_and_used_up(tmp_path):
