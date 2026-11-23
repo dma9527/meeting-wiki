@@ -1378,3 +1378,21 @@ def test_language_provider_supplies_strict_meeting_analysis_schema(meeting, tran
     assert schema["required"] == list(schema["properties"])
     assert schema["additionalProperties"] is False
     assert schema["properties"]["summary"]["type"] == "array"
+
+
+def test_transcript_voice_labels_are_kept_only_in_the_expected_form():
+    content = json.dumps(
+        {
+            "segments": [
+                {"start_seconds": 0, "speaker": "speaker_1", "text": "Hello"},
+                {"start_seconds": 1, "speaker": "Alice from finance", "text": "Hi"},
+                {"start_seconds": 2, "text": "No label"},
+            ]
+        }
+    )
+
+    segments = gemini_module._parse_transcript_segments(content, 10)
+
+    assert [segment.speaker for segment in segments] == ["speaker_1", None, None]
+    properties = gemini_module._TRANSCRIPT_SCHEMA["properties"]["segments"]["items"]["properties"]
+    assert "speaker" in properties

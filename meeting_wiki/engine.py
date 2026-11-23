@@ -33,6 +33,50 @@ from .providers.registry import ProviderBundle
 from .providers.transcription import TextImportTranscriber
 from .wiki import RenderResult, WikiRenderer, stable_id
 
+# The microphone stream's speaker is decided from its voices, not fixed to the device owner.
+MIC_STREAM = object()
+ROOM_SPEAKER = "Room speaker"
+# A voice counts only above this share of the microphone's words, so echo and a stray
+# interjection do not turn a solo recording into a room.
+ROOM_VOICE_SHARE = 0.10
+
+
+def chunk_voices_numbered(result: TranscriptResult) -> TranscriptResult:
+    """Give chunk-tagged voice labels one recording-wide number, such as speaker 3."""
+    if not any(segment.speaker and "@" in segment.speaker for segment in result.segments):
+        return result
+    numbers: dict[str, int] = {}
+    segments = []
+    for segment in result.segments:
+        label = segment.speaker
+        if label and "@" in label:
+            numbers.setdefault(label, len(numbers) + 1)
+            segment = segment.model_copy(update={"speaker": f"speaker {numbers[label]}"})
+        segments.append(segment)
+    return result.model_copy(update={"segments": segments})
+
+
+def room_or_owner(result: TranscriptResult, owner: str) -> TranscriptResult:
+    """Owner label for a one-voice microphone; ambiguous Room speaker labels for several."""
+    segments = result.segments or [TranscriptSegment(text=result.text)]
+    sizes: dict[str, int] = {}
+    for segment in segments:
+        if segment.speaker:
+            sizes[segment.speaker] = sizes.get(segment.speaker, 0) + len(segment.text)
+    total = sum(len(segment.text) for segment in segments) or 1
+    voices = [label for label, size in sizes.items() if size / total >= ROOM_VOICE_SHARE]
+    if len(voices) < 2:
+        labeled = [segment.model_copy(update={"speaker": owner}) for segment in segments]
+        return result.model_copy(update={"segments": labeled})
+    numbers: dict[str, int] = {}
+    labeled = []
+    for segment in segments:
+        label = segment.speaker or ""
+        if label not in numbers:
+            numbers[label] = len(numbers) + 1
+        labeled.append(segment.model_copy(update={"speaker": f"{ROOM_SPEAKER} {numbers[label]}"}))
+    return result.model_copy(update={"segments": labeled, "diarized": True})
+
 
 class AnalysisSnapshot(Protocol):
     """Job-scoped store for the first successful analysis of one job."""
@@ -317,7 +361,7 @@ class MeetingEngine:
                 meeting,
                 (self.config.primary_profile_name,),
             )
-            streams.append((meeting.mic_audio_path, self.config.primary_profile_name, mic_context))
+            streams.append((meeting.mic_audio_path, MIC_STREAM, mic_context))
         if meeting.system_audio_path:
             other_attendees = [
                 attendee
@@ -342,6 +386,9 @@ class MeetingEngine:
                     result = self._transcribe_audio(path, context)
                 except EmptyTranscriptError:
                     continue
+                if speaker == MIC_STREAM:
+                    result = room_or_owner(result, self.config.primary_profile_name)
+                    speaker = None
                 results.append((result, speaker))
             if not results:
                 raise ValueError("No non-empty audio streams available for transcription")
@@ -350,7 +397,7 @@ class MeetingEngine:
 
         if not meeting.audio_path:
             raise ValueError("Meeting requires audio_path or transcript_path")
-        result = self._transcribe_audio(meeting.audio_path, shared_context)
+        result = chunk_voices_numbered(self._transcribe_audio(meeting.audio_path, shared_context))
         return self._apply_speaker_corrections(result, meeting.speaker_corrections)
 
     def _transcribe_audio(self, path: Path, context: TranscriptionContext) -> TranscriptResult:
@@ -366,13 +413,21 @@ class MeetingEngine:
         parts: list[TranscriptResult] = []
         segments: list[TranscriptSegment] = []
         with tempfile.TemporaryDirectory(prefix="transcribe-", dir=workroot) as raw_workdir:
-            for chunk in split_wav(path, limit_minutes * 60, Path(raw_workdir)):
+            for ordinal, chunk in enumerate(split_wav(path, limit_minutes * 60, Path(raw_workdir))):
                 try:
                     part = provider.transcribe(chunk.path, language, context)
                 except EmptyTranscriptError:
                     continue
                 parts.append(part)
-                segments.extend(self._offset_segments(part, chunk.start_seconds, chunk.end_seconds))
+                placed = self._offset_segments(part, chunk.start_seconds, chunk.end_seconds)
+                # Voice labels are numbered per request, so the same label in two chunks can be
+                # two different people.
+                segments.extend(
+                    segment.model_copy(update={"speaker": f"{segment.speaker}@{ordinal}"})
+                    if segment.speaker
+                    else segment
+                    for segment in placed
+                )
         if not parts:
             raise EmptyTranscriptError("Every audio chunk produced an empty transcript")
         return TranscriptResult(
@@ -443,7 +498,7 @@ class MeetingEngine:
 
     @staticmethod
     def _merge_stream_transcripts(
-        results: list[tuple[TranscriptResult, str]],
+        results: list[tuple[TranscriptResult, str | None]],
     ) -> TranscriptResult:
         ordered: list[tuple[float, int, int, TranscriptSegment]] = []
         for stream_index, (result, speaker) in enumerate(results):
@@ -454,7 +509,9 @@ class MeetingEngine:
                         segment.start_seconds,
                         stream_index,
                         segment_index,
-                        segment.model_copy(update={"speaker": speaker}),
+                        segment
+                        if speaker is None
+                        else segment.model_copy(update={"speaker": speaker}),
                     )
                 )
         ordered.sort(key=lambda item: (item[0], item[1], item[2]))

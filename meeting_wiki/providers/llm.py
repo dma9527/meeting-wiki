@@ -59,7 +59,10 @@ def analysis_messages(
 Return only data matching the supplied JSON schema. Never invent speakers,
 decisions, owners, dates, commitments, or customer promises. Distinguish a
 proposal from an accepted decision. Keep summaries concise. The renderer owns
-Markdown; do not return Markdown pages."""
+Markdown; do not return Markdown pages. Lines labeled "Room speaker" and a number
+come from one microphone shared by several people in a room, and one of them may be
+the device owner. Name such a speaker, or make them an owner, only when the
+transcript itself says who they are."""
     fields = (
         "summaries, blocker descriptions, decision details and rationale, action descriptions, "
         "topic insights, open questions, risks, and participant roles"

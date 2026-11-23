@@ -166,7 +166,7 @@ test("closing hides the sidebar and keeps receiving events until the recording e
 
 test("the sidebar explains both labeled audio channels", () => {
   const html = read("live-sidebar.html");
-  assert.match(html, /your microphone, labeled You, and all audio played on this Mac, including other participants, labeled Others/);
+  assert.match(html, /your microphone, labeled Room because it hears everyone near you, and all audio played on this Mac, including online participants, labeled Online/);
   assert.doesNotMatch(html, /microphone only/);
 });
 

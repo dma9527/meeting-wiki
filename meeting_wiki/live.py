@@ -256,7 +256,8 @@ def _clip(text: str, limit: int = MAX_EVENT_TEXT) -> str:
 
 SPEAKER_YOU = "you"
 SPEAKER_OTHERS = "others"
-SPEAKER_LABELS = {SPEAKER_YOU: "You", SPEAKER_OTHERS: "Others"}
+# The microphone hears everyone in the room, so its lines are the room, not only the user.
+SPEAKER_LABELS = {SPEAKER_YOU: "Room", SPEAKER_OTHERS: "Online"}
 # Shown while the other channel keeps running.
 PARTIAL_ISSUES = {
     SPEAKER_YOU: "microphone_unavailable",

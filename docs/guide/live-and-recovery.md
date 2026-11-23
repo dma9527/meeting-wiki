@@ -27,9 +27,9 @@ Behavior to know:
 
 - Live text is display only. It never changes saved notes. The saved meeting is
   processed from the full recording after you stop.
-- Live captions transcribe two channels: your microphone, labeled **You**,
-  and all audio played on this Mac, including other participants, labeled
-  **Others**. The rolling summary covers both. With an online provider, both audio channels and the
+- Live captions transcribe two channels: your microphone, labeled **Room**
+  because it hears everyone near you, and all audio played on this Mac,
+  including online participants, labeled **Online**. The rolling summary covers both. With an online provider, both audio channels and the
   transcript text are sent to the provider, including for private
   recordings. Each channel uses its own provider connection, so live usage
   is about twice that of a single channel.

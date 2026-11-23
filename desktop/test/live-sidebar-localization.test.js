@@ -106,10 +106,10 @@ test("a Chinese locale translates the window and keeps captions that already arr
   assert.equal(elements["live-summary-heading"].textContent, "总结");
   assert.match(sidebar.footer[0].textContent, /^实时字幕包括你的麦克风/);
   const [line] = elements["live-transcript"].children;
-  assert.equal(line.children[0].textContent, "其他人");
+  assert.equal(line.children[0].textContent, "线上");
   assert.equal(line.children[1].textContent, "Hello there");
   sidebar.send({ type: "transcript", sequence: 2, text: "Next", speaker: "you" });
-  assert.equal(elements["live-transcript"].children[1].children[0].textContent, "你");
+  assert.equal(elements["live-transcript"].children[1].children[0].textContent, "现场");
 });
 
 test("English and system locales keep the English copy", () => {

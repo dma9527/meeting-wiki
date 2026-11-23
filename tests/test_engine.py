@@ -886,3 +886,83 @@ def test_dual_stream_chunks_interleave_by_recording_time(tmp_path, meeting, anal
         "mic two",
         "remote two",
     ]
+
+
+def _voices(*pairs):
+    segments = [
+        TranscriptSegment(start_seconds=index, end_seconds=index + 1, text=text, speaker=voice)
+        for index, (voice, text) in enumerate(pairs)
+    ]
+    return TranscriptResult(
+        text="\n".join(text for _voice, text in pairs),
+        segments=segments,
+        provider="fake",
+        model="fake",
+    )
+
+
+def test_a_microphone_with_several_voices_becomes_room_speakers(tmp_path, meeting, analysis):
+    mic = tmp_path / "mic.wav"
+    system = tmp_path / "system.wav"
+    mic.write_bytes(b"mic audio")
+    system.write_bytes(b"system audio")
+    mic_result = _voices(
+        ("speaker_1", "I can take the rollout plan."),
+        ("speaker_2", "Thanks, I will review the budget by Friday."),
+        ("speaker_1", "Great."),
+    )
+    system_result = _voices(("speaker_1", "Online question about scope."))
+    providers, _, _ = bundle(tmp_path, mic_result, analysis)
+    providers.transcription = SplitTranscriber({mic.name: mic_result, system.name: system_result})
+    meeting = meeting.model_copy(
+        update={"mic_audio_path": mic, "system_audio_path": system, "attendees": ["Alex"]}
+    )
+
+    config = AppConfig(data_dir=tmp_path, user_name="Local User")
+    result = MeetingEngine(config, providers).ingest(meeting)
+
+    speakers = [segment.speaker for segment in result.transcript.segments]
+    assert speakers.count("Room speaker 1") == 2
+    assert speakers.count("Room speaker 2") == 1
+    assert "Local User" not in speakers, "nobody in the room is assumed to be the owner"
+    assert "Alex" in speakers, "system audio keeps its existing remote attribution"
+
+
+@pytest.mark.parametrize(
+    "pairs",
+    [
+        (("speaker_1", "Only me talking for a while about the plan."),),
+        (
+            ("speaker_1", "Only me talking for a long while about the plan today."),
+            ("speaker_2", "ok"),
+        ),
+        ((None, "A provider without voice labels."),),
+    ],
+)
+def test_a_microphone_with_one_substantial_voice_stays_the_owner(pairs):
+    from meeting_wiki.engine import room_or_owner
+
+    labeled = room_or_owner(_voices(*pairs), "Local User")
+
+    assert {segment.speaker for segment in labeled.segments} == {"Local User"}
+
+
+def test_voice_labels_from_different_chunks_get_separate_room_numbers():
+    from meeting_wiki.engine import chunk_voices_numbered, room_or_owner
+
+    tagged = _voices(
+        ("speaker_1@0", "First chunk, first voice speaking."),
+        ("speaker_2@0", "First chunk, second voice speaking."),
+        ("speaker_1@1", "Second chunk, a voice that may be anyone."),
+    )
+
+    assert [segment.speaker for segment in room_or_owner(tagged, "Owner").segments] == [
+        "Room speaker 1",
+        "Room speaker 2",
+        "Room speaker 3",
+    ]
+    assert [segment.speaker for segment in chunk_voices_numbered(tagged).segments] == [
+        "speaker 1",
+        "speaker 2",
+        "speaker 3",
+    ]

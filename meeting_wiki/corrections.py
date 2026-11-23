@@ -33,7 +33,7 @@ from .providers.base import StorageProvider
 from .wiki import slugify, stable_id
 
 _REMOTE_SENTINEL = "Remote participant"
-_AUTO_LABEL = re.compile(r"(?:spk|speaker)[ _-]?\d+", re.IGNORECASE)
+_AUTO_LABEL = re.compile(r"(?:room[ _-])?(?:spk|speaker)[ _-]?\d+", re.IGNORECASE)
 
 
 def is_ambiguous_label(label: str | None) -> bool:

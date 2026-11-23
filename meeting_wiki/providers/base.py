@@ -169,7 +169,8 @@ class LLMProvider(Protocol):
 # Shared by live summary providers so a short transcript never yields commentary about itself.
 LIVE_SUMMARY_RULES = (
     "Summarize only what the speakers said. Never describe, quote, or comment on the "
-    "transcript itself, its length, or the user."
+    "transcript itself, its length, or the user. Lines marked Room come from a microphone "
+    "that hears everyone in the room, so never present them as the user's own words."
 )
 
 

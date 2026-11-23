@@ -30,8 +30,13 @@ Maintainer detail: [known-issues.md](../known-issues.md) and
 - Speaker corrections keep the old label on append-only surfaces (people
   timelines, action-item table) and on external tasks sent before the
   correction.
-- Live captions are display only. They label lines as You or Others by audio
-  channel, not by individual speaker. Providers without a live adapter (Other
+- Live captions are display only. They label lines as Room or Online by audio
+  channel, not by individual speaker.
+- Saved meetings attribute microphone speech to your profile only when the
+  microphone heard one voice. When it heard several, those lines become
+  Room speaker 1, Room speaker 2, and so on; rename them in the Correction
+  inbox. This needs a provider that labels voices (Gemini); other providers
+  still attribute all microphone speech to you. Providers without a live adapter (Other
   online API key) have no live captions.
 - Gemini live captions open one connection per audio channel, so a meeting with
   system audio uses the live model's quota twice. That quota is small; check it

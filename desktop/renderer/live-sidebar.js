@@ -42,7 +42,7 @@
     startup_failed: "Live view could not start.",
     connection_lost: "Live view lost its connection.",
   });
-  const SPEAKER_TEXT = Object.freeze({ you: "You", others: "Others" });
+  const SPEAKER_TEXT = Object.freeze({ you: "Room", others: "Online" });
   const lines = new Map();
 
   function setState(event) {

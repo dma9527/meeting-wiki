@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import mimetypes
+import re
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -55,6 +56,7 @@ _TRANSCRIPT_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "start_seconds": {"type": "number"},
+                    "speaker": {"type": "string"},
                     "text": {"type": "string"},
                 },
                 "required": ["start_seconds", "text"],
@@ -70,11 +72,16 @@ def _transcription_instruction(language: str | None) -> str:
         "Transcribe the speech in this audio verbatim. Keep every language as spoken and never "
         "translate, summarize, or skip content. Split at sentence or speaker-turn boundaries. "
         "For each segment give start_seconds, the offset in seconds from the start of this "
-        "audio. Return an empty segments list if there is no speech."
+        "audio, and speaker, a label for the voice: speaker_1 for the first distinct voice, "
+        "speaker_2 for the next, and so on. Return an empty segments list if there is no speech."
     )
     if language:
         instruction += f" The main spoken language is {language_display_name(language)}."
     return instruction
+
+
+# Voice labels within one request; the engine decides what a label means for its stream.
+_VOICE_LABEL = re.compile(r"speaker_\d{1,2}")
 
 
 def _parse_transcript_segments(
@@ -89,7 +96,7 @@ def _parse_transcript_segments(
     if not isinstance(raw_segments, list):
         raise RuntimeError("Gemini returned an invalid transcript")
     limit = duration_seconds if duration_seconds and duration_seconds > 0 else None
-    entries: list[tuple[float, str]] = []
+    entries: list[tuple[float, str, str | None]] = []
     previous = 0.0
     for item in raw_segments:
         if not isinstance(item, dict):
@@ -103,16 +110,20 @@ def _parse_transcript_segments(
         start = max(previous, float(start))
         if limit is not None:
             start = min(start, limit)
-        entries.append((start, text.strip()))
+        voice = item.get("speaker")
+        voice = voice if isinstance(voice, str) and _VOICE_LABEL.fullmatch(voice) else None
+        entries.append((start, text.strip(), voice))
         previous = start
     segments: list[TranscriptSegment] = []
-    for index, (start, text) in enumerate(entries):
+    for index, (start, text, voice) in enumerate(entries):
         if index + 1 < len(entries):
             end = entries[index + 1][0]
         else:
             end = limit if limit is not None else start
         segments.append(
-            TranscriptSegment(start_seconds=start, end_seconds=max(start, end), text=text)
+            TranscriptSegment(
+                start_seconds=start, end_seconds=max(start, end), text=text, speaker=voice
+            )
         )
     return segments
 

@@ -821,8 +821,8 @@ def test_runtime_labels_microphone_and_system_audio_and_summarizes_both(tmp_path
 
     transcripts = {item["text"]: item["speaker"] for item in publisher.of("transcript")}
     assert transcripts == {"My update": "you", "Their question": "others"}
-    assert "You: My update" in language.contexts[-1]
-    assert "Others: Their question" in language.contexts[-1]
+    assert "Room: My update" in language.contexts[-1]
+    assert "Online: Their question" in language.contexts[-1]
     assert publisher.of("state")[-1] == {"phase": "stopped", "private": True, "scope": "local"}
     assert list((tmp_path / "work").iterdir()) == []
 

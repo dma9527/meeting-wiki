@@ -191,7 +191,15 @@ def _only_meeting_key(storage) -> str:
 
 
 def test_is_ambiguous_label_matches_sentinel_and_auto_ids():
-    for label in ["Remote participant", "spk_0", "spk_12", "SPEAKER_01", "speaker 2", "spk-3"]:
+    for label in [
+        "Remote participant",
+        "spk_0",
+        "spk_12",
+        "SPEAKER_01",
+        "speaker 2",
+        "spk-3",
+        "Room speaker 1",
+    ]:
         assert is_ambiguous_label(label) is True
     for label in ["Local User", "Sam Rivera", "Remote", "speaker of the house", "", None]:
         assert is_ambiguous_label(label) is False

@@ -16,7 +16,7 @@
     "#live-transcript-heading": "转写与翻译",
     "#live-transcript-empty": "最终转写会显示在这里。",
     "#live-about-heading": "关于实时字幕",
-    ".live-foot p:nth-child(1)": "实时字幕包括你的麦克风（标记为 You）和这台 Mac 播放的全部音频（包括其他参会者，标记为 Others）。",
+    ".live-foot p:nth-child(1)": "实时字幕包括你的麦克风（标记为“现场”，因为它会录到你身边的所有人）和这台 Mac 播放的全部音频（包括线上参会者，标记为“线上”）。",
     ".live-foot p:nth-child(2)": "实时文本只用于显示。保存的会议（包括系统音频）会在停止录音后处理。",
     ".live-foot p:nth-child(3)": "关闭这个窗口只会隐藏它。可以在菜单栏选择“显示实时字幕”再次显示。",
   });
@@ -44,8 +44,8 @@
     "Live view lost its connection.": "实时视图连接已断开。",
     "External provider": "外部 provider",
     "Local only": "仅本机",
-    You: "你",
-    Others: "其他人",
+    Room: "现场",
+    Online: "线上",
   });
 
   const api = Object.freeze({
