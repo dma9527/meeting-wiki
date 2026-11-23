@@ -34,6 +34,7 @@ const SETTINGS = Object.freeze({
   liveModel: Object.freeze({ form: "gemini", applies: "liveSession" }),
   languageModel: Object.freeze({ form: "gemini", applies: "processingAndLive" }),
   summaryContextCharacters: Object.freeze({ form: "gemini", applies: "liveSession" }),
+  monthlyLiveBudgetUsd: Object.freeze({ form: "gemini", applies: "liveSession" }),
   defaultPrivacyMode: Object.freeze({ form: "recording", applies: "nextRecording" }),
   recordingLiveEnabled: Object.freeze({ form: "recording", applies: "nextRecording" }),
   maxDurationMinutes: Object.freeze({ form: "recording", applies: "nextRecording" }),

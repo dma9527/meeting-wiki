@@ -29,7 +29,7 @@ test("settings.html enforces a self-only CSP with no network and loads only loca
   assert.doesNotMatch(html, /<script>|\sstyle="|\son[a-z]+="/, "settings.html has inline script or style");
 });
 
-test("the Gemini form edits exactly the four model and context values with no key controls", () => {
+test("the Gemini form edits exactly the model, context, and live budget values with no key controls", () => {
   const panel = section(read("settings.html"), "panel-gemini-settings");
   const names = [...panel.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(names, [
@@ -37,14 +37,17 @@ test("the Gemini form edits exactly the four model and context values with no ke
     "liveModel",
     "languageModel",
     "summaryContextCharacters",
+    "monthlyLiveBudgetUsd",
   ]);
   assert.doesNotMatch(panel, /type="password"|chunk|overlap|api[_-]?key/i);
-  for (const id of ["batch-audio-model", "live-model", "language-model", "summary-context-characters"]) {
+  for (const id of ["batch-audio-model", "live-model", "language-model", "summary-context-characters", "monthly-live-budget-usd"]) {
     assert.match(panel, new RegExp(`<label for="${id}">`));
     assert.match(panel, new RegExp(`id="${id}-error" class="field-error"`));
   }
   assert.match(panel, /id="settings-status"[^>]*role="status"/);
   assert.match(panel, /id="settings-rerun"/);
+  assert.match(panel, /id="usage-summary"[^>]*role="status"/);
+  assert.match(panel, /id="usage-refresh"/);
 });
 
 test("the identity form edits only the primary name and aliases, with labels and errors", () => {

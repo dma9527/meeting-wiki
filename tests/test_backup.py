@@ -37,6 +37,7 @@ def make_backup(populated, tmp_path, passphrase=PASSPHRASE):
 
 
 def test_backup_round_trip_restores_every_category_and_verifies(populated, tmp_path):
+    (populated.data_dir / "usage.db").write_bytes(b"usage counts")
     report = make_backup(populated, tmp_path)
     assert set(report.categories) == {
         "analysis",
@@ -52,6 +53,7 @@ def test_backup_round_trip_restores_every_category_and_verifies(populated, tmp_p
     assert report.skipped["logs"] == 1
     assert report.skipped["temporary"] == 1
     assert report.skipped["transient_integration_events"] == 1
+    assert report.skipped["usage_counts"] == 1
     assert report.archive.stat().st_mode & 0o777 == 0o600
 
     verified = verify_backup(report.archive, PASSPHRASE)

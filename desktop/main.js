@@ -60,6 +60,7 @@ const {
   RestartBackoff,
   formatQueueLabel,
   readQueueStatus,
+  readUsageReport,
   retryDeadJobs,
 } = require("./status");
 
@@ -344,8 +345,15 @@ function openSettingsWindow() {
       onSaved: restartProcessing,
       onRerunSetup: openSetupWindow,
       integrations,
+      readUsage: readUsageForSettings,
     },
   );
+}
+
+// Numbers only, read with a credential-free environment.
+async function readUsageForSettings() {
+  if (!pythonAvailable()) throw new Error("Python runtime is unavailable");
+  return readUsageReport(PYTHON, CONFIG_PATH, execFile, ingestEnv());
 }
 
 // Saves the privacy-safe report where the user chooses. The report is built first, so a failure

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from . import usage
 from .diagnostics import AUTH, BILLING, failure_kind, safe_identifier
 from .models import TranscriptSegment
 from .providers.base import (
@@ -316,6 +317,7 @@ class _Channel:
     chunk_sequence: int = 0
     silent_bytes: int = 0
     heard: bool = False
+    sent_bytes: int = 0
 
 
 class LiveProviderEndedError(RuntimeError):
@@ -451,6 +453,7 @@ class LiveRuntime:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+            self._report_streamed_audio()
         if len(failures) == len(self.channels):
             issue = failures.get(SPEAKER_YOU) or next(iter(failures.values()))
             await self.state("stopped" if issue == "audio_unavailable" else "unavailable", issue)
@@ -623,6 +626,7 @@ class LiveRuntime:
                     if consumer.done():
                         break
                     await session.send_audio(data)
+                    channel.sent_bytes += len(data)
             finally:
                 if not consumer.done():
                     consumer.cancel()
@@ -698,6 +702,18 @@ class LiveRuntime:
                 raise
             except Exception as error:
                 await self._language_failed(error)
+
+    def _report_streamed_audio(self) -> None:
+        name = getattr(self.transcriber, "name", "")
+        model = getattr(self.transcriber, "model", "")
+        for channel in self.channels:
+            if channel.sent_bytes:
+                usage.report(
+                    name,
+                    model,
+                    "live_transcription",
+                    audio_seconds=channel.sent_bytes / BYTES_PER_SECOND,
+                )
 
     async def _no_credit_behind(self, error: BaseException) -> bool:
         """After an unexplained 1011 close, ask once with a tiny request whether credit is out."""
@@ -855,6 +871,19 @@ async def run_live_session(
             language = build_live_language(config)
             if transcriber is None or language is None:
                 raise RuntimeError("live provider has no adapter")
+            usage.use_log(config.data_dir)
+            if usage.live_budget_reached(config.data_dir, config.live.monthly_live_budget_usd):
+                LiveDiagnosticsLog(config.data_dir).write({"event": "live_budget_reached"})
+                await bridge.publish(
+                    "state",
+                    {
+                        "phase": "unavailable",
+                        "private": private,
+                        "scope": "external" if external else "local",
+                        "issue": "budget_reached",
+                    },
+                )
+                return 0
         except Exception as error:
             LiveDiagnosticsLog(config.data_dir).write(
                 {

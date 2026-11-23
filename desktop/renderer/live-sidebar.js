@@ -39,6 +39,7 @@
     provider_session_expired: "The live provider session expired and could not be renewed.",
     provider_billing: "The live provider has no credit left for this API key. Recording continues and is saved. Processing waits and continues on its own after you add credit.",
     provider_auth: "The live provider did not accept the API key. Recording continues normally.",
+    budget_reached: "This month's live budget is used up, so live captions are off. Recording continues and is saved. Change the budget in Settings.",
     startup_failed: "Live view could not start.",
     connection_lost: "Live view lost its connection.",
   });

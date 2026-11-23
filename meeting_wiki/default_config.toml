@@ -35,6 +35,9 @@ num_ctx = 32768
 chunk_seconds = 8
 overlap_seconds = 2
 summary_context_characters = 12000
+# Whole US dollars. When this month's estimated provider cost reaches it, new
+# recordings start without live captions. 0 turns the limit off.
+monthly_live_budget_usd = 0
 allow_external_providers = false
 
 [openai_compatible]

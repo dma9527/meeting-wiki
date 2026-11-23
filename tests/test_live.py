@@ -1378,3 +1378,43 @@ def test_an_oversized_previous_summary_keeps_room_for_recent_discussion(tmp_path
     assert len(context) <= 500
     assert context.endswith("latest")
     assert context.index("Most recent discussion") < 300
+
+
+def test_streamed_live_audio_is_counted_per_channel_for_usage(tmp_path, monkeypatch):
+    import asyncio
+
+    from meeting_wiki import live as live_module
+    from meeting_wiki.providers.base import LiveSessionExpiredError
+
+    reports = []
+    monkeypatch.setattr(
+        live_module.usage, "report", lambda *args, **kwargs: reports.append((args, kwargs))
+    )
+    provider, _session = _scripted_session_provider(
+        {"events": [], "after": LiveSessionExpiredError()}
+    )
+    provider.model = "test-live-model"
+    runtime = _runtime(
+        tmp_path,
+        provider,
+        FakeLanguage(),
+        RecordingPublisher(),
+        external=True,
+        reconnect_attempts=0,
+    )
+    mic = tmp_path / "mic.wav"
+    mic.write_bytes(_wav_header())
+
+    async def drive():
+        task = asyncio.create_task(runtime.run())
+        for _ in range(2):
+            with mic.open("ab") as handle:
+                handle.write(_pcm(1))
+            await asyncio.sleep(0.1)
+        await asyncio.wait_for(task, 5)
+
+    asyncio.run(drive())
+
+    [(args, kwargs)] = reports
+    assert args == ("scripted-session", "test-live-model", "live_transcription")
+    assert kwargs["audio_seconds"] > 0

@@ -534,6 +534,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the privacy-safe local event journal (codes and timestamps only)",
     )
     events.add_argument("--limit", type=int, default=100)
+    usage_parser = sub.add_parser(
+        "usage",
+        help="Print this month's provider usage counts and estimated cost (numbers only)",
+    )
+    usage_parser.add_argument("--month", default=None, help="YYYY-MM, default this month (UTC)")
 
     passphrase_help = "Read the passphrase from one stdin line instead of a hidden prompt"
     backup_create = sub.add_parser(
@@ -705,6 +710,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result, indent=2))
         return 0 if result.get("queued") is True else 1
+    if args.command == "usage":
+        from .usage import UsageLog, current_month
+
+        report = UsageLog(config.data_dir / "usage.db").month(args.month or current_month())
+        budget = config.live.monthly_live_budget_usd
+        report["live_budget_usd"] = budget
+        report["live_budget_reached"] = bool(budget) and report["estimated_usd"] >= budget
+        print(json.dumps(report, indent=2))
+        return 0
     if args.command == "events":
         journal = open_journal(config.data_dir)
         print(json.dumps({"events": journal.recent(args.limit) if journal else []}, indent=2))

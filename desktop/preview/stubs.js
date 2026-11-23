@@ -96,7 +96,7 @@ function settings() {
   const metadataKeys = [
     "primaryProfileName", "aliases", "transcriptLanguage", "liveTranslationLanguage", "liveSummaryLanguage",
     "memoryLanguage", "uiLanguage", "batchAudioModel", "liveModel", "languageModel", "summaryContextCharacters",
-    "maxDurationMinutes", "defaultPrivacyMode", "liveEnabled", "zoomAutoRecord", "googleMeetAutoRecord", "autoRecordPrivacy",
+    "monthlyLiveBudgetUsd", "maxDurationMinutes", "defaultPrivacyMode", "liveEnabled", "zoomAutoRecord", "googleMeetAutoRecord", "autoRecordPrivacy",
   ];
   return {
     getIdentitySettings: resolved({ ready: true, values: { primaryProfileName: "Alex Test", aliases: ["Alex", "AT"] }, legacyUserName: "", limits: { nameMaxLength: 100, maxAliases: 20 } }),
@@ -108,8 +108,9 @@ function settings() {
       choices: { transcriptLanguage: ["auto", "en", "zh-CN"], liveTranslationLanguage: ["en", "zh-CN"], liveSummaryLanguage: ["en", "zh-CN"], memoryLanguage: ["source", "en", "zh-CN"], uiLanguage: ["system", "en", "zh-CN"] },
     }),
     saveLanguageSettings: resolved({ ok: true, values: {} }),
-    getGeminiSettings: resolved({ ready: true, values: { batchAudioModel: "gemini-3.6-flash", liveModel: "gemini-3.5-transcribe-live", languageModel: "gemini-3.6-flash", summaryContextCharacters: 12000 }, bounds: { summaryContextCharacters: { min: 500, max: 100000 } } }),
+    getGeminiSettings: resolved({ ready: true, values: { batchAudioModel: "gemini-3.6-flash", liveModel: "gemini-3.5-transcribe-live", languageModel: "gemini-3.6-flash", summaryContextCharacters: 12000, monthlyLiveBudgetUsd: 20 }, bounds: { summaryContextCharacters: { min: 500, max: 100000 }, monthlyLiveBudgetUsd: { min: 0, max: 10000 } } }),
     saveGeminiSettings: resolved({ ok: true, values: {} }),
+    getUsage: resolved({ ready: true, values: { month: "2026-11", estimatedUsd: 7.42, unpriced: false, calls: 318, liveBudgetUsd: 20, liveBudgetReached: false } }),
     getRecordingSettings: resolved({ ready: true, values: { maxDurationMinutes: 120, defaultsConfigured: true, defaultPrivacyMode: "shared", liveEnabled: true }, bounds: { maxDurationMinutes: { min: 15, max: 480 } } }),
     saveRecordingSettings: resolved({ ok: true, values: {} }),
     getIntegrationSettings: resolved({

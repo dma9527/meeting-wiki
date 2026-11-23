@@ -15,6 +15,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from .. import usage
 from ..audio_chunks import wav_duration_seconds
 from ..config import PrivacyConfig
 from ..diagnostics import SafeProviderError, _http_status
@@ -243,6 +244,7 @@ class GeminiTranscriber(_GeminiClientMixin):
                 "response_schema": _TRANSCRIPT_SCHEMA,
             },
         )
+        usage.report_gemini(response, self.model, "transcription")
         return response.text
 
     def transcribe(
@@ -317,6 +319,7 @@ class GeminiLanguageProvider(_GeminiClientMixin):
                 contents=user,
                 config=structured_config,
             )
+            usage.report_gemini(response, self.model, "analysis")
             content = response.text
         except Exception as structured_error:
             if not _is_http_bad_request(structured_error):
@@ -332,6 +335,7 @@ class GeminiLanguageProvider(_GeminiClientMixin):
                         "response_mime_type": "application/json",
                     },
                 )
+                usage.report_gemini(response, self.model, "analysis")
                 content = response.text
             except Exception as fallback_error:
                 raise SafeProviderError("gemini", "analysis", fallback_error) from None
@@ -386,6 +390,7 @@ class GeminiLiveLanguageProvider(_GeminiClientMixin):
                 response = client.models.generate_content(
                     model=self.model, contents=text, config=plain
                 )
+            usage.report_gemini(response, self.model, f"live_{action}")
             content = response.text
         except Exception as error:
             raise _redacted(action, error) from None

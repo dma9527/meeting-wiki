@@ -164,3 +164,38 @@ test("jobs waiting for credit get their own tray label, summary, and retry list"
   ]) }], []));
   assert.deepEqual(jobs.map((job) => job.id), [1]);
 });
+
+test("readUsageReport passes only numbers and flags from the usage command", async () => {
+  const { readUsageReport } = require("../status");
+  const calls = [];
+  const report = {
+    month: "2026-11",
+    items: [
+      { provider: "gemini", model: "test-model", operation: "analysis", calls: 4, input_tokens: 10, output_tokens: 2 },
+      { provider: "gemini", model: "test-live", operation: "live_transcription", calls: 2, audio_seconds: 60 },
+    ],
+    estimated_usd: 3.21,
+    unpriced: false,
+    live_budget_usd: 20,
+    live_budget_reached: false,
+  };
+  const values = await readUsageReport("/python", "/config.toml", fakeExec([{ stdout: JSON.stringify(report) }], calls));
+  assert.deepEqual(values, {
+    month: "2026-11",
+    estimatedUsd: 3.21,
+    unpriced: false,
+    calls: 6,
+    liveBudgetUsd: 20,
+    liveBudgetReached: false,
+  });
+  assert.deepEqual(calls[0].args.slice(-1), ["usage"]);
+  for (const bad of [
+    { ...report, month: "../x" },
+    { ...report, estimated_usd: "3" },
+    { ...report, live_budget_usd: -1 },
+    { ...report, items: null },
+  ]) {
+    await assert.rejects(readUsageReport("/python", "/config.toml", fakeExec([{ stdout: JSON.stringify(bad) }], [])));
+  }
+  await assert.rejects(readUsageReport("/python", "/config.toml", fakeExec([{ error: new Error("exit 1") }], [])));
+});

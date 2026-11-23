@@ -73,6 +73,11 @@
     "label[for='live-model']": "实时转写模型",
     "label[for='language-model']": "总结与翻译模型",
     "label[for='summary-context-characters']": "总结上下文字符数",
+    "label[for='monthly-live-budget-usd']": "每月 live 预算（美元）",
+    "#usage-heading": "本月用量",
+    "#usage-summary": "正在读取用量。",
+    "#usage-hint": "根据官方标价和 Gemini 返回的 token 数在这台 Mac 上估算。实际金额以 Google 账单为准。",
+    "#usage-refresh": "刷新用量",
     "#settings-rerun": "重新运行设置向导",
     "#settings-save": "保存 Gemini 设置",
     "#gemini-rerun-hint": "更换 API key 或 provider 请重新运行设置向导。",
@@ -110,6 +115,10 @@
     "Open Languages and choose supported values before saving Gemini settings.": "请先在语言设置中选择支持的值，再保存 Gemini 设置。",
     "Open Settings and choose supported languages before switching providers.": "切换 provider 前，请先打开“设置”并选择支持的语言。",
     "Enter a valid model name.": "请输入有效的模型名称。",
+    "Usage could not be read right now.": "暂时无法读取用量。",
+    "Some models have no list price here, so the estimate is low.": "部分模型在这里没有标价，因此估算偏低。",
+    "0 means no limit. When this month's estimate reaches the budget, new recordings start without live captions. Recording and processing continue.":
+      "0 表示不限制。本月估算达到预算后，新的录音不再启动实时字幕，录音和处理照常进行。",
     "Enter a name.": "请输入姓名。",
     "Use letters, numbers, spaces, and . , ' - _ ( ) starting with a letter or number.": "请使用字母、数字、空格和 . , ' - _ ( )，并以字母或数字开头。",
     "Each alias must differ from your name and the other aliases.": "每个别名必须与主要姓名和其他别名不同。",
@@ -179,6 +188,14 @@
     if (match) return `最多添加 ${match[1]} 个别名。`;
     match = /^Enter (your name as it should appear in meeting notes|each alias)\.$/.exec(message);
     if (match) return match[1] === "each alias" ? "请输入每个别名。" : "请输入要显示在会议记录中的姓名。";
+    match = /^Enter a whole number of US dollars from (\d+) to (\d+)\.$/.exec(message);
+    if (match) return `请输入 ${match[1]} 到 ${match[2]} 之间的整数美元。`;
+    match = /^Estimated (\$\d+\.\d{2}) so far in (\d{4}-\d{2}) \(UTC\), from (\d+) provider calls\.$/.exec(message);
+    if (match) return `${match[2]}（UTC）目前估算 ${match[1]}，共 ${match[3]} 次 provider 调用。`;
+    match = /^The (\$\d+) live budget is reached\. New recordings start without live captions\.$/.exec(message);
+    if (match) return `已达到 ${match[1]} 的 live 预算。新的录音不再启动实时字幕。`;
+    match = /^Live budget: (\$\d+)\.$/.exec(message);
+    if (match) return `Live 预算：${match[1]}。`;
     match = /^Extension last checked in at (.+)\.$/.exec(message);
     if (match) return `Extension 上次连接时间：${match[1]}。`;
     match = /^(.{1,40}): (.+)$/.exec(message);

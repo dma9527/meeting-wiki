@@ -11,7 +11,12 @@ const MANAGED_SCHEMA = Object.freeze({
   [TOP_LEVEL]: { user_name: "string", language: "string" },
   identity: { primary_profile_name: "string", aliases: "string[]" },
   providers: { transcription: "string", llm: "string", live_transcription: "string", live_language: "string" },
-  live: { allow_external_providers: "boolean", translation_target_language: "string", summary_context_characters: "integer" },
+  live: {
+    allow_external_providers: "boolean",
+    translation_target_language: "string",
+    summary_context_characters: "integer",
+    monthly_live_budget_usd: "integer",
+  },
   languages: { transcript: "string", live_translation: "string", live_summary: "string", memory: "string", ui: "string" },
   gemini: { api_key_env: "string", batch_audio_model: "string", batch_audio_api: "string", live_model: "string", language_model: "string" },
   openai_compatible: { base_url: "string", model: "string", api_key_env: "string" },

@@ -31,7 +31,11 @@ or usage data.
    file that you choose to share. It makes no network request. Its output is
    limited to fixed codes, versions, and times, and the export is blocked if
    any other text would appear.
-9. When the webhook task provider is enabled, shared action items are queued in
+9. A local usage log, `usage.db`, counts provider tokens, streamed audio
+   seconds, and calls per day, model, and operation to estimate cost. It stores
+   numbers and model names only, is never sent anywhere, and is not included
+   in backups.
+10. When the webhook task provider is enabled, shared action items are queued in
    a local `outbox.db` before sending, so a retry cannot create a duplicate.
 
 With MLX Whisper and Ollama, audio and text stay on your Mac. Selecting an

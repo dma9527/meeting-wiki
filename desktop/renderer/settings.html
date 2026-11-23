@@ -308,7 +308,14 @@
                 <input id="summary-context-characters" name="summaryContextCharacters" type="number" inputmode="numeric" step="1" required aria-describedby="summary-context-characters-hint summary-context-characters-applies summary-context-characters-error" />
                 <p id="summary-context-characters-hint" class="hint"></p>
                 <p id="summary-context-characters-applies" class="hint applies" data-applies-for="summaryContextCharacters"></p>
-              <p id="summary-context-characters-error" class="field-error" hidden></p>
+                <p id="summary-context-characters-error" class="field-error" hidden></p>
+              </div>
+              <div class="field">
+                <label for="monthly-live-budget-usd">Monthly live budget (US dollars)</label>
+                <input id="monthly-live-budget-usd" name="monthlyLiveBudgetUsd" type="number" inputmode="numeric" step="1" required aria-describedby="monthly-live-budget-usd-hint monthly-live-budget-usd-applies monthly-live-budget-usd-error" />
+                <p id="monthly-live-budget-usd-hint" class="hint"></p>
+                <p id="monthly-live-budget-usd-applies" class="hint applies" data-applies-for="monthlyLiveBudgetUsd"></p>
+                <p id="monthly-live-budget-usd-error" class="field-error" hidden></p>
               </div>
             </div>
 
@@ -320,6 +327,16 @@
             </div>
             <p id="gemini-rerun-hint" class="hint">Run setup again to change the API key or switch to another provider.</p>
           </form>
+
+          <h2 id="usage-heading" class="subhead">Usage this month</h2>
+          <p id="usage-summary" class="status" role="status" aria-live="polite">Reading usage.</p>
+          <p id="usage-hint" class="hint">
+            An estimate from list prices and the token counts Gemini reports, counted on this Mac. Your Google bill is
+            the final amount.
+          </p>
+          <div class="actions">
+            <button type="button" class="button button-quiet" id="usage-refresh">Refresh usage</button>
+          </div>
         </section>
       </main>
     </div>

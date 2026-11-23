@@ -40,6 +40,7 @@
     "The live provider session expired and could not be renewed.": "live provider 会话已过期，无法续接。",
     "The live provider has no credit left for this API key. Recording continues and is saved. Processing waits and continues on its own after you add credit.": "live provider 上这个 API key 的余额已经用完。录音会继续并保存。会后处理会等待，充值后自动继续。",
     "The live provider did not accept the API key. Recording continues normally.": "live provider 不接受这个 API key，录音正常进行。",
+    "This month's live budget is used up, so live captions are off. Recording continues and is saved. Change the budget in Settings.": "本月 live 预算已用完，实时字幕已关闭。录音照常进行并保存。可以在“设置”中修改预算。",
     "Live view could not start.": "实时视图无法启动。",
     "Live view lost its connection.": "实时视图连接已断开。",
     "External provider": "外部 provider",

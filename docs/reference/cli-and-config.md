@@ -57,6 +57,11 @@ keeps the meeting private unless a calendar event matches the capture start;
 the app uses it for automatic recordings in **Follow my calendar** mode.
 
 `meeting-wiki self-check` reports capability status codes, and
+`meeting-wiki usage [--month YYYY-MM]` prints month-to-date provider usage and
+an estimated cost from list prices, plus `live_budget_usd` and
+`live_budget_reached` for `[live] monthly_live_budget_usd`; see
+[usage and live budget](../guide/live-and-recovery.md#usage-and-live-budget).
+
 `meeting-wiki diagnostics-export [--output FILE]` produces a privacy-safe
 report for bug reports; see [live and recovery](../guide/live-and-recovery.md).
 

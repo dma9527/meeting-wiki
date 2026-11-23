@@ -79,6 +79,8 @@ _EXCLUDED_TOP_LEVEL: dict[str, str] = {
     "logs": "logs",
     "tmp": "temporary",
     "backups": "backups",
+    # Cost estimate counts only; a restored Mac starts counting again.
+    "usage.db": "usage_counts",
 }
 _SECRET_SUFFIXES = (".key", ".pem", ".p12")
 _SKIP_NAMES = {".DS_Store"}

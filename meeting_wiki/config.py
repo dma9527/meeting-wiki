@@ -72,6 +72,8 @@ class LiveConfig(BaseModel):
     overlap_seconds: int = Field(default=2, ge=0, le=20)
     summary_context_characters: int = Field(default=12000, ge=500, le=100000)
     allow_external_providers: bool = False
+    # Live features stay off once this month's estimated spend reaches this many USD; 0 is off.
+    monthly_live_budget_usd: int = Field(default=0, ge=0, le=10000)
 
     @field_validator("translation_target_language")
     @classmethod

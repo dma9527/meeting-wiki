@@ -1,7 +1,7 @@
 "use strict";
 
 // Settings window. Same lockdown as setup-window.js. It edits the [identity] section and
-// the five Gemini feature values in a setup-managed config, plus desktop-only recording
+// the Gemini feature values in a setup-managed config, plus desktop-only recording
 // defaults, duration, and auto-record opt-ins in desktop-settings.json. It never touches the secret store.
 
 const path = require("path");
@@ -56,11 +56,13 @@ const CHANNELS = Object.freeze({
   showMeetExtension: "settings:showMeetExtension",
   rerunSetup: "settings:rerunSetup",
   getSettingMetadata: "settings:getSettingMetadata",
+  getUsage: "settings:getUsage",
 });
 
 // Mirrors LiveConfig in meeting_wiki/config.py; a test keeps the two in sync.
 const SUMMARY_CONTEXT_BOUNDS = Object.freeze({ min: 500, max: 100000 });
-const LIVE_DEFAULTS = Object.freeze({ summaryContextCharacters: 12000 });
+const LIVE_BUDGET_BOUNDS = Object.freeze({ min: 0, max: 10000 });
+const LIVE_DEFAULTS = Object.freeze({ summaryContextCharacters: 12000, monthlyLiveBudgetUsd: 0 });
 
 const NOT_GEMINI = "These settings cover Gemini only. Run setup again to configure another provider.";
 const NOT_MANAGED =
@@ -70,6 +72,7 @@ const NOT_ONLINE_RECORDING = "Finish setup first. The recording length limit can
 const NOT_ONLINE_INTEGRATIONS = "Finish setup first. Automatic recording can be turned on here once setup is complete.";
 const NO_INTEGRATIONS = "Automatic recording is not available in this build.";
 const SAVE_FAILED = "The settings could not be saved.";
+const USAGE_UNAVAILABLE = "Usage could not be read right now.";
 
 // Tables a Gemini config may contain. Anything else counts as a manual edit.
 const GEMINI_TABLES = new Set(["", "identity", "languages", "providers", "live", "gemini"]);
@@ -89,6 +92,7 @@ function parseManagedGeminiConfig(text) {
     liveModel: gemini.live_model ?? GEMINI_MODELS.liveModel,
     languageModel: gemini.language_model ?? GEMINI_MODELS.languageModel,
     summaryContextCharacters: live.summary_context_characters ?? LIVE_DEFAULTS.summaryContextCharacters,
+    monthlyLiveBudgetUsd: live.monthly_live_budget_usd ?? LIVE_DEFAULTS.monthlyLiveBudgetUsd,
     // Not editable in Settings; a save keeps whatever API the config already uses.
     batchAudioApi: gemini.batch_audio_api ?? "interactions",
   };
@@ -98,6 +102,11 @@ function parseManagedGeminiConfig(text) {
 function editableGeminiValues(values) {
   const { batchAudioApi: _batchAudioApi, ...editable } = values;
   return editable;
+}
+
+function wholeNumber(raw) {
+  if (typeof raw === "number") return raw;
+  return /^\s*\d{1,9}\s*$/.test(String(raw ?? "")) ? Number(raw) : NaN;
 }
 
 function validateGeminiFeatureSettings(raw) {
@@ -112,14 +121,18 @@ function validateGeminiFeatureSettings(raw) {
     if (!MODEL_PATTERN.test(value)) throw new SettingsError(`Enter a valid ${label} name.`);
     values[field] = value;
   }
-  const rawCharacters = source.summaryContextCharacters;
-  const characters =
-    typeof rawCharacters === "number" ? rawCharacters : /^\s*\d{1,9}\s*$/.test(String(rawCharacters ?? "")) ? Number(rawCharacters) : NaN;
+  const characters = wholeNumber(source.summaryContextCharacters);
   const { min, max } = SUMMARY_CONTEXT_BOUNDS;
   if (!Number.isInteger(characters) || characters < min || characters > max) {
     throw new SettingsError(`Enter a whole number of summary context characters from ${min} to ${max}.`);
   }
   values.summaryContextCharacters = characters;
+  // Older renderers send no budget; that keeps it off.
+  const budget = source.monthlyLiveBudgetUsd === undefined ? 0 : wholeNumber(source.monthlyLiveBudgetUsd);
+  if (!Number.isInteger(budget) || budget < LIVE_BUDGET_BOUNDS.min || budget > LIVE_BUDGET_BOUNDS.max) {
+    throw new SettingsError(`Enter a whole number of US dollars from ${LIVE_BUDGET_BOUNDS.min} to ${LIVE_BUDGET_BOUNDS.max}.`);
+  }
+  values.monthlyLiveBudgetUsd = budget;
   return values;
 }
 
@@ -157,7 +170,15 @@ function withoutLanguages(tables) {
   return JSON.stringify({ "": topLevelRest, ...rest, live: liveRest });
 }
 
-function createSettingsController({ fs, dataDir, configPath, onSaved = () => {}, onRerunSetup = () => {}, integrations = null }) {
+function createSettingsController({
+  fs,
+  dataDir,
+  configPath,
+  onSaved = () => {},
+  onRerunSetup = () => {},
+  integrations = null,
+  readUsage = null,
+}) {
   // Re-read on every call so a save never trusts state rendered earlier.
   function identityReadiness() {
     const state = readSetupState(fs, dataDir);
@@ -269,7 +290,14 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     getGeminiSettings() {
       const current = readiness();
       if (!current.ready) return current;
-      return { ready: true, values: editableGeminiValues(current.values), bounds: { summaryContextCharacters: { ...SUMMARY_CONTEXT_BOUNDS } } };
+      return {
+        ready: true,
+        values: editableGeminiValues(current.values),
+        bounds: {
+          summaryContextCharacters: { ...SUMMARY_CONTEXT_BOUNDS },
+          monthlyLiveBudgetUsd: { ...LIVE_BUDGET_BOUNDS },
+        },
+      };
     },
 
     saveGeminiSettings(raw) {
@@ -388,6 +416,15 @@ function createSettingsController({ fs, dataDir, configPath, onSaved = () => {},
     getSettingMetadata() {
       return settingMetadata();
     },
+
+    async getUsage() {
+      if (!readUsage) return { ready: false, reason: USAGE_UNAVAILABLE };
+      try {
+        return { ready: true, values: await readUsage() };
+      } catch (_) {
+        return { ready: false, reason: USAGE_UNAVAILABLE };
+      }
+    },
   };
 }
 
@@ -421,6 +458,7 @@ function registerSettingsHandlers(ipcMain, getController, isTrustedSender) {
   handle(CHANNELS.showMeetExtension, (controller) => controller.showMeetExtension());
   handle(CHANNELS.rerunSetup, (controller) => controller.rerunSetup());
   handle(CHANNELS.getSettingMetadata, (controller) => controller.getSettingMetadata());
+  handle(CHANNELS.getUsage, (controller) => controller.getUsage());
 }
 
 let settingsWindow = null;
@@ -490,6 +528,7 @@ function createSettingsWindow(electron, context) {
 
 module.exports = {
   CHANNELS,
+  LIVE_BUDGET_BOUNDS,
   LIVE_DEFAULTS,
   NOT_GEMINI,
   NOT_MANAGED,
@@ -499,6 +538,7 @@ module.exports = {
   NO_INTEGRATIONS,
   SUMMARY_CONTEXT_BOUNDS,
   SettingsError,
+  USAGE_UNAVAILABLE,
   createSettingsController,
   createSettingsWindow,
   guard,

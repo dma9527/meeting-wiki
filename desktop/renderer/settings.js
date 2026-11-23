@@ -17,6 +17,7 @@
 //   showMeetExtension()  -> { ok: true } | { error }
 //   rerunSetup()         -> { ok: true } | { error }
 //   getSettingMetadata() -> { settings: { [key]: { form, appliesAfter, copy } }, manualEdit }
+//   getUsage()           -> { ready: true, values: { month, estimatedUsd, unpriced, calls, liveBudgetUsd, liveBudgetReached } } | { ready: false, reason }
 
 (function settingsWindow() {
   const bridge = window.meetingWikiSettings;
@@ -27,6 +28,7 @@
     liveModel: "live-model",
     languageModel: "language-model",
     summaryContextCharacters: "summary-context-characters",
+    monthlyLiveBudgetUsd: "monthly-live-budget-usd",
   });
   const LANGUAGE_FIELDS = Object.freeze({
     transcriptLanguage: "transcript-language",
@@ -167,7 +169,7 @@
   }
 
   // Mirrors the main-process checks for quick feedback; main stays authoritative.
-  function localErrors(values, bounds) {
+  function localErrors(values, bounds, budgetBounds) {
     const errors = {};
     const model = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
     if (!model.test(values.batchAudioModel)) errors.batchAudioModel = "Enter a valid model name.";
@@ -176,6 +178,10 @@
     const characters = Number(values.summaryContextCharacters);
     if (!/^\d+$/.test(values.summaryContextCharacters) || characters < bounds.min || characters > bounds.max) {
       errors.summaryContextCharacters = `Enter a whole number from ${bounds.min} to ${bounds.max}.`;
+    }
+    const budget = Number(values.monthlyLiveBudgetUsd);
+    if (!/^\d+$/.test(values.monthlyLiveBudgetUsd) || budget < budgetBounds.min || budget > budgetBounds.max) {
+      errors.monthlyLiveBudgetUsd = `Enter a whole number from ${budgetBounds.min} to ${budgetBounds.max}.`;
     }
     return errors;
   }
@@ -693,6 +699,14 @@
       $("summary-context-characters-hint"),
       `From ${bounds.min} to ${bounds.max}. Recent transcript text kept for live summaries.`,
     );
+    const budgetBounds = result.bounds && result.bounds.monthlyLiveBudgetUsd;
+    const budgetInput = $(FIELDS.monthlyLiveBudgetUsd);
+    budgetInput.min = String(budgetBounds.min);
+    budgetInput.max = String(budgetBounds.max);
+    setLocalizedNode(
+      $("monthly-live-budget-usd-hint"),
+      "0 means no limit. When this month's estimate reaches the budget, new recordings start without live captions. Recording and processing continue.",
+    );
     fill(result.values);
     let geminiValues = readForm();
     $("settings-loading").hidden = true;
@@ -703,7 +717,7 @@
       event.preventDefault();
       if (busy) return;
       const values = readForm();
-      const errors = localErrors(values, bounds);
+      const errors = localErrors(values, bounds, budgetBounds);
       for (const [key, id] of Object.entries(FIELDS)) showFieldError($(id), errors[key] || "");
       if (Object.keys(errors).length) {
         setStatus("Fix the highlighted fields.", "error");
@@ -726,7 +740,37 @@
       const changed = Object.keys(FIELDS).filter((key) => after[key] !== geminiValues[key]);
       geminiValues = after;
       setStatus(savedMessage(changed), "ok");
+      void loadUsage();
     });
+    $("usage-refresh").addEventListener("click", () => void loadUsage());
+    void loadUsage();
+  }
+
+  function usageMessage(values) {
+    const amount = `$${values.estimatedUsd.toFixed(2)}`;
+    const parts = [`Estimated ${amount} so far in ${values.month} (UTC), from ${values.calls} provider calls.`];
+    if (values.unpriced) parts.push("Some models have no list price here, so the estimate is low.");
+    if (values.liveBudgetUsd > 0) {
+      parts.push(values.liveBudgetReached
+        ? `The $${values.liveBudgetUsd} live budget is reached. New recordings start without live captions.`
+        : `Live budget: $${values.liveBudgetUsd}.`);
+    }
+    return parts;
+  }
+
+  let usageParts = null;
+  function renderUsage() {
+    if (usageParts) $("usage-summary").textContent = usageParts.map(localizedMessage).join(" ");
+  }
+
+  async function loadUsage() {
+    if (usageParts === null) registerLocaleRenderer(renderUsage);
+    const result = await call("getUsage");
+    const values = result && result.ready === true ? result.values : null;
+    const valid = values && typeof values.estimatedUsd === "number" && typeof values.month === "string"
+      && Number.isInteger(values.calls) && Number.isInteger(values.liveBudgetUsd);
+    usageParts = valid ? usageMessage(values) : [reasonOf(result)];
+    renderUsage();
   }
 
   $("settings-rerun").addEventListener("click", rerunSetup);

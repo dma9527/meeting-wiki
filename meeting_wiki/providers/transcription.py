@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from .. import usage
 from ..diagnostics import provider_errors
 from ..models import TranscriptResult, TranscriptSegment
 from .base import EmptyTranscriptError, TranscriptionCapabilities, TranscriptionContext
@@ -136,6 +137,7 @@ class OpenAITranscriber:
                 )
             response.raise_for_status()
         result = response.json()
+        usage.report_openai(result, self.model, "transcription")
         text = str(result.get("text", "")).strip()
         if not text:
             raise EmptyTranscriptError("Transcription endpoint produced an empty transcript")

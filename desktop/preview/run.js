@@ -28,6 +28,7 @@ const SHOTS = [
   { name: "setup-gemini", file: "setup.html", stub: "setup", width: 980, height: 760, script: 'document.getElementById("mode-gemini").click(); document.getElementById("choose-continue").click()' },
   { name: "settings-integrations", file: "settings.html", stub: "settings", width: 720, height: 760, script: 'document.getElementById("panel-integration-settings").scrollIntoView()' },
   { name: "settings-gemini", file: "settings.html", stub: "settings", width: 720, height: 760, script: 'document.getElementById("panel-gemini-settings").scrollIntoView()' },
+  { name: "settings-usage", file: "settings.html", stub: "settings", width: 720, height: 760, script: 'document.getElementById("gemini-live-heading").scrollIntoView()' },
   { name: "record-details", file: "record.html", stub: "record", width: 560, height: 680, script: 'document.getElementById("record-more").open = true; document.getElementById("record-more").scrollIntoView()' },
 ];
 

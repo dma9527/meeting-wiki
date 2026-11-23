@@ -176,6 +176,32 @@ async function readQueueStatus(python, configPath, execFileFn = execFile, env = 
   return summary;
 }
 
+function usageNumber(value, max) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max ? value : null;
+}
+
+// Month-to-date estimate from `usage`; only numbers and flags reach the renderer.
+async function readUsageReport(python, configPath, execFileFn = execFile, env = undefined) {
+  const result = await executeCli(python, configPath, ["usage"], execFileFn, env);
+  if (!result.ok) throw new Error("Unable to read usage");
+  const report = parseJson(result.stdout, "Usage command");
+  const estimatedUsd = usageNumber(report.estimated_usd, 1e9);
+  const budget = report.live_budget_usd;
+  if (typeof report.month !== "string" || !/^\d{4}-\d{2}$/.test(report.month) || estimatedUsd === null
+    || !Number.isInteger(budget) || budget < 0 || !Array.isArray(report.items)) {
+    throw new Error("Usage command returned invalid numbers");
+  }
+  const calls = report.items.reduce((total, item) => total + (usageNumber(item && item.calls, 1e12) || 0), 0);
+  return {
+    month: report.month,
+    estimatedUsd,
+    unpriced: report.unpriced === true,
+    calls,
+    liveBudgetUsd: budget,
+    liveBudgetReached: report.live_budget_reached === true,
+  };
+}
+
 async function listDeadJobs(python, configPath, execFileFn = execFile, env = undefined) {
   return listJobs(python, configPath, "dead", execFileFn, env);
 }
@@ -252,6 +278,7 @@ module.exports = {
   RestartBackoff,
   formatQueueLabel,
   readQueueStatus,
+  readUsageReport,
   listDeadJobs,
   listCreditWaitingJobs,
   readCreditWait,

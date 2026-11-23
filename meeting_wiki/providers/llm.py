@@ -8,6 +8,7 @@ import json
 import httpx
 from pydantic import ValidationError
 
+from .. import usage
 from ..config import PrivacyConfig
 from ..diagnostics import provider_errors
 from ..models import MeetingAnalysis, MeetingInput, TranscriptResult
@@ -293,7 +294,9 @@ class OpenAICompatibleProvider:
                     timeout=self.timeout,
                 )
             response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+            body = response.json()
+            usage.report_openai(body, self.model, "analysis")
+            content = body["choices"][0]["message"]["content"]
             try:
                 data = json.loads(content)
             except json.JSONDecodeError as error:

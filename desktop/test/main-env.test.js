@@ -144,6 +144,10 @@ test("Settings never receives the secret store, restarts processing on save, and
   assert.doesNotMatch(body, /secretStore|python|spawn/);
   assert.match(body, /onSaved: restartProcessing/);
   assert.match(body, /onRerunSetup: openSetupWindow/);
+  assert.match(body, /readUsage: readUsageForSettings/);
+  const usage = functionBody("readUsageForSettings");
+  assert.match(usage, /readUsageReport\(PYTHON, CONFIG_PATH, execFile, ingestEnv\(\)\)/);
+  assert.doesNotMatch(usage, /secretStore|spawn/);
   assert.match(functionBody("openSetupWindow"), /onComplete: restartProcessing/);
   const restart = functionBody("restartProcessing");
   assert.match(restart, /if \(worker\) worker\.kill\("SIGTERM"\); else startWorker\(\);/);

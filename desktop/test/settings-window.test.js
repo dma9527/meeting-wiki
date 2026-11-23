@@ -20,6 +20,7 @@ const VALID = Object.freeze({
   liveModel: "test-gemini-live-1",
   languageModel: "test-gemini-language-1",
   summaryContextCharacters: 24000,
+  monthlyLiveBudgetUsd: 25,
 });
 
 const LANGUAGES = Object.freeze({
@@ -80,6 +81,10 @@ test("summary context bounds mirror LiveConfig in meeting_wiki/config.py", () =>
   assert.ok(match, "LiveConfig.summary_context_characters bounds not found");
   assert.equal(settings.LIVE_DEFAULTS.summaryContextCharacters, Number(match[1]));
   assert.deepEqual(settings.SUMMARY_CONTEXT_BOUNDS, { min: Number(match[2]), max: Number(match[3]) });
+  const budget = /monthly_live_budget_usd: int = Field\(default=(\d+), ge=(\d+), le=(\d+)\)/.exec(source);
+  assert.ok(budget, "LiveConfig.monthly_live_budget_usd bounds not found");
+  assert.equal(settings.LIVE_DEFAULTS.monthlyLiveBudgetUsd, Number(budget[1]));
+  assert.deepEqual(settings.LIVE_BUDGET_BOUNDS, { min: Number(budget[2]), max: Number(budget[3]) });
 });
 
 test("validation enforces model names, a safe language, and integer bounds", () => {
@@ -93,6 +98,10 @@ test("validation enforces model names, a safe language, and integer bounds", () 
     [{ summaryContextCharacters: "12e3" }, /whole number/],
     [{ summaryContextCharacters: "" }, /whole number/],
     [{ summaryContextCharacters: null }, /whole number/],
+    [{ monthlyLiveBudgetUsd: -1 }, /US dollars from 0 to 10000/],
+    [{ monthlyLiveBudgetUsd: 10001 }, /US dollars from 0 to 10000/],
+    [{ monthlyLiveBudgetUsd: 2.5 }, /US dollars/],
+    [{ monthlyLiveBudgetUsd: "" }, /US dollars/],
   ];
   for (const [override, pattern] of cases) {
     assert.throws(
@@ -104,6 +113,9 @@ test("validation enforces model names, a safe language, and integer bounds", () 
     const values = settings.validateGeminiFeatureSettings({ ...VALID, summaryContextCharacters: characters });
     assert.equal(values.summaryContextCharacters, Number(String(characters).trim()));
   }
+  const { monthlyLiveBudgetUsd: _budget, ...withoutBudget } = VALID;
+  assert.equal(settings.validateGeminiFeatureSettings(withoutBudget).monthlyLiveBudgetUsd, 0);
+  assert.equal(settings.validateGeminiFeatureSettings({ ...VALID, monthlyLiveBudgetUsd: " 40 " }).monthlyLiveBudgetUsd, 40);
   assert.deepEqual(
     settings.validateGeminiFeatureSettings({ ...VALID, liveModel: "  test-gemini-live-1 ", apiKey: TEST_KEY, chunkSeconds: 4 }),
     VALID,
@@ -286,8 +298,9 @@ test("getGeminiSettings reads setup defaults through the main process and never 
       liveModel: setup.GEMINI_MODELS.liveModel,
       languageModel: setup.GEMINI_MODELS.languageModel,
       summaryContextCharacters: 12000,
+      monthlyLiveBudgetUsd: 0,
     },
-    bounds: { summaryContextCharacters: { min: 500, max: 100000 } },
+    bounds: { summaryContextCharacters: { min: 500, max: 100000 }, monthlyLiveBudgetUsd: { min: 0, max: 10000 } },
   });
   const serialized = JSON.stringify(result);
   assert.doesNotMatch(serialized, /api_key|apiKey|MEETING_WIKI_GEMINI_API_KEY|chunk|overlap/i);
@@ -352,6 +365,7 @@ test("saveGeminiSettings regenerates the managed config owner-only and restarts 
   assert.match(config, /^live_model = "test-gemini-live-1"$/m);
   assert.match(config, /^language_model = "test-gemini-language-1"$/m);
   assert.match(config, /^summary_context_characters = 24000$/m);
+  assert.match(config, /^monthly_live_budget_usd = 25$/m);
   assert.doesNotMatch(config, /chunk_seconds|overlap_seconds/);
   assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith(".tmp")), []);
@@ -381,13 +395,32 @@ test("the regenerated config loads in the Python config model", { skip: !fs.exis
     "from meeting_wiki.config import load_config",
     "c = load_config(Path(sys.argv[1]))",
     "print(json.dumps([c.gemini.batch_audio_model, c.gemini.live_model, c.gemini.language_model,",
-    "  c.live.summary_context_characters, c.live.chunk_seconds]))",
+    "  c.live.summary_context_characters, c.live.monthly_live_budget_usd, c.live.chunk_seconds]))",
   ].join("\n");
   const output = execFileSync(path.join(ROOT, ".venv", "bin", "python"), ["-c", script, configPath], {
     cwd: ROOT,
     env: { PATH: "/usr/bin:/bin", MEETING_WIKI_DATA_DIR: path.join(dataDir, "data") },
   }).toString();
   assert.deepEqual(JSON.parse(output), [...Object.values(VALID), 8]);
+});
+
+test("a zero live budget writes no budget line and reads back as off", () => {
+  const dataDir = geminiDataDir();
+  const { controller, configPath } = controllerFor(dataDir);
+  controller.saveGeminiSettings({ ...VALID, monthlyLiveBudgetUsd: 0 });
+  assert.doesNotMatch(fs.readFileSync(configPath, "utf8"), /monthly_live_budget_usd/);
+  assert.equal(controller.getGeminiSettings().values.monthlyLiveBudgetUsd, 0);
+});
+
+test("getUsage returns the reader's numbers and a fixed reason when reading fails", async () => {
+  const dataDir = geminiDataDir();
+  const base = { fs, dataDir, configPath: path.join(dataDir, "config.toml") };
+  const numbers = { month: "2026-11", estimatedUsd: 1.5, unpriced: false, calls: 3, liveBudgetUsd: 0, liveBudgetReached: false };
+  const working = settings.createSettingsController({ ...base, readUsage: async () => numbers });
+  assert.deepEqual(await working.getUsage(), { ready: true, values: numbers });
+  const failing = settings.createSettingsController({ ...base, readUsage: async () => { throw new Error(`boom ${dataDir}`); } });
+  assert.deepEqual(await failing.getUsage(), { ready: false, reason: settings.USAGE_UNAVAILABLE });
+  assert.deepEqual(await settings.createSettingsController(base).getUsage(), { ready: false, reason: settings.USAGE_UNAVAILABLE });
 });
 
 test("saveGeminiSettings refuses unmanaged or non-Gemini setups and leaves the config byte-for-byte", () => {
@@ -887,6 +920,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
     "getLanguageSettings",
     "getRecordingSettings",
     "getSettingMetadata",
+    "getUsage",
     "rerunSetup",
     "saveGeminiSettings",
     "saveIdentitySettings",
@@ -916,6 +950,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
   await exposed.api.getIntegrationSettings("ignored");
   await exposed.api.saveIntegrationSettings({ zoomAutoRecord: true, googleMeetAutoRecord: "yes", path: "/etc/passwd", autoRecordPrivacy: "public" });
   await exposed.api.showMeetExtension("/etc");
+  await exposed.api.getUsage("ignored");
   assert.equal(invocations[3].args[0].aliases.length, 64);
   invocations.splice(3, 1);
   assert.deepEqual(invocations, [
@@ -945,6 +980,7 @@ test("the settings bridge exposes the named actions and forwards only the named 
     { channel: settings.CHANNELS.getIntegrationSettings, args: [] },
     { channel: settings.CHANNELS.saveIntegrationSettings, args: [{ zoomAutoRecord: true, googleMeetAutoRecord: false, autoRecordPrivacy: "" }] },
     { channel: settings.CHANNELS.showMeetExtension, args: [] },
+    { channel: settings.CHANNELS.getUsage, args: [] },
   ]);
   const source = fs.readFileSync(path.join(DESKTOP, "settings-preload.js"), "utf8");
   assert.doesNotMatch(source, /ipcRenderer\.(send|on|sendSync)\b|exposeInMainWorld\([^)]*ipcRenderer\b|apiKey/);

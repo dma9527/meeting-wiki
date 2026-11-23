@@ -134,3 +134,20 @@ any value is not an allowed code. A source it cannot read is reported as
 Default status output never includes meeting titles, source paths,
 transcripts, or provider error details. Use `status --verbose` only on your own
 machine.
+
+## Usage and live budget
+
+Meeting Wiki counts provider usage on this Mac: tokens, streamed audio
+seconds, and calls per day, model, and operation. It stores numbers only, in
+`~/.meeting-wiki/usage.db`, and never stores text, audio, or keys there.
+
+- **Settings > Gemini features > Usage this month** shows a month-to-date
+  estimate (UTC months) from list prices. Models without a known price are
+  counted but not priced, and the note says the estimate is low. Your
+  provider's bill is the final amount.
+- **Monthly live budget** (whole US dollars, `0` means off) is a soft limit.
+  When this month's estimate reaches it, new recordings start without live
+  captions, translation, or summary, and the live sidebar says why. A live
+  view already running is not cut off. Recording and batch processing always
+  continue.
+- `meeting-wiki usage [--month YYYY-MM]` prints the same numbers as JSON.

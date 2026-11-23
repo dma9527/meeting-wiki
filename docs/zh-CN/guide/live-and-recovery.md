@@ -62,3 +62,11 @@ meeting-wiki self-check
 ```
 
 默认状态输出不包含会议标题、源文件路径、转写内容或服务报错细节。只在你自己的机器上使用 `status --verbose`。
+
+## 用量与 live 预算
+
+Meeting Wiki 在这台 Mac 上统计 provider 用量：按天、模型和操作记录 token 数、实时音频秒数和调用次数。只保存数字，位置是 `~/.meeting-wiki/usage.db`，不会保存文字、音频或 key。
+
+- **设置 > Gemini 功能 > 本月用量** 显示本月（按 UTC 计算）到目前为止的估算费用，按官方标价计算。没有已知标价的模型只计数不计价，并会提示估算偏低。实际金额以 provider 账单为准。
+- **每月 live 预算**（整数美元，`0` 表示不限制）是软限制。本月估算达到预算后，新的录音不再启动实时字幕、翻译和总结，实时侧栏会说明原因。已经在运行的 live view 不会被中断。录音和 batch processing 始终照常进行。
+- `meeting-wiki usage [--month YYYY-MM]` 以 JSON 输出同样的数字。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .. import usage
 from ..config import AppConfig
 from .base import (
     AnyLiveTranscriptionProvider,
@@ -93,6 +94,7 @@ def build_live_language(config: AppConfig) -> LiveLanguageProvider | None:
 
 def build_providers(config: AppConfig) -> ProviderBundle:
     validate_live_provider_selection(config)
+    usage.use_log(config.data_dir)
 
     if config.providers.transcription == "mlx_whisper":
         transcription = MLXWhisperTranscriber(config.mlx_whisper.model)

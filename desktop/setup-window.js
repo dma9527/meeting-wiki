@@ -179,6 +179,9 @@ function renderGeminiConfig(
   if (settings.summaryContextCharacters !== undefined) {
     liveLines.push(`summary_context_characters = ${Number(settings.summaryContextCharacters)}`);
   }
+  if (Number(settings.monthlyLiveBudgetUsd) > 0) {
+    liveLines.push(`monthly_live_budget_usd = ${Number(settings.monthlyLiveBudgetUsd)}`);
+  }
   return [
     MANAGED_HEADER,
     "# Secrets are not stored here. The Gemini API key lives in the macOS Keychain and",
